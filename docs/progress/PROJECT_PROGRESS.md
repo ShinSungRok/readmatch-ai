@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 13 — Popularity Recommendation Engine (Task 1-4) — Complete
-- Last Completed Task: Sprint 13 / Task 4 — Validation and Progress
-- Last Commit: be0a3b7 (Sprint 13 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (78 tests)
+- Current Sprint: Sprint 14 — Recommendation Application Integration (Task 1-4) — Complete
+- Last Completed Task: Sprint 14 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: 2cc6f83 (Sprint 14 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (83 tests)
 
 ## Task Log
 
@@ -512,7 +512,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application/get_recommendations_use_case.py`: `GetRecommendationsUseCase(recommendation_engine: RecommendationEngine)`, `execute(limit: int) -> RecommendationResult`. Constructs `RecommendationQuery` internally from the primitive `limit`, matching the existing primitive-in/domain-type-internally pattern used by `GetBookByIdUseCase`/`GetBookByISBNUseCase`.
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check with `PopularityRecommendationEngine` over `InMemoryBookRepository`/`InMemoryBookPopularityRepository` confirmed correct delegation and result.
-- Commit: (recorded after commit)
+- Commit: 5041dd2
 - Notes: Depends only on the `RecommendationEngine` port (Domain), not `PopularityRecommendationEngine` directly — Hexagonal dependency direction preserved.
 
 ### Task 2 — Application Composition
@@ -520,7 +520,7 @@ Use this format:
 - Status: Done
 - Summary: Extended `ApplicationContext`: added `get_recommendations_use_case` field and a `recommendation_engine: RecommendationEngine | None = None` override param on `create()`. Default: `PopularityRecommendationEngine` built from the already-resolved `book_popularity_repository`/`book_repository` (no new backend-selection logic needed — only one `RecommendationEngine` implementation exists). `PopularityRecommendationEngine` is now imported only in `application_context.py`, same as the other concrete adapters — dependency direction unchanged (Domain/Application still see only the `RecommendationEngine` port).
 - Validation: `ruff check` (pass), `mypy` (pass, strict); interactive smoke check confirmed the default engine is a `PopularityRecommendationEngine` and that `register_book_use_case` → `book_popularity_repository.record` → `get_recommendations_use_case.execute` reflects persisted state end-to-end. Full `ruff check`/`mypy`/`pytest -q` re-run: 78 passed, no regressions.
-- Commit: (recorded after commit)
+- Commit: c989337
 - Notes: `recommendation_engine` is not config-driven (unlike the two repositories) since there is currently only one implementation; this can gain backend selection later once a second engine (e.g. Semantic) exists.
 
 ### Task 3 — Application Validation
@@ -531,8 +531,16 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (48 source files)
   - `python3 -m pytest -q` — pass (83 passed, up from 78; 5 new tests)
-- Commit: (recorded after commit)
+- Commit: 2cc6f83
 - Notes: Considered asserting `isinstance(..., PopularityRecommendationEngine)` directly on the default-composed context, but that requires reaching into `GetRecommendationsUseCase`'s private attribute (no public field exposes the engine); the behavioral test (`test_recommendations_reflect_persisted_popularity`) already proves the correct engine is wired, so the private-attribute check was dropped as fragile and redundant.
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to mark Sprint 14 complete and back-filled Sprint 14 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

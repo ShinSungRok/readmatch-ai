@@ -254,6 +254,17 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Used stdlib `urllib` instead of adding a new HTTP client dependency (e.g. `requests`) to avoid introducing new infrastructure beyond what this Task requires; `dependencies` in `pyproject.toml` remains empty. No real key present anywhere in code/tests.
 
+### Task 3 — Contract Validation
+
+- Status: Done
+- Summary: Added `tests/domain/test_book_data_source.py` (port is abstract). Added `tests/infrastructure/test_data4library_book_data_source.py`: auth key missing/from-env/explicit, response parsing via a mocked `urlopen` (patches the module-level import, never touches the network), request URL contains `authKey`/`startDt`/`endDt`, and empty-docs handling. `DATA4LIBRARY_AUTH_KEY` controlled per-test via `pytest.MonkeyPatch` (set/deleted), never read from the real environment.
+- Validation:
+  - `python3 -m ruff check src tests` — pass
+  - `python3 -m mypy src tests` — pass (27 source files)
+  - `python3 -m pytest -q` — pass (43 passed)
+- Commit: (recorded after commit)
+- Notes: No test calls the real Data4Library API, per Task instruction — `urlopen` is fully mocked in every test that exercises `search_popular_loans`.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

@@ -9,6 +9,10 @@ class BookNotFoundError(Exception):
     """Raised when a repository operation targets a Book that does not exist."""
 
 
+class DuplicateISBNError(Exception):
+    """Raised when adding or updating a Book would violate ISBN uniqueness."""
+
+
 class BookRepository(ABC):
     """Port for Book persistence; implemented by an infrastructure adapter."""
 

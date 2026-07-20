@@ -112,6 +112,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Duplicate-ISBN behavior intentionally not tested here — dedicated to Task 3.
 
+### Task 3 — Duplicate ISBN constraint
+
+- Status: Done
+- Summary: Added `DuplicateISBNError` to `book_repository.py` (domain-level, so any future adapter must raise it too). `InMemoryBookRepository.add`/`update` now reject a Book whose ISBN matches another stored Book with a different `BookId`. Added tests: add-duplicate raises, update-to-another-book's-ISBN raises, update keeping own ISBN unchanged succeeds.
+- Validation: `ruff check src tests` (pass), `mypy src tests` (pass, 13 source files), `pytest -q` (pass, 25 passed)
+- Commit: (recorded after commit)
+- Notes: Constraint enforced in both `add` and `update` since both can introduce an ISBN collision; `remove`/`get_*` unaffected.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

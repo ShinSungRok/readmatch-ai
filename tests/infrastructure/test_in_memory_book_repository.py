@@ -1,7 +1,7 @@
 import pytest
 
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
-from readmatch_ai.domain.book_repository import BookNotFoundError
+from readmatch_ai.domain.book_repository import BookNotFoundError, DuplicateISBNError
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
 
 
@@ -86,3 +86,49 @@ def test_remove_missing_book_raises_not_found() -> None:
 
     with pytest.raises(BookNotFoundError):
         repo.remove(BookId.generate())
+
+
+def test_add_duplicate_isbn_raises() -> None:
+    repo = InMemoryBookRepository()
+    repo.add(_make_book())
+
+    with pytest.raises(DuplicateISBNError):
+        repo.add(_make_book())
+
+
+def test_update_to_another_books_isbn_raises() -> None:
+    repo = InMemoryBookRepository()
+    first = _make_book(isbn="978-3-16-148410-0")
+    second = _make_book(isbn="0-306-40615-2")
+    repo.add(first)
+    repo.add(second)
+
+    conflicting = Book(
+        id=second.id,
+        isbn=first.isbn,
+        title=second.title,
+        author=second.author,
+        category=second.category,
+    )
+
+    with pytest.raises(DuplicateISBNError):
+        repo.update(conflicting)
+
+
+def test_update_keeping_own_isbn_does_not_raise() -> None:
+    repo = InMemoryBookRepository()
+    book = _make_book()
+    repo.add(book)
+
+    revised = Book(
+        id=book.id,
+        isbn=book.isbn,
+        title=Title("Retitled"),
+        author=book.author,
+        category=book.category,
+    )
+    repo.update(revised)
+
+    stored = repo.get_by_id(book.id)
+    assert stored is not None
+    assert stored.title.value == "Retitled"

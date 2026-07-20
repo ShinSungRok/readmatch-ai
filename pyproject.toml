@@ -5,6 +5,7 @@ description = "ReadMatch AI - hybrid book recommendation portfolio project"
 requires-python = ">=3.11"
 dependencies = [
     "psycopg[binary]>=3.1",
+    "pgvector>=0.3",
 ]
 
 [project.optional-dependencies]

@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 0
-- Current Sprint: Sprint 3 — Infrastructure Adapter (Book) (Task 1-4) — Complete
-- Last Completed Task: Sprint 3 / Task 4 — Progress Log
-- Last Commit: 424f090 (Sprint 3 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (25 tests)
+- Current Sprint: Sprint 4 — Application Layer (Book) (Task 1-4) — Complete
+- Last Completed Task: Sprint 4 / Task 4 — Application Layer Validation
+- Last Commit: 8d2d90a (Sprint 4 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (32 tests)
 
 ## Task Log
 
@@ -135,7 +135,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application/register_book_use_case.py` with `RegisterBookInput` (primitive DTO) and `RegisterBookUseCase`. Constructs a `Book` from primitives via existing domain value objects and delegates to `BookRepository.add`; duplicate ISBN rejection relies entirely on the existing `DuplicateISBNError` raised by the repository (no new validation added).
 - Validation: `ruff check src/readmatch_ai/application` (pass), `mypy src/readmatch_ai/application` (pass); interactive smoke check confirmed successful registration and duplicate-ISBN rejection via `InMemoryBookRepository`. Full Application test suite added in Task 4.
-- Commit: (recorded after commit)
+- Commit: 32379fe
 - Notes: Use case depends only on the `BookRepository` port (Domain), not on `InMemoryBookRepository` directly — Hexagonal dependency direction preserved.
 
 ### Task 2 — GetBookByIdUseCase
@@ -143,7 +143,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application/get_book_by_id_use_case.py` with `GetBookByIdUseCase.execute(book_id: str) -> Book | None`, parsing the input into `BookId` and delegating to `BookRepository.get_by_id`.
 - Validation: `ruff check src/readmatch_ai/application` (pass), `mypy src/readmatch_ai/application` (pass); interactive smoke check confirmed hit and miss cases via `InMemoryBookRepository`. Full Application test suite added in Task 4.
-- Commit: (recorded after commit)
+- Commit: d53cb37
 - Notes: Accepts a primitive `str` (not `BookId`) so a future API layer can pass a raw path parameter directly; invalid UUID strings raise `ValueError` from `uuid.UUID`, consistent with existing domain validation style.
 
 ### Task 3 — GetBookByISBNUseCase
@@ -151,8 +151,19 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application/get_book_by_isbn_use_case.py` with `GetBookByISBNUseCase.execute(isbn: str) -> Book | None`, parsing the input into `ISBN` (reusing existing checksum validation) and delegating to `BookRepository.get_by_isbn`.
 - Validation: `ruff check src/readmatch_ai/application` (pass), `mypy src/readmatch_ai/application` (pass); interactive smoke check confirmed hit and miss cases via `InMemoryBookRepository`. Full Application test suite added in Task 4.
-- Commit: (recorded after commit)
+- Commit: 8d2d90a
 - Notes: Same primitive-in / domain-VO-out pattern as `GetBookByIdUseCase` for consistency.
+
+### Task 4 — Application Layer Validation
+
+- Status: Done
+- Summary: Added `tests/application/` suite: `test_register_book_use_case.py` (persists + returns Book, rejects duplicate ISBN, rejects invalid ISBN), `test_get_book_by_id_use_case.py` (hit/miss), `test_get_book_by_isbn_use_case.py` (hit/miss). Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 4 completion and back-filled Task 1-3 commit hashes.
+- Validation:
+  - `python3 -m ruff check src tests` — pass
+  - `python3 -m mypy src tests` — pass (21 source files)
+  - `python3 -m pytest -q` — pass (32 passed)
+- Commit: (recorded after commit)
+- Notes: Test/log update combined into one commit per Sprint brief ("Add Application tests. Update PROJECT_PROGRESS.md." listed as a single Task 4).
 
 ## Current Constraints
 

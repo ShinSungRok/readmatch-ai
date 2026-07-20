@@ -468,6 +468,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `book_repository` and `book_popularity_repository` still resolve via two independent `psycopg.connect()` calls when both default under the `postgresql` backend (not a shared connection) — correct but slightly wasteful; not addressed here as it wasn't requested and doesn't affect correctness.
 
+## Sprint 13 — Popularity Recommendation Engine
+
+### Task 1 — Recommendation Domain
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/recommendation.py`: `RecommendationItem` (`book: Book`, `score`, `source`), `Recommendation` (`items: list[RecommendationItem]`), `RecommendationQuery` (`limit: int`), `RecommendationResult` (`recommendation: Recommendation`). `RecommendationItem` holds the full `Book` (not just `BookId`) so a `RecommendationResult` is self-contained/"complete", matching Task 3's explicit "join popularity data with BookRepository to produce complete recommendation results" — this differs from the earlier Sprint 11 draft (which held just `book_id`) since Sprint 11's version was written before the join requirement was specified.
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed construction and field access.
+- Commit: (recorded after commit)
+- Notes: `RecommendationQuery` intentionally has only `limit` — no personalization fields, since Popularity is non-personalized (ADR-004: cold-start fallback). Wider query fields can be added later without breaking this port if a personalized engine needs them.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

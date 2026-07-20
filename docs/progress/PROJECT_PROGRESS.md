@@ -634,6 +634,18 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `book_embedding_generator` is unaffected by this Task — it remains hardcoded to `DeterministicFakeBookEmbeddingGenerator` regardless of backend (no real generator exists yet; not part of this Sprint's scope).
 
+### Task 3 — Application Validation
+
+- Status: Done
+- Summary: Added `tests/infrastructure/test_postgresql_book_embedding_repository.py`, mirroring `test_in_memory_book_embedding_repository.py`'s exact scenario names/structure (get-missing, save+get, upsert) against `PostgreSQLBookEmbeddingRepository`, run via a disposable `testcontainers` `postgres:16-alpine` instance (migrations 0001+0003 applied), demonstrating contract compatibility with the InMemory implementation.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (62 source files)
+  - `python3 -m pytest -q` — pass (106 passed, up from 103; 3 new integration tests)
+  - Confirmed no leftover Docker containers after the run.
+- Commit: (recorded after commit)
+- Notes: —
+
 ## Current Constraints
 
 - Implement only approved Tasks.

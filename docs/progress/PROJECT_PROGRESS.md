@@ -2,11 +2,11 @@
 
 ## Current State
 
-- Current Phase: Phase 1 — Data Foundation
-- Current Sprint: Sprint 9 — PostgreSQL Repository Adapter (Task 1-4) — Complete
-- Last Completed Task: Sprint 9 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: ffceed4 (Sprint 9 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (58 tests, including PostgreSQL integration tests via testcontainers)
+- Current Phase: Phase 1 — Data Foundation — Complete (Sprints 7-10)
+- Current Sprint: Sprint 10 — Production Import Workflow (Task 1-4) — Complete
+- Last Completed Task: Sprint 10 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: 12c95fb (Sprint 10 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (60 tests, including PostgreSQL integration tests via testcontainers)
 
 ## Task Log
 
@@ -355,7 +355,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/config.py` with `BookRepositoryConfig.from_env()`, reading `BOOK_REPOSITORY_BACKEND` (`in_memory` default, or `postgresql`) and `DATABASE_URL`. Updated `ApplicationContext.create()`'s default path (used only when no explicit `book_repository` is passed — the existing override parameter is untouched) to call a new `_build_book_repository()` that composes `InMemoryBookRepository` or `PostgreSQLBookRepository` based on this config. `application/` package (use cases, mapper) was not touched.
 - Validation: `ruff check` (pass), `mypy` (pass, strict). Smoke checks: (1) no env set → still defaults to `InMemoryBookRepository` (backward compatible with Sprint 5 behavior); (2) unknown backend value raises `UnknownBookRepositoryBackendError`; (3) `postgresql` backend without `DATABASE_URL` raises `DatabaseUrlMissingError`; (4) `postgresql` backend with `DATABASE_URL` pointed at a disposable `docker run postgres:16-alpine` (migration applied) correctly composed a real `PostgreSQLBookRepository`. Full `ruff check src tests` / `mypy src tests` / `pytest -q` re-run: 58 passed, no regressions.
-- Commit: (recorded after commit)
+- Commit: 74e5602
 - Notes: Config module only parses/validates env vars — it does not import any Infrastructure adapter, so `application_context.py` remains the sole place that references concrete adapters (both `InMemoryBookRepository` and now `PostgreSQLBookRepository`), consistent with Sprint 5.
 
 ### Task 2 — Production Import Runtime
@@ -363,7 +363,7 @@ Use this format:
 - Status: Done
 - Summary: Added `scripts/import_books.py` (the `scripts/` directory created empty in Sprint 1, now used for the first time). `main(argv, *, book_data_source=None, application_context=None)` parses `--start-date`/`--end-date`, defaults to `ApplicationContext.create()` (Task 1's config-driven wiring) and `Data4LibraryBookDataSource()`, and orchestrates `ImportBooksUseCase` (unchanged, from Sprint 8) against them. The `book_data_source`/`application_context` parameters mirror the existing optional-override pattern already used by `ApplicationContext.create(book_repository=...)` (Sprint 5), enabling Task 3 to exercise the real script without hitting the real API or requiring a specific backend to be pre-configured via env vars.
 - Validation: `ruff check` (pass), `mypy` (pass, strict); interactive smoke check ran `main()` end-to-end with an injected fake `BookDataSource` and an `InMemoryBookRepository`-backed `ApplicationContext` (no real network/DB), confirming the imported book was retrievable afterward via `context.get_book_by_isbn_use_case`. Full PostgreSQL-backed end-to-end validation is Task 3.
-- Commit: (recorded after commit)
+- Commit: 9cef66c
 - Notes: `ImportBooksUseCase`, `Book`, `BookRepository`, etc. (Application/Domain) were not modified — all adapter selection/wiring for this workflow lives in this script, per Task instruction ("keep orchestration outside the Application layer").
 
 ### Task 3 — Runtime Validation
@@ -375,8 +375,16 @@ Use this format:
   - `python3 -m mypy src tests scripts` — pass (35 source files)
   - `python3 -m pytest -q` — pass (60 passed, ~20s; includes 2 new end-to-end tests spinning up/tearing down a real disposable Postgres container each)
   - Confirmed no leftover containers after the run.
-- Commit: (recorded after commit)
+- Commit: 12c95fb
 - Notes: This completes Phase 1 — Data Foundation per the Sprint goal.
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to mark Phase 1 — Data Foundation complete (Sprints 7-10) and Sprint 10 complete; back-filled Sprint 10 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

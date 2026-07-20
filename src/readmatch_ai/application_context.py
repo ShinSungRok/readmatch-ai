@@ -7,6 +7,9 @@ import psycopg
 from readmatch_ai.application.generate_book_embedding_use_case import (
     GenerateBookEmbeddingUseCase,
 )
+from readmatch_ai.application.generate_semantic_recommendation_use_case import (
+    GenerateSemanticRecommendationUseCase,
+)
 from readmatch_ai.application.get_book_by_id_use_case import GetBookByIdUseCase
 from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
@@ -37,6 +40,9 @@ from readmatch_ai.infrastructure.postgresql_book_popularity_repository import (
     PostgreSQLBookPopularityRepository,
 )
 from readmatch_ai.infrastructure.postgresql_book_repository import PostgreSQLBookRepository
+from readmatch_ai.infrastructure.semantic_recommendation_engine import (
+    SemanticRecommendationEngine,
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,7 @@ class ApplicationContext:
     get_book_by_isbn_use_case: GetBookByISBNUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
+    generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
 
     @classmethod
     def create(
@@ -60,6 +67,7 @@ class ApplicationContext:
         recommendation_engine: RecommendationEngine | None = None,
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
+        semantic_recommendation_engine: RecommendationEngine | None = None,
     ) -> ApplicationContext:
         """Wire the Book/Recommendation/Embedding use cases to their dependencies.
 
@@ -74,7 +82,9 @@ class ApplicationContext:
         the backend is unset/in_memory) or PostgreSQLBookEmbeddingRepository
         when BOOK_REPOSITORY_BACKEND=postgresql. book_embedding_generator
         defaults to DeterministicFakeBookEmbeddingGenerator (no real model
-        yet).
+        yet). semantic_recommendation_engine defaults to
+        SemanticRecommendationEngine built from those same (already-resolved)
+        book_embedding_repository/book_repository.
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -97,6 +107,11 @@ class ApplicationContext:
             if book_embedding_generator is not None
             else DeterministicFakeBookEmbeddingGenerator()
         )
+        semantic_engine = (
+            semantic_recommendation_engine
+            if semantic_recommendation_engine is not None
+            else SemanticRecommendationEngine(embedding_repository, repository)
+        )
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
@@ -107,6 +122,9 @@ class ApplicationContext:
             get_recommendations_use_case=GetRecommendationsUseCase(engine),
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository
+            ),
+            generate_semantic_recommendation_use_case=GenerateSemanticRecommendationUseCase(
+                semantic_engine
             ),
         )
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from readmatch_ai.domain.book import Book
+from readmatch_ai.domain.book import Book, BookId
 
 
 @dataclass(frozen=True)
@@ -28,9 +28,15 @@ class Recommendation:
 
 @dataclass(frozen=True)
 class RecommendationQuery:
-    """Input to a RecommendationEngine: how many recommendations to return."""
+    """Input to a RecommendationEngine: how many recommendations to return.
+
+    `book_id` is the optional source book for engines that recommend "similar
+    to this book" (e.g. Semantic); non-personalized engines (e.g. Popularity)
+    ignore it.
+    """
 
     limit: int
+    book_id: BookId | None = None
 
 
 @dataclass(frozen=True)

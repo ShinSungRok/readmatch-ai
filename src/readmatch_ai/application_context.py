@@ -4,14 +4,25 @@ from dataclasses import dataclass
 
 import psycopg
 
+from readmatch_ai.application.generate_book_embedding_use_case import (
+    GenerateBookEmbeddingUseCase,
+)
 from readmatch_ai.application.get_book_by_id_use_case import GetBookByIdUseCase
 from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
 from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
 from readmatch_ai.config import POSTGRESQL_BACKEND, BookRepositoryConfig
+from readmatch_ai.domain.book_embedding_generator import BookEmbeddingGenerator
+from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepository
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.infrastructure.deterministic_fake_book_embedding_generator import (
+    DeterministicFakeBookEmbeddingGenerator,
+)
+from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
+    InMemoryBookEmbeddingRepository,
+)
 from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
 )
@@ -31,10 +42,12 @@ class ApplicationContext:
 
     book_repository: BookRepository
     book_popularity_repository: BookPopularityRepository
+    book_embedding_repository: BookEmbeddingRepository
     register_book_use_case: RegisterBookUseCase
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
+    generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
 
     @classmethod
     def create(
@@ -42,14 +55,19 @@ class ApplicationContext:
         book_repository: BookRepository | None = None,
         book_popularity_repository: BookPopularityRepository | None = None,
         recommendation_engine: RecommendationEngine | None = None,
+        book_embedding_repository: BookEmbeddingRepository | None = None,
+        book_embedding_generator: BookEmbeddingGenerator | None = None,
     ) -> ApplicationContext:
-        """Wire the Book/Recommendation use cases to their repositories and engine.
+        """Wire the Book/Recommendation/Embedding use cases to their dependencies.
 
         book_repository/book_popularity_repository each default independently
         via BookRepositoryConfig.from_env(): the InMemory adapters, or the
         PostgreSQL adapters when BOOK_REPOSITORY_BACKEND=postgresql.
         recommendation_engine defaults to PopularityRecommendationEngine built
         from those same (already-resolved) repositories.
+        book_embedding_repository defaults to InMemoryBookEmbeddingRepository
+        (no PostgreSQL adapter yet) and book_embedding_generator defaults to
+        DeterministicFakeBookEmbeddingGenerator (no real model yet).
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -62,13 +80,27 @@ class ApplicationContext:
             if recommendation_engine is not None
             else PopularityRecommendationEngine(popularity_repository, repository)
         )
+        embedding_repository = (
+            book_embedding_repository
+            if book_embedding_repository is not None
+            else InMemoryBookEmbeddingRepository()
+        )
+        embedding_generator = (
+            book_embedding_generator
+            if book_embedding_generator is not None
+            else DeterministicFakeBookEmbeddingGenerator()
+        )
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
+            book_embedding_repository=embedding_repository,
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
             get_recommendations_use_case=GetRecommendationsUseCase(engine),
+            generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
+                repository, embedding_generator, embedding_repository
+            ),
         )
 
 

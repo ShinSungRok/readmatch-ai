@@ -589,6 +589,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `execute` takes a primitive `book_id: str` (not `BookId`), matching the existing `GetBookByIdUseCase` convention.
 
+### Task 2 — Application Composition
+
+- Status: Done
+- Summary: Extended `ApplicationContext`: added `book_embedding_repository` field and `generate_book_embedding_use_case`; new override params `book_embedding_repository`/`book_embedding_generator` on `create()`. Defaults: `InMemoryBookEmbeddingRepository()` (no PostgreSQL adapter yet) and `DeterministicFakeBookEmbeddingGenerator()` (per Task instruction — no real model yet). Both concrete adapters are imported only in `application_context.py`, matching the existing pattern.
+- Validation: `ruff check` (pass), `mypy` (pass, strict); interactive smoke check confirmed default composition wires `InMemoryBookEmbeddingRepository` and that register → generate → retrieve works end-to-end through the context. Full `ruff check`/`mypy`/`pytest -q` re-run: 96 passed, no regressions.
+- Commit: (recorded after commit)
+- Notes: `book_embedding_generator` is not exposed as a separate `ApplicationContext` field (only used internally to build `generate_book_embedding_use_case`), mirroring how `recommendation_engine` (Sprint 14) also wasn't exposed as its own field — only shared repositories get dedicated fields.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

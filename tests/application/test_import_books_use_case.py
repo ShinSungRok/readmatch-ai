@@ -4,6 +4,9 @@ from readmatch_ai.domain.book_data_source import (
     PopularLoanBook,
     PopularLoanBooksQuery,
 )
+from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
+    InMemoryBookPopularityRepository,
+)
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
 
 
@@ -40,7 +43,9 @@ def test_successful_import_persists_all_books() -> None:
         _popular_loan_book(isbn13="978-3-16-148410-0", title="Clean Code"),
         _popular_loan_book(isbn13="0-306-40615-2", title="Another Book"),
     ]
-    use_case = ImportBooksUseCase(FakeBookDataSource(source_books), repository)
+    use_case = ImportBooksUseCase(
+        FakeBookDataSource(source_books), repository, InMemoryBookPopularityRepository()
+    )
 
     result = use_case.execute(_query())
 
@@ -56,7 +61,9 @@ def test_duplicate_isbn_within_batch_is_skipped_not_fatal() -> None:
         _popular_loan_book(isbn13="978-3-16-148410-0", title="Clean Code"),
         _popular_loan_book(isbn13="978-3-16-148410-0", title="Clean Code (duplicate entry)"),
     ]
-    use_case = ImportBooksUseCase(FakeBookDataSource(source_books), repository)
+    use_case = ImportBooksUseCase(
+        FakeBookDataSource(source_books), repository, InMemoryBookPopularityRepository()
+    )
 
     result = use_case.execute(_query())
 
@@ -67,12 +74,16 @@ def test_duplicate_isbn_within_batch_is_skipped_not_fatal() -> None:
 def test_duplicate_isbn_against_existing_repository_book_is_skipped() -> None:
     repository = InMemoryBookRepository()
     existing_use_case = ImportBooksUseCase(
-        FakeBookDataSource([_popular_loan_book(isbn13="978-3-16-148410-0")]), repository
+        FakeBookDataSource([_popular_loan_book(isbn13="978-3-16-148410-0")]),
+        repository,
+        InMemoryBookPopularityRepository(),
     )
     existing_use_case.execute(_query())
 
     reimported_book = _popular_loan_book(isbn13="978-3-16-148410-0", title="Different Title")
-    reimport_use_case = ImportBooksUseCase(FakeBookDataSource([reimported_book]), repository)
+    reimport_use_case = ImportBooksUseCase(
+        FakeBookDataSource([reimported_book]), repository, InMemoryBookPopularityRepository()
+    )
     result = reimport_use_case.execute(_query())
 
     assert result.imported == []
@@ -81,7 +92,9 @@ def test_duplicate_isbn_against_existing_repository_book_is_skipped() -> None:
 
 def test_empty_provider_results_returns_empty_result() -> None:
     repository = InMemoryBookRepository()
-    use_case = ImportBooksUseCase(FakeBookDataSource([]), repository)
+    use_case = ImportBooksUseCase(
+        FakeBookDataSource([]), repository, InMemoryBookPopularityRepository()
+    )
 
     result = use_case.execute(_query())
 

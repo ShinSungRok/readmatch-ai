@@ -19,7 +19,11 @@ import sys
 from readmatch_ai.application.import_books_use_case import ImportBooksUseCase
 from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.book_data_source import BookDataSource, PopularLoanBooksQuery
+from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.infrastructure.data4library_book_data_source import Data4LibraryBookDataSource
+from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
+    InMemoryBookPopularityRepository,
+)
 
 
 def main(
@@ -27,6 +31,7 @@ def main(
     *,
     book_data_source: BookDataSource | None = None,
     application_context: ApplicationContext | None = None,
+    book_popularity_repository: BookPopularityRepository | None = None,
 ) -> int:
     args = _parse_args(argv)
     context = (
@@ -35,8 +40,13 @@ def main(
     data_source = (
         book_data_source if book_data_source is not None else Data4LibraryBookDataSource()
     )
+    popularity_repository = (
+        book_popularity_repository
+        if book_popularity_repository is not None
+        else InMemoryBookPopularityRepository()
+    )
 
-    use_case = ImportBooksUseCase(data_source, context.book_repository)
+    use_case = ImportBooksUseCase(data_source, context.book_repository, popularity_repository)
     result = use_case.execute(PopularLoanBooksQuery(args.start_date, args.end_date))
 
     print(

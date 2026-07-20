@@ -406,6 +406,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: No PostgreSQL adapter added — explicitly out of scope for this Sprint per user instruction.
 
+### Task 3 — Import Wiring for Popularity
+
+- Status: Done
+- Summary: `ImportBooksUseCase` constructor now also takes `book_popularity_repository: BookPopularityRepository`; for each successfully imported book, records `BookPopularity(book_id, loan_count=source_book.loan_count, period_start=query.start_date, period_end=query.end_date)` — reuses `loan_count` already present in the in-hand `PopularLoanBook`/`PopularLoanBooksQuery`, no extra `BookDataSource` call (per user's explicit "no live call at recommendation time" constraint — moot for the engine, but this confirms the import path was already call-free too). `scripts/import_books.py` wires `InMemoryBookPopularityRepository` by default (overridable, mirroring existing optional-param pattern). Fixed Sprint 8's `tests/application/test_import_books_use_case.py` (constructor signature change) to keep the suite green.
+- Validation: `ruff check src tests scripts` (pass), `mypy src tests scripts` (pass, 37 source files), `pytest -q` (pass, 60 passed — Sprint 8 regressions fixed). Interactive smoke check confirmed the script records `BookPopularity` with correct `loan_count` and period provenance end-to-end.
+- Commit: (recorded after commit)
+- Notes: Because there is still no PostgreSQL adapter for `BookPopularityRepository`, and the script constructs a fresh `InMemoryBookPopularityRepository()` per run when not injected, popularity data does not currently persist across process runs in production use — a known, explicitly in-scope-excluded gap (PostgreSQL persistence deferred, per user instruction) to address in a future Sprint alongside `PopularityRecommendationEngine`.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

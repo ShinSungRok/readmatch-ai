@@ -128,6 +128,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 4 — Application Layer (Book)
+
+### Task 1 — RegisterBookUseCase
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/application/register_book_use_case.py` with `RegisterBookInput` (primitive DTO) and `RegisterBookUseCase`. Constructs a `Book` from primitives via existing domain value objects and delegates to `BookRepository.add`; duplicate ISBN rejection relies entirely on the existing `DuplicateISBNError` raised by the repository (no new validation added).
+- Validation: `ruff check src/readmatch_ai/application` (pass), `mypy src/readmatch_ai/application` (pass); interactive smoke check confirmed successful registration and duplicate-ISBN rejection via `InMemoryBookRepository`. Full Application test suite added in Task 4.
+- Commit: (recorded after commit)
+- Notes: Use case depends only on the `BookRepository` port (Domain), not on `InMemoryBookRepository` directly — Hexagonal dependency direction preserved.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

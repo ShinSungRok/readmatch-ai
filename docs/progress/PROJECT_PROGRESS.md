@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 14 — Recommendation Application Integration (Task 1-4) — Complete
-- Last Completed Task: Sprint 14 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: 2cc6f83 (Sprint 14 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (83 tests)
+- Current Sprint: Sprint 15 — Semantic Embedding Foundation (Task 1-4) — Complete
+- Last Completed Task: Sprint 15 / Task 4 — Validation and Progress
+- Last Commit: d7039e3 (Sprint 15 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (96 tests)
 
 ## Task Log
 
@@ -549,7 +549,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/book_embedding.py`: `BookEmbedding` (`book_id`, `vector: tuple[float, ...]`, `model_name`, `dimensions`), kept separate from `Book` (mirrors `BookPopularity`'s separation rationale — model/version varies independently of catalog metadata). `__post_init__` validates: `model_name` non-empty, `dimensions` positive, `len(vector) == dimensions`. `vector` uses `tuple` (not `list`) so the frozen dataclass is genuinely immutable/hashable.
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed construction and all three invariant violations raise `ValueError` with clear messages.
-- Commit: (recorded after commit)
+- Commit: 667fcba
 - Notes: `Book` entity itself was not modified.
 
 ### Task 2 — Embedding Ports
@@ -557,7 +557,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/book_embedding_repository.py` (`BookEmbeddingRepository` ABC: `save`, `get_by_book_id`) and `src/readmatch_ai/domain/book_embedding_generator.py` (`BookEmbeddingGenerator` ABC: `generate(book: Book) -> BookEmbedding`). Split into two files (persistence vs. generation are different responsibilities), mirroring `book.py`/`book_repository.py`'s separation rather than co-locating everything in `book_embedding.py`.
 - Validation: `ruff check` (pass), `mypy` (pass); confirmed both ports are abstract.
-- Commit: (recorded after commit)
+- Commit: 2cda65e
 - Notes: Neither port references a specific algorithm/model — `BookEmbeddingRepository` is storage-only (works for any model since `BookEmbedding` itself carries `model_name`/`dimensions`), and `BookEmbeddingGenerator.generate` takes a plain `Book`, so a real ML-based implementation (deferred to Sprint 16, "Embedding Generation Pipeline") can satisfy the same contract as this Sprint's deterministic fake.
 
 ### Task 3 — InMemory Embedding Adapters
@@ -565,8 +565,19 @@ Use this format:
 - Status: Done
 - Summary: Added `infrastructure/in_memory_book_embedding_repository.py` (`InMemoryBookEmbeddingRepository`, dict-backed, upsert-by-`book_id`) and `infrastructure/deterministic_fake_book_embedding_generator.py` (`DeterministicFakeBookEmbeddingGenerator`, derives an 8-dimension vector from a SHA-256 digest of `title|author|category` — no ML dependency, no randomness).
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed: same Book → same vector every time (determinism), two different Books → different vectors, `len(vector) == dimensions`, and repository save/get/upsert behavior.
-- Commit: (recorded after commit)
+- Commit: d7039e3
 - Notes: `DeterministicFakeBookEmbeddingGenerator` is explicitly a test/placeholder implementation (per Task naming) — a real model-backed generator is Sprint 16's responsibility, not this one.
+
+### Task 4 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/domain/test_book_embedding.py` (construction + all 3 invariant violations), `tests/domain/test_book_embedding_repository.py` and `tests/domain/test_book_embedding_generator.py` (both ports abstract), `tests/infrastructure/test_in_memory_book_embedding_repository.py` (get-missing, save+get, upsert), and `tests/infrastructure/test_deterministic_fake_book_embedding_generator.py` (determinism, distinctness across different book text, vector length matches configured `dimensions` and values in `[0,1]`, `book_id`/`model_name` set correctly). Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 15 completion.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (58 source files)
+  - `python3 -m pytest -q` — pass (96 passed, up from 83; 13 new tests)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

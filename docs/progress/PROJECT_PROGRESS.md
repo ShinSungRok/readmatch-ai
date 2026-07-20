@@ -165,6 +165,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Test/log update combined into one commit per Sprint brief ("Add Application tests. Update PROJECT_PROGRESS.md." listed as a single Task 4).
 
+## Sprint 5 — Composition Root & Dependency Injection (Book)
+
+### Task 1 — ApplicationContext
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/application_context.py` defining `ApplicationContext`, a frozen dataclass holding the wired `BookRepository` port and the three Book use cases. Placed at the package root (sibling of `domain/`, `application/`, `infrastructure/`) since a composition root sits above all layers. No wiring logic yet — that is Task 2.
+- Validation: `ruff check src/readmatch_ai/application_context.py` (pass), `mypy src/readmatch_ai/application_context.py` (pass).
+- Commit: (recorded after commit)
+- Notes: Fields typed against `BookRepository` (the port), not `InMemoryBookRepository` — keeps the container itself abstraction-clean; the concrete adapter choice is confined to the Task 2 factory.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

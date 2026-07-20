@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 0
-- Current Sprint: Sprint 4 — Application Layer (Book) (Task 1-4) — Complete
-- Last Completed Task: Sprint 4 / Task 4 — Application Layer Validation
-- Last Commit: 8d2d90a (Sprint 4 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (32 tests)
+- Current Sprint: Sprint 5 — Composition Root & Dependency Injection (Book) (Task 1-4) — Complete
+- Last Completed Task: Sprint 5 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: 2450152 (Sprint 5 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (37 tests)
 
 ## Task Log
 
@@ -172,7 +172,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application_context.py` defining `ApplicationContext`, a frozen dataclass holding the wired `BookRepository` port and the three Book use cases. Placed at the package root (sibling of `domain/`, `application/`, `infrastructure/`) since a composition root sits above all layers. No wiring logic yet — that is Task 2.
 - Validation: `ruff check src/readmatch_ai/application_context.py` (pass), `mypy src/readmatch_ai/application_context.py` (pass).
-- Commit: (recorded after commit)
+- Commit: c918e7f
 - Notes: Fields typed against `BookRepository` (the port), not `InMemoryBookRepository` — keeps the container itself abstraction-clean; the concrete adapter choice is confined to the Task 2 factory.
 
 ### Task 2 — Dependency Injection
@@ -180,7 +180,7 @@ Use this format:
 - Status: Done
 - Summary: Added `ApplicationContext.create(book_repository: BookRepository | None = None)` classmethod. Defaults to `InMemoryBookRepository` (the only adapter available) and injects the same repository instance into all three use cases. Accepts an optional explicit `BookRepository` for tests or future adapters.
 - Validation: `ruff check src/readmatch_ai/application_context.py` (pass), `mypy src/readmatch_ai/application_context.py` (pass); interactive smoke check confirmed all three use cases share the same repository instance end-to-end. Dedicated composition tests added in Task 3.
-- Commit: (recorded after commit)
+- Commit: 9fcc701
 - Notes: `InMemoryBookRepository` is imported only in this module — the one place in the codebase allowed to reference a concrete Infrastructure adapter directly.
 
 ### Task 3 — Runtime Validation
@@ -191,8 +191,16 @@ Use this format:
   - `python3 -m ruff check src tests` — pass
   - `python3 -m mypy src tests` — pass (23 source files)
   - `python3 -m pytest -q` — pass (37 passed)
-- Commit: (recorded after commit)
+- Commit: 2450152
 - Notes: Placed at `tests/` root (not under `tests/application/`) mirroring `application_context.py`'s package-root placement as the composition root.
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State for Sprint 5 completion and back-filled Sprint 5 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

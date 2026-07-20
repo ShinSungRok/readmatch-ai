@@ -36,6 +36,17 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: FastAPI, PostgreSQL, Docker, Next.js intentionally excluded per Task scope.
 
+### Task 3 — Validation
+
+- Status: Done
+- Summary: Added minimal smoke test (`tests/test_smoke.py`) so pytest has something to collect, confirming the lint/typecheck/test commands all work end-to-end.
+- Validation:
+  - `python3 -m ruff check src tests` — pass
+  - `python3 -m mypy src tests` — pass (3 source files)
+  - `python3 -m pytest -q` — pass (1 passed)
+- Commit: (recorded after commit)
+- Notes: Commands run directly (no Makefile/task-runner introduced — out of Task scope).
+
 ## Current Constraints
 
 - Implement only approved Tasks.

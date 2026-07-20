@@ -515,6 +515,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Depends only on the `RecommendationEngine` port (Domain), not `PopularityRecommendationEngine` directly — Hexagonal dependency direction preserved.
 
+### Task 2 — Application Composition
+
+- Status: Done
+- Summary: Extended `ApplicationContext`: added `get_recommendations_use_case` field and a `recommendation_engine: RecommendationEngine | None = None` override param on `create()`. Default: `PopularityRecommendationEngine` built from the already-resolved `book_popularity_repository`/`book_repository` (no new backend-selection logic needed — only one `RecommendationEngine` implementation exists). `PopularityRecommendationEngine` is now imported only in `application_context.py`, same as the other concrete adapters — dependency direction unchanged (Domain/Application still see only the `RecommendationEngine` port).
+- Validation: `ruff check` (pass), `mypy` (pass, strict); interactive smoke check confirmed the default engine is a `PopularityRecommendationEngine` and that `register_book_use_case` → `book_popularity_repository.record` → `get_recommendations_use_case.execute` reflects persisted state end-to-end. Full `ruff check`/`mypy`/`pytest -q` re-run: 78 passed, no regressions.
+- Commit: (recorded after commit)
+- Notes: `recommendation_engine` is not config-driven (unlike the two repositories) since there is currently only one implementation; this can gain backend selection later once a second engine (e.g. Semantic) exists.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

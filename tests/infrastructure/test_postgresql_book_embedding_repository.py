@@ -181,3 +181,31 @@ def test_application_context_generates_and_finds_similar_embeddings_via_postgres
     result = context.book_embedding_repository.find_similar(embedding.vector, limit=1)
     assert len(result) == 1
     _assert_embeddings_almost_equal(result[0], embedding)
+
+
+def test_application_context_generates_semantic_recommendations_via_postgresql(
+    postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
+) -> None:
+    book_repository = PostgreSQLBookRepository(postgres_connection)
+    context = ApplicationContext.create(
+        book_repository=book_repository, book_embedding_repository=repository
+    )
+    source = _add_book(postgres_connection, "978-3-16-148410-0")
+    other = Book(
+        id=BookId.generate(),
+        isbn=ISBN("978-0-13-468599-1"),
+        title=Title("Effective Java"),
+        author=Author("Joshua Bloch"),
+        category=Category("Software Engineering"),
+    )
+    book_repository.add(other)
+    context.generate_book_embedding_use_case.execute(str(source.id.value))
+    context.generate_book_embedding_use_case.execute(str(other.id.value))
+
+    result = context.generate_semantic_recommendation_use_case.execute(
+        book_id=str(source.id.value), limit=10
+    )
+
+    assert len(result.recommendation.items) == 1
+    assert result.recommendation.items[0].book.id == other.id
+    assert result.recommendation.items[0].source == "semantic"

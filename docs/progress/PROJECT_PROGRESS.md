@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 18 — Semantic Vector Foundation (Task 1-2) — Complete
-- Last Completed Task: Sprint 18 / Task 2 — Validation, Update PROJECT_PROGRESS.md
-- Last Commit: (recorded after commit; Sprint 18 / Task 2)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (114 tests, including PostgreSQL pgvector similarity-search integration tests via testcontainers)
+- Current Sprint: Sprint 19 — Semantic Recommendation Engine (Task 1-2) — Complete
+- Last Completed Task: Sprint 19 / Task 2 — Validation, Update PROJECT_PROGRESS.md
+- Last Commit: (recorded after commit; Sprint 19 / Task 2)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (125 tests, including a PostgreSQL/pgvector semantic-recommendation integration test via testcontainers)
 
 ## Task Log
 
@@ -672,6 +672,28 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (62 source files)
   - `python3 -m pytest -q` — pass (114 passed, up from 106; 8 new tests)
+  - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
+- Commit: (recorded after commit)
+- Notes: —
+
+## Sprint 19 — Semantic Recommendation Engine
+
+### Task 1 — Semantic Recommendation Engine and Use Case
+
+- Status: Done
+- Summary: Extended `RecommendationQuery` (Domain, `domain/recommendation.py`) with an optional `book_id: BookId | None = None` field — the "appropriate recommendation port" extension named in the Sprint brief, reusing the existing `RecommendationEngine.recommend(query)` contract instead of adding a new/parallel port (Sprint 13's docstring already anticipated "Popularity, Semantic, and ALS engines... all implement this same contract"). Non-personalized engines (Popularity) simply ignore the new field; the default is `None` so no existing call site (`RecommendationQuery(limit=n)`) needed to change. Added `src/readmatch_ai/infrastructure/semantic_recommendation_engine.py`: `SemanticRecommendationEngine(RecommendationEngine)`, constructed from `BookEmbeddingRepository` + `BookRepository` (mirroring `PopularityRecommendationEngine`'s shape). `recommend()`: raises `ValueError` if `query.book_id` is `None` (the engine cannot answer "similar to what?"); returns an empty `Recommendation` if the source book has no stored embedding; otherwise calls `BookEmbeddingRepository.find_similar(source_embedding.vector, limit=query.limit + 1)` (fetching one extra candidate since the source book's own embedding is typically its own closest match), excludes the source `book_id` from the results, joins each remaining candidate with `BookRepository.get_by_id` (skipping an embedding whose Book can no longer be found, same as the Popularity engine's orphan handling), and computes a cosine-similarity `score` per item (`source="semantic"`) — `find_similar` itself returns embeddings only, not scores, so the engine derives the score locally from the two vectors it already holds. Added `src/readmatch_ai/application/generate_semantic_recommendation_use_case.py`: `GenerateSemanticRecommendationUseCase(recommendation_engine: RecommendationEngine)`, `execute(book_id: str, limit: int) -> RecommendationResult` — parses the primitive `book_id` into `BookId` and constructs the `RecommendationQuery`, matching the existing primitive-in/domain-type-internally convention. Wired into `ApplicationContext`: added `generate_semantic_recommendation_use_case` field and a `semantic_recommendation_engine: RecommendationEngine | None = None` override param on `create()`, defaulting to `SemanticRecommendationEngine` built from the already-resolved `book_embedding_repository`/`book_repository` — exactly the same pattern `recommendation_engine`/`PopularityRecommendationEngine` already uses.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Formal test suite is Task 2.
+- Commit: (recorded after commit)
+- Notes: `find_similar`'s "exclude the source book" requirement is handled by over-fetching by one and filtering, rather than pushing exclusion logic into `BookEmbeddingRepository` itself — keeps the Sprint 18 port unchanged (no port signature change this Sprint) and keeps "exclude self" as Semantic-recommendation-specific policy, not a general repository concern (Popularity has no analogous need to exclude anything).
+
+### Task 2 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/infrastructure/test_semantic_recommendation_engine.py` (InMemory-backed unit tests): ranks by similarity and excludes the source book, respects `limit`, returns empty when the source book has no embedding, skips an embedding whose Book is missing, raises `ValueError` when `RecommendationQuery.book_id` is `None`. Added `tests/application/test_generate_semantic_recommendation_use_case.py` mirroring `test_get_recommendations_use_case.py`'s `FakeRecommendationEngine` pattern: `book_id`/`limit` are correctly passed through as a `RecommendationQuery`, the engine's result is returned unchanged, and an empty result flows through correctly. Extended `tests/test_application_context.py`: `test_semantic_recommendations_reflect_persisted_embeddings` (default composition, end-to-end: register two books, generate both embeddings, confirm the *other* book — not the source — comes back with `source="semantic"`) and `test_create_accepts_an_explicit_semantic_recommendation_engine` (override param, mirroring the existing `recommendation_engine` override test). Extended `tests/infrastructure/test_postgresql_book_embedding_repository.py` with `test_application_context_generates_semantic_recommendations_via_postgresql`, reusing the module's existing `pgvector/pgvector:pg16` testcontainer fixture (no new container/image) to prove the full path — `ApplicationContext.create()` → two real `generate_book_embedding_use_case` calls → `generate_semantic_recommendation_use_case` — works end-to-end against real pgvector-backed Postgres. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 19 completion.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (66 source files)
+  - `python3 -m pytest -q` — pass (125 passed, up from 114; 11 new tests)
   - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
 - Commit: (recorded after commit)
 - Notes: —

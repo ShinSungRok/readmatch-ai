@@ -32,6 +32,15 @@ def _valid_input() -> RegisterBookInput:
     )
 
 
+def _other_input() -> RegisterBookInput:
+    return RegisterBookInput(
+        isbn="0-306-40615-2",
+        title="Effective Java",
+        author="Joshua Bloch",
+        category="Software Engineering",
+    )
+
+
 def test_create_defaults_to_in_memory_repository() -> None:
     context = ApplicationContext.create()
 
@@ -116,3 +125,31 @@ def test_generate_book_embedding_returns_none_for_missing_book() -> None:
     result = context.generate_book_embedding_use_case.execute(str(uuid.uuid4()))
 
     assert result is None
+
+
+def test_semantic_recommendations_reflect_persisted_embeddings() -> None:
+    context = ApplicationContext.create()
+    source = context.register_book_use_case.execute(_valid_input())
+    other = context.register_book_use_case.execute(_other_input())
+    context.generate_book_embedding_use_case.execute(str(source.id.value))
+    context.generate_book_embedding_use_case.execute(str(other.id.value))
+
+    result = context.generate_semantic_recommendation_use_case.execute(
+        book_id=str(source.id.value), limit=10
+    )
+
+    assert len(result.recommendation.items) == 1
+    assert result.recommendation.items[0].book == other
+    assert result.recommendation.items[0].source == "semantic"
+
+
+def test_create_accepts_an_explicit_semantic_recommendation_engine() -> None:
+    sentinel_result = RecommendationResult(Recommendation(items=[]))
+    engine = _FakeRecommendationEngine(sentinel_result)
+
+    context = ApplicationContext.create(semantic_recommendation_engine=engine)
+
+    result = context.generate_semantic_recommendation_use_case.execute(
+        book_id=str(uuid.uuid4()), limit=1
+    )
+    assert result is sentinel_result

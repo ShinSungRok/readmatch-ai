@@ -63,6 +63,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: No persistence/infrastructure added — domain layer only, per Sprint scope.
 
+### Task 2 — Repository Port
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/book_repository.py` defining the `BookRepository` port (ABC) with `add`, `get_by_id`, `get_by_isbn`. No adapter/implementation added.
+- Validation: `ruff check src/readmatch_ai/domain` (pass), `mypy src/readmatch_ai/domain` (pass); confirmed ABC cannot be instantiated directly. Contract tests added in Task 3.
+- Commit: (recorded after commit)
+- Notes: Method set kept minimal (no `list_all`) to match Task scope; broader query needs deferred to future Sprints.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

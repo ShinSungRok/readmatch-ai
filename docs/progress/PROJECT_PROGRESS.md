@@ -560,6 +560,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Neither port references a specific algorithm/model — `BookEmbeddingRepository` is storage-only (works for any model since `BookEmbedding` itself carries `model_name`/`dimensions`), and `BookEmbeddingGenerator.generate` takes a plain `Book`, so a real ML-based implementation (deferred to Sprint 16, "Embedding Generation Pipeline") can satisfy the same contract as this Sprint's deterministic fake.
 
+### Task 3 — InMemory Embedding Adapters
+
+- Status: Done
+- Summary: Added `infrastructure/in_memory_book_embedding_repository.py` (`InMemoryBookEmbeddingRepository`, dict-backed, upsert-by-`book_id`) and `infrastructure/deterministic_fake_book_embedding_generator.py` (`DeterministicFakeBookEmbeddingGenerator`, derives an 8-dimension vector from a SHA-256 digest of `title|author|category` — no ML dependency, no randomness).
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed: same Book → same vector every time (determinism), two different Books → different vectors, `len(vector) == dimensions`, and repository save/get/upsert behavior.
+- Commit: (recorded after commit)
+- Notes: `DeterministicFakeBookEmbeddingGenerator` is explicitly a test/placeholder implementation (per Task naming) — a real model-backed generator is Sprint 16's responsibility, not this one.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

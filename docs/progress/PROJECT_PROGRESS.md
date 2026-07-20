@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 17 — Vector Storage Foundation (Task 1-4) — Complete
-- Last Completed Task: Sprint 17 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: c3a4753 (Sprint 17 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (106 tests, including PostgreSQL embedding integration tests via testcontainers)
+- Current Sprint: Sprint 18 — Semantic Vector Foundation (Task 1-2) — Complete
+- Last Completed Task: Sprint 18 / Task 2 — Validation, Update PROJECT_PROGRESS.md
+- Last Commit: (recorded after commit; Sprint 18 / Task 2)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (114 tests, including PostgreSQL pgvector similarity-search integration tests via testcontainers)
 
 ## Task Log
 
@@ -651,6 +651,28 @@ Use this format:
 - Status: Done
 - Summary: Updated Current State to mark Sprint 17 complete and back-filled Sprint 17 Task 1-3 commit hashes.
 - Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
+
+## Sprint 18 — Semantic Vector Foundation
+
+### Task 1 — pgvector Storage and Similarity Search
+
+- Status: Done
+- Summary: Added `migrations/0004_add_pgvector_to_book_embeddings.sql`: `CREATE EXTENSION IF NOT EXISTS vector`, alters `book_embeddings.vector` from `DOUBLE PRECISION[]` to a fixed-width `vector(8)` column (8 matches `DeterministicFakeBookEmbeddingGenerator`'s default dimensions — the only generator wired today; pgvector requires a fixed dimension per column, so a future generator with a different dimension, e.g. Sentence Transformers in Sprint 19, will need its own migration), and adds an `hnsw (vector vector_cosine_ops)` index. Added production dependency `pgvector` (Python package) to `pyproject.toml` for the psycopg type adapter. Extended `BookEmbeddingRepository` (Domain port) with an abstract `find_similar(vector, limit) -> list[BookEmbedding]` method — the similarity-search capability is expressed entirely through the existing port, so the Application layer never sees pgvector/Infrastructure details. Implemented `find_similar` on both adapters: `InMemoryBookEmbeddingRepository` computes cosine similarity in pure Python (skipping any stored embedding whose dimension doesn't match the query vector, rather than raising) so its behavior mirrors the PostgreSQL adapter; `PostgreSQLBookEmbeddingRepository` now calls `register_vector(connection)` in its constructor and orders by pgvector's cosine-distance operator (`vector <=> %s LIMIT %s`). `save`/`get_by_book_id` signatures and upsert semantics are unchanged (existing contract preserved) — only the on-the-wire representation changed from a plain array to a `pgvector.Vector`. No `ApplicationContext` changes were needed: `_build_book_embedding_repository()` already constructs `PostgreSQLBookEmbeddingRepository(connection)` with the same signature, so the pgvector-backed adapter is wired through automatically.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Manual smoke validation against a disposable `pgvector/pgvector:pg16` container (migrations 0001+0003+0004 applied): confirmed `CREATE EXTENSION vector` succeeds, the `DOUBLE PRECISION[] → vector(8)` cast applies cleanly to an existing table, and insert/select round-trips correctly with pgvector's cosine-distance ordering returning the expected nearest-first order. Formal automated test suite is Task 2.
+- Commit: (recorded after commit)
+- Notes: pgvector stores vector components as single-precision floats (float32), so a value round-tripped through `PostgreSQLBookEmbeddingRepository` may differ slightly from the float64 value that was saved — an inherent characteristic of pgvector, not a bug; documented in the adapter's docstring and accounted for in Task 2's tests via tolerance-based comparison. Docker Hub pulls of `pgvector/pgvector:pg16` succeed in this environment (confirmed) but are noticeably slower than `postgres:16-alpine` (used by every other integration test in this repo) — only the embedding-specific test module was switched to the pgvector image, all other PostgreSQL integration tests are untouched.
+
+### Task 2 — Repository, Integration, and Similarity-Search Validation
+
+- Status: Done
+- Summary: Updated `tests/infrastructure/test_postgresql_book_embedding_repository.py`: switched the `testcontainers` fixture from `postgres:16-alpine` to `pgvector/pgvector:pg16` and applies migrations 0001+0003+0004; `_embedding`/`_embedding_with_vector` now produce 8-dimensional vectors (matching the fixed `vector(8)` column — a 1-dimensional vector, as the pre-pgvector test used, is no longer valid against this schema). Existing exact-equality assertions on saved/retrieved embeddings were changed to a `pytest.approx`-based helper (`_assert_embeddings_almost_equal`) to correctly account for pgvector's float32 storage precision (not a weakened assertion — the prior float64 exact-equality assumption no longer holds against real pgvector storage). Added similarity-search tests: empty-repository case, cosine-distance ranking order (closest/middle/farthest), and limit truncation — mirrored on `InMemoryBookEmbeddingRepository` in `tests/infrastructure/test_in_memory_book_embedding_repository.py` (plus a dimension-mismatch-is-skipped case, since only the in-memory adapter can hold mixed-dimension vectors). Added `test_application_context_generates_and_finds_similar_embeddings_via_postgresql`, an end-to-end integration test proving the full path — `ApplicationContext.create()` → `generate_book_embedding_use_case` → real pgvector persistence → `book_embedding_repository.find_similar()` — works through the composition root against a real disposable Postgres instance, confirming "wired through ApplicationContext" without any `ApplicationContext` code changes being necessary. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 18 completion.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (62 source files)
+  - `python3 -m pytest -q` — pass (114 passed, up from 106; 8 new tests)
+  - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
 - Commit: (recorded after commit)
 - Notes: —
 

@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 15 — Semantic Embedding Foundation (Task 1-4) — Complete
-- Last Completed Task: Sprint 15 / Task 4 — Validation and Progress
-- Last Commit: d7039e3 (Sprint 15 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (96 tests)
+- Current Sprint: Sprint 16 — Embedding Generation Pipeline (Task 1-4) — Complete
+- Last Completed Task: Sprint 16 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: 4578643 (Sprint 16 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (103 tests)
 
 ## Task Log
 
@@ -586,7 +586,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application/generate_book_embedding_use_case.py`: `GenerateBookEmbeddingUseCase(book_repository, book_embedding_generator, book_embedding_repository)`. `execute(book_id: str) -> BookEmbedding | None` resolves the `Book` via `BookRepository.get_by_id` first (needed since `BookEmbeddingGenerator.generate` requires a full `Book`), returns `None` without persisting anything if the book is missing, otherwise generates via `BookEmbeddingGenerator` and persists via `BookEmbeddingRepository.save` (upsert, so a second run for the same book replaces the first).
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed: missing book returns `None` and persists nothing; a real book generates and persists correctly; re-running for the same book replaces the stored embedding without error.
-- Commit: (recorded after commit)
+- Commit: 677cbe8
 - Notes: `execute` takes a primitive `book_id: str` (not `BookId`), matching the existing `GetBookByIdUseCase` convention.
 
 ### Task 2 — Application Composition
@@ -594,7 +594,7 @@ Use this format:
 - Status: Done
 - Summary: Extended `ApplicationContext`: added `book_embedding_repository` field and `generate_book_embedding_use_case`; new override params `book_embedding_repository`/`book_embedding_generator` on `create()`. Defaults: `InMemoryBookEmbeddingRepository()` (no PostgreSQL adapter yet) and `DeterministicFakeBookEmbeddingGenerator()` (per Task instruction — no real model yet). Both concrete adapters are imported only in `application_context.py`, matching the existing pattern.
 - Validation: `ruff check` (pass), `mypy` (pass, strict); interactive smoke check confirmed default composition wires `InMemoryBookEmbeddingRepository` and that register → generate → retrieve works end-to-end through the context. Full `ruff check`/`mypy`/`pytest -q` re-run: 96 passed, no regressions.
-- Commit: (recorded after commit)
+- Commit: 0d0d144
 - Notes: `book_embedding_generator` is not exposed as a separate `ApplicationContext` field (only used internally to build `generate_book_embedding_use_case`), mirroring how `recommendation_engine` (Sprint 14) also wasn't exposed as its own field — only shared repositories get dedicated fields.
 
 ### Task 3 — Application Validation
@@ -605,6 +605,14 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (60 source files)
   - `python3 -m pytest -q` — pass (103 passed, up from 96; 7 new tests)
+- Commit: 4578643
+- Notes: —
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to mark Sprint 16 complete and back-filled Sprint 16 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
 - Commit: (recorded after commit)
 - Notes: —
 

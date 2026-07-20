@@ -486,6 +486,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Mirrors the existing `BookRepository`/`BookDataSource`/`BookPopularityRepository` port pattern (ABC + closely-related I/O types co-located in Domain).
 
+### Task 3 — PopularityRecommendationEngine
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/infrastructure/popularity_recommendation_engine.py`: `PopularityRecommendationEngine(RecommendationEngine)`. `recommend()` calls `BookPopularityRepository.top_by_loan_count(query.limit)`, then joins each result with `BookRepository.get_by_id` to build a `RecommendationItem(book, score=loan_count, source="popularity")`. Reads only already-persisted data (`BookPopularityRepository`, `BookRepository`) — no `BookDataSource` import, no external API call, per Task instruction and Sprint 11/12's established "no live call at recommendation time" direction.
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check with `InMemoryBookPopularityRepository`/`InMemoryBookRepository` confirmed correct descending ranking, `source`/`score` fields, and that an orphaned `BookPopularity` entry (no matching `Book`) is silently skipped rather than raising. Formal contract/behavior test suite is Task 4.
+- Commit: (recorded after commit)
+- Notes: Not wired into `ApplicationContext` this Sprint — not requested by the Task list (unlike Sprint 12 Task 4, which explicitly asked for runtime composition changes); the engine is available for direct construction/tests and future wiring once an API/consumer needs it.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

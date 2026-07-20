@@ -71,6 +71,17 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Method set kept minimal (no `list_all`) to match Task scope; broader query needs deferred to future Sprints.
 
+### Task 3 — Validation
+
+- Status: Done
+- Summary: Added `tests/domain/test_book.py` (BookId, ISBN checksum, Title/Author/Category invariants, identity-based equality) and `tests/domain/test_book_repository.py` (ABC not instantiable; contract verified via a test-only `InMemoryBookRepository` fake — not a production adapter).
+- Validation:
+  - `python3 -m ruff check src tests` — pass
+  - `python3 -m mypy src tests` — pass (9 source files)
+  - `python3 -m pytest -q` — pass (17 passed)
+- Commit: (recorded after commit)
+- Notes: One ruff E501 (line too long) found and fixed during validation.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

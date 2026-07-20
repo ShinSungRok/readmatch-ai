@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 0
-- Current Sprint: Repository Foundation (Task 1-4) — Complete
-- Last Completed Task: Task 4 — Project Progress
-- Last Commit: b71f3b4 (Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing
+- Current Sprint: Sprint 2 — Domain Foundation (Task 1-4) — Complete
+- Last Completed Task: Sprint 2 / Task 4 — Progress
+- Last Commit: 5a0db80 (Sprint 2 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (17 tests)
 
 ## Task Log
 
@@ -19,6 +19,8 @@ Use this format:
 - Validation:
 - Commit:
 - Notes:
+
+## Sprint 1 — Repository Foundation
 
 ### Task 1 — Repository Foundation
 
@@ -52,15 +54,17 @@ Use this format:
 - Status: Done
 - Summary: Updated Current State section (Phase, Sprint, Last Completed Task, Last Commit, Validation) and back-filled Task 1-3 commit hashes.
 - Validation: N/A (documentation-only update)
-- Commit: (recorded after commit)
+- Commit: 8e6a4e7
 - Notes: —
+
+## Sprint 2 — Domain Foundation
 
 ### Task 1 — Book Domain
 
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/book.py` with `BookId`, `ISBN` (ISBN-10/13 checksum validation), `Title`, `Author`, `Category` value objects, and `Book` entity (identity-based equality via `BookId`).
 - Validation: `ruff check src/readmatch_ai/domain` (pass), `mypy src/readmatch_ai/domain` (pass); interactive smoke check confirmed valid/invalid ISBN handling. Unit tests added in Task 3.
-- Commit: (recorded after commit)
+- Commit: e02fbcf
 - Notes: No persistence/infrastructure added — domain layer only, per Sprint scope.
 
 ### Task 2 — Repository Port
@@ -68,7 +72,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/book_repository.py` defining the `BookRepository` port (ABC) with `add`, `get_by_id`, `get_by_isbn`. No adapter/implementation added.
 - Validation: `ruff check src/readmatch_ai/domain` (pass), `mypy src/readmatch_ai/domain` (pass); confirmed ABC cannot be instantiated directly. Contract tests added in Task 3.
-- Commit: (recorded after commit)
+- Commit: 8ac37e4
 - Notes: Method set kept minimal (no `list_all`) to match Task scope; broader query needs deferred to future Sprints.
 
 ### Task 3 — Validation
@@ -79,8 +83,16 @@ Use this format:
   - `python3 -m ruff check src tests` — pass
   - `python3 -m mypy src tests` — pass (9 source files)
   - `python3 -m pytest -q` — pass (17 passed)
-- Commit: (recorded after commit)
+- Commit: 5a0db80
 - Notes: One ruff E501 (line too long) found and fixed during validation.
+
+### Task 4 — Progress
+
+- Status: Done
+- Summary: Regrouped Task Log by Sprint (Sprint 1 / Sprint 2) to disambiguate repeated Task numbers, updated Current State for Sprint 2 completion, and back-filled Sprint 2 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

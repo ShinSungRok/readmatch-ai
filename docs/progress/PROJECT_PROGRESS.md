@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 12 — Popularity Persistence & Repeated Import Correction (Task 1-4) — Complete
-- Last Completed Task: Sprint 12 / Task 4 — Validation and Progress
-- Last Commit: a7472f8 (Sprint 12 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (73 tests, including PostgreSQL popularity integration tests via testcontainers)
+- Current Sprint: Sprint 13 — Popularity Recommendation Engine (Task 1-4) — Complete
+- Last Completed Task: Sprint 13 / Task 4 — Validation and Progress
+- Last Commit: be0a3b7 (Sprint 13 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (78 tests)
 
 ## Task Log
 
@@ -475,7 +475,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/recommendation.py`: `RecommendationItem` (`book: Book`, `score`, `source`), `Recommendation` (`items: list[RecommendationItem]`), `RecommendationQuery` (`limit: int`), `RecommendationResult` (`recommendation: Recommendation`). `RecommendationItem` holds the full `Book` (not just `BookId`) so a `RecommendationResult` is self-contained/"complete", matching Task 3's explicit "join popularity data with BookRepository to produce complete recommendation results" — this differs from the earlier Sprint 11 draft (which held just `book_id`) since Sprint 11's version was written before the join requirement was specified.
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed construction and field access.
-- Commit: (recorded after commit)
+- Commit: 49d5004
 - Notes: `RecommendationQuery` intentionally has only `limit` — no personalization fields, since Popularity is non-personalized (ADR-004: cold-start fallback). Wider query fields can be added later without breaking this port if a personalized engine needs them.
 
 ### Task 2 — RecommendationEngine Port
@@ -483,7 +483,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/recommendation_engine.py`: `RecommendationEngine` (ABC) with a single `recommend(query: RecommendationQuery) -> RecommendationResult` method. No algorithm-specific detail in the interface.
 - Validation: `ruff check` (pass), `mypy` (pass); confirmed the port is abstract.
-- Commit: (recorded after commit)
+- Commit: 5c80a61
 - Notes: Mirrors the existing `BookRepository`/`BookDataSource`/`BookPopularityRepository` port pattern (ABC + closely-related I/O types co-located in Domain).
 
 ### Task 3 — PopularityRecommendationEngine
@@ -491,8 +491,19 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/infrastructure/popularity_recommendation_engine.py`: `PopularityRecommendationEngine(RecommendationEngine)`. `recommend()` calls `BookPopularityRepository.top_by_loan_count(query.limit)`, then joins each result with `BookRepository.get_by_id` to build a `RecommendationItem(book, score=loan_count, source="popularity")`. Reads only already-persisted data (`BookPopularityRepository`, `BookRepository`) — no `BookDataSource` import, no external API call, per Task instruction and Sprint 11/12's established "no live call at recommendation time" direction.
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check with `InMemoryBookPopularityRepository`/`InMemoryBookRepository` confirmed correct descending ranking, `source`/`score` fields, and that an orphaned `BookPopularity` entry (no matching `Book`) is silently skipped rather than raising. Formal contract/behavior test suite is Task 4.
-- Commit: (recorded after commit)
+- Commit: be0a3b7
 - Notes: Not wired into `ApplicationContext` this Sprint — not requested by the Task list (unlike Sprint 12 Task 4, which explicitly asked for runtime composition changes); the engine is available for direct construction/tests and future wiring once an API/consumer needs it.
+
+### Task 4 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/domain/test_recommendation_engine.py` (port is abstract) and `tests/infrastructure/test_popularity_recommendation_engine.py` covering all four required scenarios: ranking (descending by loan_count, correct `score`/`source`), limit handling (truncates to `query.limit`), empty results (no popularity data → empty `Recommendation.items`), and missing Book records (an orphaned `BookPopularity` entry is silently skipped, not raised). Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 13 completion.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (46 source files)
+  - `python3 -m pytest -q` — pass (78 passed, up from 73; 5 new tests)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 19 — Semantic Recommendation Engine (Task 1-2) — Complete
-- Last Completed Task: Sprint 19 / Task 2 — Validation, Update PROJECT_PROGRESS.md
-- Last Commit: (recorded after commit; Sprint 19 / Task 2)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (125 tests, including a PostgreSQL/pgvector semantic-recommendation integration test via testcontainers)
+- Current Sprint: Sprint 20 — Hybrid Recommendation Foundation (Task 1-2) — Complete
+- Last Completed Task: Sprint 20 / Task 2 — Validation, Update PROJECT_PROGRESS.md
+- Last Commit: (recorded after commit; Sprint 20 / Task 2)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (140 tests, including a PostgreSQL/pgvector hybrid-recommendation integration test via testcontainers)
 
 ## Task Log
 
@@ -694,6 +694,28 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (66 source files)
   - `python3 -m pytest -q` — pass (125 passed, up from 114; 11 new tests)
+  - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
+- Commit: (recorded after commit)
+- Notes: —
+
+## Sprint 20 — Hybrid Recommendation Foundation
+
+### Task 1 — Hybrid Recommendation Engine and Use Case
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/infrastructure/hybrid_recommendation_engine.py`: `HybridRecommendationEngine(RecommendationEngine)`, constructed from a popularity engine and a semantic engine (both typed as the `RecommendationEngine` port, so it composes with any implementation, not just the two concrete Sprint 13/19 adapters) plus a `popularity_weight: float = 0.5` (validated to `[0, 1]`; `semantic_weight` is `1 - popularity_weight` — a single interpolation dial, matching the Sprint brief's "weighting *between* popularity and semantic"). `recommend()`: fetches up to `query.limit` candidates from each sub-engine (semantic only if `query.book_id` is set), min-max normalizes each engine's own scores independently to `[0, 1]` (SYSTEM_ARCHITECTURE.md: "Normalize model scores before combining"; a single-item or all-equal-score list normalizes to `1.0`, not division-by-zero), then merges by `book_id` into one item per book whose score is the *full* weighted-sum of both sides (`popularity_weight * normalized_popularity + semantic_weight * normalized_semantic`, each defaulting to `0.0` if the book wasn't a candidate from that engine) — so a book strong in both engines is correctly merged into a single higher-scoring item rather than losing one side's contribution ("merge duplicates while preserving the highest combined score"). Sorts by combined score descending and truncates to `query.limit` (configurable Top-K). Falls back to popularity-only (effective weight `1.0`) whenever semantic has no candidates — no `book_id` given, or the source book has no embedding yet — rather than silently scaling every score down by the configured weight; this directly matches ADR-004 ("Popularity is the baseline and cold-start fallback") rather than inventing new fallback behavior. All merged items carry `source="hybrid"`. Added `src/readmatch_ai/application/generate_hybrid_recommendation_use_case.py`: `GenerateHybridRecommendationUseCase(recommendation_engine: RecommendationEngine)`, `execute(limit: int, book_id: str | None = None) -> RecommendationResult` — `book_id` is optional (unlike Sprint 19's Semantic use case, which requires one), since Hybrid is meaningful with or without a source book. Wired into `ApplicationContext`: added `generate_hybrid_recommendation_use_case` field and a `hybrid_recommendation_engine: RecommendationEngine | None = None` override param on `create()`, defaulting to `HybridRecommendationEngine` built from the *same already-resolved* popularity/semantic engine instances used for `get_recommendations_use_case`/`generate_semantic_recommendation_use_case` — so an explicit override of either of those engines also flows into the default Hybrid engine, keeping composition consistent and avoiding constructing duplicate engine instances. `get_recommendations_use_case`'s default engine is unchanged (still Popularity) — Hybrid is exposed as an additional, separate use case rather than replacing an existing default, consistent with how Semantic was added in Sprint 19.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Formal test suite is Task 2.
+- Commit: (recorded after commit)
+- Notes: Each sub-engine is queried for exactly `query.limit` candidates (not an over-fetched pool) before merging — the smallest complete implementation satisfying "configurable Top-K"; a book ranked outside the top-`limit` in *both* individual engines cannot surface via the merge even if its combined score would qualify. Documented here as a known MVP simplification (ADR-006 explicitly scopes weighted-normalized-score fusion as the *MVP* hybrid ranker), not addressed since it wasn't requested and the common case (small catalogs, the two engines' top-K sets overlapping) is unaffected.
+
+### Task 2 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/infrastructure/test_hybrid_recommendation_engine.py` (fake popularity/semantic engines, no repositories needed): a book present in both engines' results merges into one item whose score sums both weighted-normalized contributions and outranks single-source items; `limit` is respected; falls back fully to popularity (score `1.0`, semantic engine never even called) when `query.book_id` is `None`; falls back fully to popularity when the semantic engine legitimately returns no candidates (source book has no embedding); both-empty returns an empty result; a higher `popularity_weight` changes the winner between a "popularity favorite" and a "semantic favorite"; constructor rejects a `popularity_weight` outside `[0, 1]`. Added `tests/application/test_generate_hybrid_recommendation_use_case.py` mirroring the Sprint 19 `FakeRecommendationEngine` pattern, including the optional-`book_id`-omitted case. Extended `tests/test_application_context.py`: `test_hybrid_recommendations_combine_popularity_and_semantic_signals` (default composition, end-to-end: register two books, generate both embeddings, record popularity for the *other* book only, confirm it comes back with `source="hybrid"`) and `test_create_accepts_an_explicit_hybrid_recommendation_engine` (override param). Extended `tests/infrastructure/test_postgresql_book_embedding_repository.py` with `test_application_context_generates_hybrid_recommendations_via_postgresql`, reusing the module's existing `pgvector/pgvector:pg16` testcontainer fixture (no new container/image, per Sprint instruction) to prove the full path — real Postgres book/embedding persistence plus `book_popularity_repository.record()` — flows correctly through `generate_hybrid_recommendation_use_case`. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 20 completion.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (70 source files)
+  - `python3 -m pytest -q` — pass (140 passed, up from 125; 15 new tests)
   - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
 - Commit: (recorded after commit)
 - Notes: —

@@ -8,6 +8,7 @@ from testcontainers.postgres import PostgresContainer
 from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
 from readmatch_ai.domain.book_embedding import BookEmbedding
+from readmatch_ai.domain.book_popularity import BookPopularity
 from readmatch_ai.infrastructure.postgresql_book_embedding_repository import (
     PostgreSQLBookEmbeddingRepository,
 )
@@ -209,3 +210,34 @@ def test_application_context_generates_semantic_recommendations_via_postgresql(
     assert len(result.recommendation.items) == 1
     assert result.recommendation.items[0].book.id == other.id
     assert result.recommendation.items[0].source == "semantic"
+
+
+def test_application_context_generates_hybrid_recommendations_via_postgresql(
+    postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
+) -> None:
+    book_repository = PostgreSQLBookRepository(postgres_connection)
+    context = ApplicationContext.create(
+        book_repository=book_repository, book_embedding_repository=repository
+    )
+    source = _add_book(postgres_connection, "978-3-16-148410-0")
+    other = Book(
+        id=BookId.generate(),
+        isbn=ISBN("978-0-13-468599-1"),
+        title=Title("Effective Java"),
+        author=Author("Joshua Bloch"),
+        category=Category("Software Engineering"),
+    )
+    book_repository.add(other)
+    context.generate_book_embedding_use_case.execute(str(source.id.value))
+    context.generate_book_embedding_use_case.execute(str(other.id.value))
+    context.book_popularity_repository.record(
+        BookPopularity(other.id, loan_count=100, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    result = context.generate_hybrid_recommendation_use_case.execute(
+        book_id=str(source.id.value), limit=10
+    )
+
+    assert len(result.recommendation.items) == 1
+    assert result.recommendation.items[0].book.id == other.id
+    assert result.recommendation.items[0].source == "hybrid"

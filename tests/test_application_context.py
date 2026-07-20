@@ -153,3 +153,32 @@ def test_create_accepts_an_explicit_semantic_recommendation_engine() -> None:
         book_id=str(uuid.uuid4()), limit=1
     )
     assert result is sentinel_result
+
+
+def test_hybrid_recommendations_combine_popularity_and_semantic_signals() -> None:
+    context = ApplicationContext.create()
+    source = context.register_book_use_case.execute(_valid_input())
+    other = context.register_book_use_case.execute(_other_input())
+    context.generate_book_embedding_use_case.execute(str(source.id.value))
+    context.generate_book_embedding_use_case.execute(str(other.id.value))
+    context.book_popularity_repository.record(
+        BookPopularity(other.id, loan_count=100, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    result = context.generate_hybrid_recommendation_use_case.execute(
+        limit=10, book_id=str(source.id.value)
+    )
+
+    assert len(result.recommendation.items) == 1
+    assert result.recommendation.items[0].book == other
+    assert result.recommendation.items[0].source == "hybrid"
+
+
+def test_create_accepts_an_explicit_hybrid_recommendation_engine() -> None:
+    sentinel_result = RecommendationResult(Recommendation(items=[]))
+    engine = _FakeRecommendationEngine(sentinel_result)
+
+    context = ApplicationContext.create(hybrid_recommendation_engine=engine)
+
+    result = context.generate_hybrid_recommendation_use_case.execute(limit=1)
+    assert result is sentinel_result

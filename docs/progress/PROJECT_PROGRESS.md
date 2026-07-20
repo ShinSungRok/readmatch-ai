@@ -212,6 +212,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: CMD is a placeholder pending Phase 5/Serving (ADR-009); flagged here so it is not mistaken for a real service entrypoint.
 
+### Task 2 — Local Development Environment
+
+- Status: Done
+- Summary: Added `docker-compose.yml` with a single `app` service building from the existing `Dockerfile`, mounting `./src` read-only for local iteration. No PostgreSQL, pgvector, or other external services added, per Task instruction.
+- Validation: `docker compose config` (valid), `docker compose up --build` — built and ran successfully, printed `0.1.0`, exited 0. Ran `docker compose down --rmi local` to remove the test image/network afterward.
+- Commit: (recorded after commit)
+- Notes: No `version:` key (deprecated in current Compose spec). No ports exposed — no service listens yet.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

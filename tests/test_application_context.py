@@ -1,4 +1,7 @@
+import sys
+import types
 import uuid
+from typing import Any
 
 import pytest
 
@@ -233,3 +236,49 @@ def test_evaluate_recommendation_engine_use_case_scores_the_three_wired_engines(
         assert result.map_at_k == pytest.approx(1.0)
         assert result.ndcg_at_k == pytest.approx(1.0)
         assert result.hit_rate_at_k == pytest.approx(1.0)
+
+
+def test_create_defaults_to_deterministic_fake_embedding_generator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMBEDDING_GENERATOR_BACKEND", raising=False)
+    context = ApplicationContext.create()
+    book = context.register_book_use_case.execute(_valid_input())
+
+    embedding = context.generate_book_embedding_use_case.execute(str(book.id.value))
+
+    assert embedding is not None
+    assert embedding.model_name == "deterministic-fake"
+
+
+def test_create_uses_sentence_transformer_generator_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Config-driven provider selection through the Composition Root.
+
+    Injects a fake sentence_transformers module (sys.modules) so this proves
+    the wiring path (env var -> _build_book_embedding_generator ->
+    SentenceTransformerBookEmbeddingGenerator) without needing the real,
+    heavy, optional dependency installed or a model download.
+    """
+
+    class _FakeSentenceTransformer:
+        def __init__(self, model_name: str, **_: Any) -> None:
+            self.model_name = model_name
+
+        def encode(self, text: str, normalize_embeddings: bool = True) -> list[float]:
+            return [0.1, 0.2, 0.3]
+
+    fake_module = types.ModuleType("sentence_transformers")
+    fake_module.SentenceTransformer = _FakeSentenceTransformer  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
+    monkeypatch.setenv("EMBEDDING_GENERATOR_BACKEND", "sentence_transformers")
+
+    context = ApplicationContext.create()
+    book = context.register_book_use_case.execute(_valid_input())
+
+    embedding = context.generate_book_embedding_use_case.execute(str(book.id.value))
+
+    assert embedding is not None
+    assert embedding.vector == (0.1, 0.2, 0.3)
+    assert embedding.model_name == "sentence-transformers/all-MiniLM-L6-v2"

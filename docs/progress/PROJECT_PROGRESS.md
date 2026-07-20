@@ -2,11 +2,11 @@
 
 ## Current State
 
-- Current Phase: Phase 3 — Service Layer
-- Current Sprint: Sprint 23 — Recommendation Demo & End-to-End Showcase (Task 1-2) — Complete
-- Last Completed Task: Sprint 23 / Task 2 — Validation, Update PROJECT_PROGRESS.md
-- Last Commit: (recorded after commit; Sprint 23 / Task 2)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (190 tests); demo script additionally run directly (`python scripts/run_demo.py`), output inspected by hand
+- Current Phase: Phase 4 — AI Recommendation
+- Current Sprint: Sprint 24 — Production Embedding Generation (Task 1-2) — Complete
+- Last Completed Task: Sprint 24 / Task 2 — Validation, Update PROJECT_PROGRESS.md
+- Last Commit: (recorded after commit; Sprint 24 / Task 2)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (199 tests); demo script re-run directly to confirm compatibility with the widened (384-dim) embedding schema
 
 ## Task Log
 
@@ -796,6 +796,31 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (89 source files)
   - `python3 -m pytest -q` — pass (190 passed, up from 186; 4 new tests)
+  - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
+- Commit: (recorded after commit)
+- Notes: —
+
+## Sprint 24 — Production Embedding Generation
+
+### Task 1 — SentenceTransformerBookEmbeddingGenerator and Provider Selection
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/infrastructure/sentence_transformer_book_embedding_generator.py`: `SentenceTransformerBookEmbeddingGenerator(BookEmbeddingGenerator)`, defaulting to `sentence-transformers/all-MiniLM-L6-v2` (384-dim, small/CPU-friendly, a standard lightweight production choice — matches the "Sentence Transformers Integration" capability named as the expected next step back when Sprint 18 completed). `generate()` builds the same `title|author|category` text as `DeterministicFakeBookEmbeddingGenerator` and encodes it via `model.encode(text, normalize_embeddings=True)`. `dimensions` is always set to `len(vector)` — derived from the actual produced vector, never a separately-reported model property — so a `BookEmbedding`'s declared dimensions can never diverge from its real vector, on top of the existing `BookEmbedding.__post_init__` invariant (Sprint 15) that already rejects any mismatch before persistence; together these satisfy "ensure generated embedding dimensions are validated before persistence" both by construction and by the pre-existing Domain check. `sentence-transformers` (which pulls in `torch` — a multi-gigabyte dependency) is added only as a new `pyproject.toml` optional-dependency group (`embeddings`), not to `dependencies` or `dev` — `DeterministicFakeBookEmbeddingGenerator` remains the default and every automated test uses it or a fake stand-in, so the heavy dependency is never required for development/CI. Because it's optional, both the module's `__init__` (lazy `from sentence_transformers import SentenceTransformer` inside `__init__`, not at module top level) and `application_context.py`'s builder (lazy import inside the function branch that actually needs it) avoid requiring the package to even be installed unless the real provider is actually selected; a `sentence_transformers.*` mypy override (mirroring the existing `testcontainers.*` one) keeps `mypy --strict` passing regardless.
+  - Added `EmbeddingGeneratorConfig` to `config.py` (mirroring `BookRepositoryConfig`'s shape): `EMBEDDING_GENERATOR_BACKEND` (`deterministic` default, or `sentence_transformers`) and optional `EMBEDDING_MODEL_NAME`. Unlike `BookRepositoryConfig`, its default is explicitly documented as *not* meant to silently become the real provider in production — the Sprint brief calls for keeping the deterministic generator the default "for tests and local deterministic scenarios," so switching requires an explicit env var, not just deploying to a "postgresql-configured" environment.
+  - Wired via a new `_build_book_embedding_generator()` in `application_context.py`, following the exact same shape as `_build_book_repository`/`_build_book_popularity_repository`/`_build_book_embedding_repository`.
+  - **Schema consequence (the one non-trivial decision this Sprint required):** pgvector requires one fixed dimension per column. The existing `book_embeddings.vector` column was `vector(8)` (Sprint 18, sized for `DeterministicFakeBookEmbeddingGenerator`'s old default), but no real embedding model produces 8-dimensional vectors — `all-MiniLM-L6-v2` produces 384. Widening the column to fit the real model *without* also changing the deterministic generator's default would have made the (still-default) deterministic generator incompatible with `BOOK_REPOSITORY_BACKEND=postgresql` — a regression of already-passing Sprint 18-21 integration tests. So both were changed together: `DeterministicFakeBookEmbeddingGenerator`'s `_DEFAULT_DIMENSIONS` moved from 8 to 384, and `migrations/0005_widen_book_embeddings_vector_to_384.sql` drops and recreates the `vector` column at `vector(384)` (validated against a disposable `pgvector/pgvector:pg16` container before committing — pgvector has no in-place "widen" cast between two different fixed dimensions, and there's no production data yet to migrate, so drop+recreate is the correct, smallest-complete approach) plus its `hnsw` index. This keeps both providers uniformly storable through the same schema and preserves every existing `BookEmbeddingRepository` method signature/contract unchanged (`save`/`get_by_book_id`/`find_similar` — only the underlying fixed width changed, not the port).
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Migration validated directly against a disposable `pgvector/pgvector:pg16` container (`0001`→`0003`→`0004`→`0005` applied in order; confirmed the column's `format_type` is `vector(384)` and the `hnsw` index rebuilds correctly). `sentence-transformers` was installed and its `encode()` API shape (returns a numpy array; `tuple(float(x) for x in vector)` round-trips correctly) was confirmed directly. **Could not validate an actual real-model download/inference in this sandbox**: `huggingface_hub`'s request path to `huggingface.co` consistently failed with `[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Missing Authority Key Identifier`, even though a plain `curl` to the same host succeeds — an environment-specific network/TLS restriction, not a code issue. Formal automated test suite (which never depends on a real download, per Sprint instruction) is Task 2.
+- Commit: (recorded after commit)
+- Notes: The `SSL`/network limitation above means end-to-end correctness of `SentenceTransformerBookEmbeddingGenerator` against the *real* `all-MiniLM-L6-v2` model was not directly observed in this session — only its API usage (documented `SentenceTransformer.encode` contract) and its logic against a faked substitute (Task 2). This should be re-verified in an environment with unrestricted Hugging Face Hub access before relying on it for a real deployment.
+
+### Task 2 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/infrastructure/test_sentence_transformer_book_embedding_generator.py`: injects a fake `sentence_transformers` module into `sys.modules` (works whether or not the real optional package is installed, since the adapter imports it lazily) to verify vector/dimensions derivation, model-name propagation, and determinism given a fixed fake output — satisfying "integration tests using a deterministic fake provider" without any heavy dependency or network access. Added `tests/test_config.py`: `EmbeddingGeneratorConfig.from_env()` default/explicit-backend/model-name/unknown-backend cases — the "configuration tests for provider selection" the Sprint asked for explicitly. Extended `tests/test_application_context.py`: confirms the default composition still resolves to `DeterministicFakeBookEmbeddingGenerator` (`model_name == "deterministic-fake"`), and — using the same `sys.modules` fake-injection technique plus `EMBEDDING_GENERATOR_BACKEND=sentence_transformers` — confirms `ApplicationContext.create()`'s config-driven wiring actually routes through to a working generator end-to-end (register → generate → correct vector/model_name), proving "configuration-based provider selection through the Composition Root" without needing the real heavy dependency. Updated `tests/infrastructure/test_postgresql_book_embedding_repository.py` to apply migration `0005` and bumped its local `_DIMENSIONS` constant from 8 to 384 (all vectors in that file are built via a shared zero-padding helper keyed off that constant, so no other change was needed — the file's existing repository/find_similar/ApplicationContext-integration tests all continue to pass unchanged against the new column width). Re-ran `scripts/run_demo.py` directly after these changes to confirm the demo (which relies on the default deterministic provider) still works correctly end-to-end at the new dimension. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 24 completion, and advanced Current Phase to Phase 4 — AI Recommendation per the Sprint header.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (92 source files)
+  - `python3 -m pytest -q` — pass (199 passed, up from 190; 9 new tests)
   - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
 - Commit: (recorded after commit)
 - Notes: —

@@ -15,7 +15,7 @@ from readmatch_ai.infrastructure.postgresql_book_embedding_repository import (
 from readmatch_ai.infrastructure.postgresql_book_repository import PostgreSQLBookRepository
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
-_DIMENSIONS = 8
+_DIMENSIONS = 384
 
 
 @pytest.fixture(scope="module")
@@ -31,6 +31,7 @@ def postgres_connection() -> Iterator[psycopg.Connection]:
             "0001_create_books_table.sql",
             "0003_create_book_embeddings_table.sql",
             "0004_add_pgvector_to_book_embeddings.sql",
+            "0005_widen_book_embeddings_vector_to_384.sql",
         ):
             connection.execute((_MIGRATIONS_DIR / migration).read_text())
         connection.commit()
@@ -61,7 +62,7 @@ def _add_book(postgres_connection: psycopg.Connection, isbn: str = "978-3-16-148
 
 
 def _vector(*head: float) -> tuple[float, ...]:
-    """An 8-dimensional vector (matching the fixed pgvector column width), zero-padded."""
+    """A vector matching the fixed pgvector column width (_DIMENSIONS), zero-padded."""
     return head + (0.0,) * (_DIMENSIONS - len(head))
 
 

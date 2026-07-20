@@ -552,6 +552,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `Book` entity itself was not modified.
 
+### Task 2 — Embedding Ports
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/book_embedding_repository.py` (`BookEmbeddingRepository` ABC: `save`, `get_by_book_id`) and `src/readmatch_ai/domain/book_embedding_generator.py` (`BookEmbeddingGenerator` ABC: `generate(book: Book) -> BookEmbedding`). Split into two files (persistence vs. generation are different responsibilities), mirroring `book.py`/`book_repository.py`'s separation rather than co-locating everything in `book_embedding.py`.
+- Validation: `ruff check` (pass), `mypy` (pass); confirmed both ports are abstract.
+- Commit: (recorded after commit)
+- Notes: Neither port references a specific algorithm/model — `BookEmbeddingRepository` is storage-only (works for any model since `BookEmbedding` itself carries `model_name`/`dimensions`), and `BookEmbeddingGenerator.generate` takes a plain `Book`, so a real ML-based implementation (deferred to Sprint 16, "Embedding Generation Pipeline") can satisfy the same contract as this Sprint's deterministic fake.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

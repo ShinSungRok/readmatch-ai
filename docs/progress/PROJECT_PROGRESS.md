@@ -146,6 +146,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Accepts a primitive `str` (not `BookId`) so a future API layer can pass a raw path parameter directly; invalid UUID strings raise `ValueError` from `uuid.UUID`, consistent with existing domain validation style.
 
+### Task 3 — GetBookByISBNUseCase
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/application/get_book_by_isbn_use_case.py` with `GetBookByISBNUseCase.execute(isbn: str) -> Book | None`, parsing the input into `ISBN` (reusing existing checksum validation) and delegating to `BookRepository.get_by_isbn`.
+- Validation: `ruff check src/readmatch_ai/application` (pass), `mypy src/readmatch_ai/application` (pass); interactive smoke check confirmed hit and miss cases via `InMemoryBookRepository`. Full Application test suite added in Task 4.
+- Commit: (recorded after commit)
+- Notes: Same primitive-in / domain-VO-out pattern as `GetBookByIdUseCase` for consistency.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

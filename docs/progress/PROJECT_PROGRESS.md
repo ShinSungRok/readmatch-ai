@@ -2,11 +2,11 @@
 
 ## Current State
 
-- Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 21 — Recommendation Evaluation Framework (Task 1-2) — Complete
-- Last Completed Task: Sprint 21 / Task 2 — Validation, Update PROJECT_PROGRESS.md
-- Last Commit: (recorded after commit; Sprint 21 / Task 2)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (171 tests, including an ApplicationContext integration test evaluating all three wired recommendation engines)
+- Current Phase: Phase 3 — Service Layer
+- Current Sprint: Sprint 22 — Recommendation API Foundation (Task 1-2) — Complete
+- Last Completed Task: Sprint 22 / Task 2 — Validation, Update PROJECT_PROGRESS.md
+- Last Commit: (recorded after commit; Sprint 22 / Task 2)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (186 tests); additionally smoke-tested against a real running `uvicorn` process (not just TestClient) for all three endpoints, validation errors, and `/docs`/`/openapi.json`
 
 ## Task Log
 
@@ -738,6 +738,35 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (76 source files)
   - `python3 -m pytest -q` — pass (171 passed, up from 140; 31 new tests)
+  - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
+- Commit: (recorded after commit)
+- Notes: —
+
+## Sprint 22 — Recommendation API Foundation
+
+### Task 1 — API Layer
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/api/` as a new top-level package, sibling to `domain/`/`application/`/`infrastructure/` — a *driving* adapter distinct from Infrastructure's *driven* adapters (SYSTEM_ARCHITECTURE.md's Main Boundaries list "API" and "Infrastructure" separately), and the direct implementation of ADR-009 ("FastAPI serves recommendations"), previously only a placeholder `CMD` in the Sprint 6 Dockerfile. Added production dependencies `fastapi>=0.115`, `pydantic>=2.5`, `uvicorn[standard]>=0.30` to `pyproject.toml`.
+  - `api/schemas.py`: `BookResponse`/`RecommendationItemResponse`/`RecommendationResponse` (Pydantic v2 `BaseModel`s) with `from_domain()` classmethods translating `Book`/`RecommendationResult` — the only place Domain objects are converted to API DTOs, so no Domain type is ever serialized directly.
+  - `api/dependencies.py`: `get_application_context(request)` reads `request.app.state.application_context` (built once at startup, not per-request — avoids opening a new `psycopg.connect()` on every request when the `postgresql` backend is configured) and is the sole seam tests override via `app.dependency_overrides`.
+  - `api/errors.py`: a single `ValueError -> 400 {"detail": ...}` exception handler, since every existing use case (`GetBookByIdUseCase`, `GenerateSemanticRecommendationUseCase`, etc.) already raises plain `ValueError` for malformed input (e.g. a bad UUID) — without this handler FastAPI would surface those as an opaque 500. FastAPI's own request-validation errors (missing/out-of-range query params) already produce a structured 422 with no handler needed.
+  - `api/recommendations_router.py`: three `GET` endpoints — `/recommendations/popularity` (wraps `get_recommendations_use_case`), `/recommendations/semantic/{book_id}` (wraps `generate_semantic_recommendation_use_case`; `book_id` is a required path param, matching the use case's own required-book_id contract), `/recommendations/hybrid` (wraps `generate_hybrid_recommendation_use_case`; `book_id` is an *optional* query param, matching that use case's own optional-book_id contract). `limit` is a `Query(gt=0, le=100)` on all three — API-boundary input validation independent of whatever Domain does or doesn't enforce (`RecommendationQuery.limit` itself has no invariant), satisfying "consistent validation... for invalid requests" without touching Domain.
+  - `api/main.py`: `create_app()` factory (a fresh `FastAPI` instance per call, so tests get full isolation) with an `asynccontextmanager` `lifespan` that calls `ApplicationContext.create()` exactly once at startup and stores it on `app.state`; registers the router and exception handler. Module-level `app = create_app()` is the real entrypoint (`uvicorn readmatch_ai.api.main:app`).
+  - Updated `Dockerfile`'s `CMD` (was an honest placeholder since Sprint 6, explicitly flagged as "pending ADR-009") to `uvicorn readmatch_ai.api.main:app --host 0.0.0.0 --port 8000`, added `EXPOSE 8000`. Updated `docker-compose.yml` to publish `8000:8000`.
+  - No endpoint was added for anything beyond the three named use cases (no book CRUD, no health-check route) — not named in the Sprint brief, and adding either would be an unrequested feature per PROJECT_INSTRUCTIONS.md's scope rules. Semantic/hybrid recommendations for a syntactically-valid-but-nonexistent `book_id` return `200 {"items": []}`, not `404` — this mirrors `SemanticRecommendationEngine`'s existing behavior exactly (it already can't distinguish "book doesn't exist" from "book exists but has no embedding yet"); the API deliberately does not add a new existence-check business rule that the underlying use case doesn't itself have.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Manual smoke test against a real `uvicorn` process (not just `TestClient`): started `uvicorn readmatch_ai.api.main:app` on a local port, `curl`'d all three endpoints (empty-state 200s), an invalid `limit=0` (422 with structured detail), a malformed `book_id` (400 `{"detail": "badly formed hexadecimal UUID string"}`), `/openapi.json` (all three paths present), and `/docs` (200, HTML) — then stopped the process. Formal automated test suite is Task 2.
+- Commit: (recorded after commit)
+- Notes: `httpx2` (not `httpx`) was added as the dev/test dependency — Starlette's `TestClient` (bundled via `fastapi.testclient`) now prefers `httpx2` and emits a `StarletteDeprecationWarning` when only `httpx` is installed; verified via a real test run that installing `httpx2` alongside removes the warning entirely, so it was made the pinned dependency rather than suppressing the warning. `Dockerfile`/`docker-compose.yml` changes were not validated via an actual `docker build`/`up` in this session (the base image was already cached from Sprint 6; the `uvicorn` `CMD` itself was validated identically via the direct local smoke test above) — per Sprint instruction to avoid unnecessary container/image churn.
+
+### Task 2 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/api/conftest.py`: `application_context` fixture (`ApplicationContext.create()`, in-memory) and `client` fixture (a `TestClient` with `get_application_context` overridden to the fixture context, entered via `with` so the app's own lifespan still runs harmlessly in the background). Added `tests/api/test_recommendations_router.py`: happy-path tests for all three endpoints (popularity reflects persisted `loan_count`; semantic reflects persisted embeddings and excludes the source book; hybrid combines both signals and also works with no `book_id`), empty-state responses, `limit` boundary validation (`0` and `101` both 422), and error-path tests (malformed `book_id` -> 400 with a `detail` field; a well-formed-but-unregistered `book_id` -> 200 empty, not 404, per Task 1's documented decision). Added `tests/api/test_openapi_contract.py`: confirms all three paths appear in `/openapi.json`, the `200` response schema for `/recommendations/popularity` references `RecommendationResponse` (and that `RecommendationResponse`/`RecommendationItemResponse`/`BookResponse` are all present in `components.schemas`), and `/docs` serves HTML. Added `tests/api/test_app_lifespan.py`: the one test that does *not* override `get_application_context` — proves `create_app()`'s real `lifespan` (calling the actual default `ApplicationContext.create()`) serves a working request end-to-end, not just the overridden path every other API test exercises. No new Postgres/pgvector testcontainer was introduced for this Sprint: the API layer is fully backend-agnostic through `ApplicationContext` (already proven against real Postgres/pgvector in Sprints 18-21), so an API-level Postgres test would exercise request/response marshaling only, nothing DB-specific — consistent with the Sprint instruction to avoid recreating containers unnecessarily. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 22 completion, and advanced Current Phase to Phase 3 — Service Layer per the Sprint header.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (87 source files)
+  - `python3 -m pytest -q` — pass (186 passed, up from 171; 15 new tests)
   - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
 - Commit: (recorded after commit)
 - Notes: —

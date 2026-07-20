@@ -386,6 +386,18 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 11 — Popularity Data Foundation
+
+**Sprint Goal adjusted mid-sprint** (user instruction, before any Task 1-4 commit): originally "Popularity Recommendation" (RecommendationEngine port + PopularityRecommendationEngine adapter), narrowed to "Popularity Data Foundation" — persisting `loan_count` as a standalone, provenance-tracked signal. `RecommendationEngine`/`RecommendationQuery`/`RecommendationResult`/`Recommendation`/`RecommendationItem` and the `PopularityRecommendationEngine` adapter are explicitly deferred to a future Sprint. Constraints: no live `BookDataSource` calls at recommendation time (moot now — no recommendation engine this Sprint); `Book`/`BookRepository` unchanged; no PostgreSQL persistence for popularity this Sprint.
+
+### Task 1 — Popularity Domain Model
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/book_popularity.py`: `BookPopularity` (`book_id`, `loan_count`, `period_start`, `period_end` — the last two are minimal provenance tracking which query period the signal was observed under, matching `PopularLoanBooksQuery`'s date format) and `BookPopularityRepository` port (`record` upsert, `top_by_loan_count(limit)`).
+- Validation: `ruff check` (pass), `mypy` (pass); confirmed the port is abstract and the value object constructs/reads correctly.
+- Commit: (recorded after commit)
+- Notes: An earlier draft of this Task also added `domain/recommendation.py` (`Recommendation`/`RecommendationItem`) per the original Task 1 wording, but that was removed (uncommitted) once the Sprint Goal was narrowed — those types have no consumer this Sprint (the engine that would produce/consume them is deferred) and would be dead code. `Book`/`BookRepository` not modified.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

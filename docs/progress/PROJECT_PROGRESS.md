@@ -626,6 +626,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: No separate "Database Schema" Task existed this Sprint (unlike Sprint 9/12) — the migration was added here as a necessary part of implementing a working adapter.
 
+### Task 2 — Application Composition
+
+- Status: Done
+- Summary: Added `_build_book_embedding_repository()` to `application_context.py`, following the exact same shape as `_build_book_repository`/`_build_book_popularity_repository`: resolves `PostgreSQLBookEmbeddingRepository` when `BOOK_REPOSITORY_BACKEND=postgresql`, otherwise `InMemoryBookEmbeddingRepository` — preserving InMemory as the default whenever the backend is unset (the config's own default value). The existing `book_embedding_repository` override param on `create()` (added Sprint 16) now defaults to this new resolver instead of unconditionally constructing `InMemoryBookEmbeddingRepository()`.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Confirmed with no env vars set: `ApplicationContext.create().book_embedding_repository` is still `InMemoryBookEmbeddingRepository` (default preserved). Confirmed with `BOOK_REPOSITORY_BACKEND=postgresql`/`DATABASE_URL` against a disposable instance: it resolves to `PostgreSQLBookEmbeddingRepository`, and `generate_book_embedding_use_case` (unmodified `GenerateBookEmbeddingUseCase`) works end-to-end against it — demonstrating the switch requires zero Application-layer changes. Full `ruff check`/`mypy`/`pytest -q` re-run: 103 passed, no regressions.
+- Commit: (recorded after commit)
+- Notes: `book_embedding_generator` is unaffected by this Task — it remains hardcoded to `DeterministicFakeBookEmbeddingGenerator` regardless of backend (no real generator exists yet; not part of this Sprint's scope).
+
 ## Current Constraints
 
 - Implement only approved Tasks.

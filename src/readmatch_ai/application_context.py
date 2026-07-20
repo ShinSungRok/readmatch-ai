@@ -30,6 +30,9 @@ from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRe
 from readmatch_ai.infrastructure.popularity_recommendation_engine import (
     PopularityRecommendationEngine,
 )
+from readmatch_ai.infrastructure.postgresql_book_embedding_repository import (
+    PostgreSQLBookEmbeddingRepository,
+)
 from readmatch_ai.infrastructure.postgresql_book_popularity_repository import (
     PostgreSQLBookPopularityRepository,
 )
@@ -65,9 +68,13 @@ class ApplicationContext:
         PostgreSQL adapters when BOOK_REPOSITORY_BACKEND=postgresql.
         recommendation_engine defaults to PopularityRecommendationEngine built
         from those same (already-resolved) repositories.
-        book_embedding_repository defaults to InMemoryBookEmbeddingRepository
-        (no PostgreSQL adapter yet) and book_embedding_generator defaults to
-        DeterministicFakeBookEmbeddingGenerator (no real model yet).
+        book_embedding_repository defaults via the same
+        BookRepositoryConfig.from_env() as the other two repositories:
+        InMemoryBookEmbeddingRepository (preserved as the default whenever
+        the backend is unset/in_memory) or PostgreSQLBookEmbeddingRepository
+        when BOOK_REPOSITORY_BACKEND=postgresql. book_embedding_generator
+        defaults to DeterministicFakeBookEmbeddingGenerator (no real model
+        yet).
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -83,7 +90,7 @@ class ApplicationContext:
         embedding_repository = (
             book_embedding_repository
             if book_embedding_repository is not None
-            else InMemoryBookEmbeddingRepository()
+            else _build_book_embedding_repository()
         )
         embedding_generator = (
             book_embedding_generator
@@ -120,3 +127,12 @@ def _build_book_popularity_repository() -> BookPopularityRepository:
         connection = psycopg.connect(config.database_url)
         return PostgreSQLBookPopularityRepository(connection)
     return InMemoryBookPopularityRepository()
+
+
+def _build_book_embedding_repository() -> BookEmbeddingRepository:
+    config = BookRepositoryConfig.from_env()
+    if config.backend == POSTGRESQL_BACKEND:
+        assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
+        connection = psycopg.connect(config.database_url)
+        return PostgreSQLBookEmbeddingRepository(connection)
+    return InMemoryBookEmbeddingRepository()

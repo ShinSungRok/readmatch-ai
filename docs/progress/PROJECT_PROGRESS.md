@@ -436,6 +436,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: This corrects a behavior explicitly identified as wrong in Sprint 11's own design (that Sprint recorded no popularity at all for duplicates) — the Sprint 12 brief called this out directly ("Do not suppress a valid popularity update merely because the Book already exists").
 
+### Task 2 — PostgreSQL Popularity Schema
+
+- Status: Done
+- Summary: Added `migrations/0002_create_book_popularity_table.sql`: `book_popularity(book_id UUID PRIMARY KEY REFERENCES books(id), loan_count INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL)` plus `idx_book_popularity_loan_count ON book_popularity (loan_count DESC)` for ranking queries. `PRIMARY KEY(book_id)` (not a composite/history key) intentionally matches `InMemoryBookPopularityRepository`'s overwrite-latest-signal semantics — "repeated collection periods" are handled as an upsert-refresh of the single current signal per book, consistent with Task 1's corrected behavior, not an append-only history log.
+- Validation: Started a disposable `postgres:16-alpine` container, applied migrations `0001` then `0002` in order, confirmed via `\d book_popularity` that the PK/FK/index all match intent. Verified the FK constraint rejects a `book_popularity` row referencing a non-existent `book_id` (`ForeignKeyViolation`). Container stopped and removed afterward.
+- Commit: (recorded after commit)
+- Notes: `period_start`/`period_end` kept as `TEXT` (not `DATE`), matching the Domain's `str` representation and avoiding adapter-side type-casting complexity not otherwise needed.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

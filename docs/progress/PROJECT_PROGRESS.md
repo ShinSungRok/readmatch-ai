@@ -478,6 +478,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `RecommendationQuery` intentionally has only `limit` — no personalization fields, since Popularity is non-personalized (ADR-004: cold-start fallback). Wider query fields can be added later without breaking this port if a personalized engine needs them.
 
+### Task 2 — RecommendationEngine Port
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/recommendation_engine.py`: `RecommendationEngine` (ABC) with a single `recommend(query: RecommendationQuery) -> RecommendationResult` method. No algorithm-specific detail in the interface.
+- Validation: `ruff check` (pass), `mypy` (pass); confirmed the port is abstract.
+- Commit: (recorded after commit)
+- Notes: Mirrors the existing `BookRepository`/`BookDataSource`/`BookPopularityRepository` port pattern (ABC + closely-related I/O types co-located in Domain).
+
 ## Current Constraints
 
 - Implement only approved Tasks.

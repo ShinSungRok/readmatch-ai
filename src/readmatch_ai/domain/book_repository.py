@@ -5,6 +5,10 @@ from abc import ABC, abstractmethod
 from readmatch_ai.domain.book import ISBN, Book, BookId
 
 
+class BookNotFoundError(Exception):
+    """Raised when a repository operation targets a Book that does not exist."""
+
+
 class BookRepository(ABC):
     """Port for Book persistence; implemented by an infrastructure adapter."""
 
@@ -16,3 +20,11 @@ class BookRepository(ABC):
 
     @abstractmethod
     def get_by_isbn(self, isbn: ISBN) -> Book | None: ...
+
+    @abstractmethod
+    def update(self, book: Book) -> None:
+        """Update an existing Book; raises BookNotFoundError if it does not exist."""
+
+    @abstractmethod
+    def remove(self, book_id: BookId) -> None:
+        """Remove an existing Book; raises BookNotFoundError if it does not exist."""

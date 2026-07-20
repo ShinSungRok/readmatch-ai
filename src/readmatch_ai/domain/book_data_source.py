@@ -24,6 +24,7 @@ class PopularLoanBook:
     title: str
     author: str
     publisher: str
+    category: str
     loan_count: int
 
 

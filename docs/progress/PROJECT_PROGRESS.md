@@ -273,6 +273,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 8 — Book Import Pipeline
+
+### Task 1 — Book Import Mapper
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/application/book_import_mapper.py` with `map_to_book(source: PopularLoanBook) -> Book`, delegating all validation to the existing `ISBN`/`Title`/`Author`/`Category` value objects (no new validation logic). Discovered `PopularLoanBook` (Sprint 7) had no `category` field, which `Book` requires — added `category: str` to `PopularLoanBook`, and updated `Data4LibraryBookDataSource._parse_response` to populate it from the real API's `class_nm` (KDC classification name) field. Fixed the Sprint 7 adapter test accordingly.
+- Validation: `ruff check src tests` (pass), `mypy src tests` (pass, 28 source files), `pytest -q` (pass, 43 passed); interactive smoke check confirmed a valid `PopularLoanBook` maps correctly and an invalid ISBN raises `ValueError` via the existing `ISBN` value object.
+- Commit: (recorded after commit)
+- Notes: Extending `PopularLoanBook` and its one existing consumer (the Data4Library adapter/test from Sprint 7) was necessary to make the mapping possible at all — not an unrelated refactor, since `category` is a required `Book` field and this Sprint's explicit purpose is that mapping.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

@@ -22,6 +22,7 @@ _SAMPLE_RESPONSE = {
                     "authors": "이미예 지음",
                     "publisher": "팩토리나인",
                     "isbn13": "9791165341909",
+                    "class_nm": "한국소설",
                     "loan_count": "12345",
                 }
             }
@@ -58,7 +59,7 @@ def test_explicit_auth_key_does_not_require_env_var(monkeypatch: pytest.MonkeyPa
 
     source = Data4LibraryBookDataSource(auth_key="explicit-key")
 
-    assert source._auth_key == "explicit-key"  # noqa: SLF001
+    assert source._auth_key == "explicit-key"
 
 
 @patch("readmatch_ai.infrastructure.data4library_book_data_source.urlopen")
@@ -74,6 +75,7 @@ def test_search_popular_loans_parses_mocked_response(mock_urlopen: MagicMock) ->
             title="달러구트 꿈 백화점",
             author="이미예 지음",
             publisher="팩토리나인",
+            category="한국소설",
             loan_count=12345,
         )
     ]

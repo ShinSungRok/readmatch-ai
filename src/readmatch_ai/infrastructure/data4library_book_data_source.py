@@ -65,6 +65,7 @@ class Data4LibraryBookDataSource(BookDataSource):
                 title=entry["doc"]["bookname"],
                 author=entry["doc"]["authors"],
                 publisher=entry["doc"]["publisher"],
+                category=entry["doc"]["class_nm"],
                 loan_count=int(entry["doc"]["loan_count"]),
             )
             for entry in docs

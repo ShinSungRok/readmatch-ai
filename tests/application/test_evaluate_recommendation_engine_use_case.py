@@ -12,6 +12,7 @@ from readmatch_ai.domain.recommendation import (
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.domain.user import UserId
 
 
 def _book(book_id: BookId) -> Book:
@@ -56,6 +57,20 @@ def test_execute_queries_the_engine_per_case_with_k_as_limit() -> None:
 
     assert [query.book_id for query in engine.received_queries] == [source_a, source_b]
     assert all(query.limit == 3 for query in engine.received_queries)
+
+
+def test_execute_queries_the_engine_with_user_id_for_a_user_based_case() -> None:
+    """A collaborative-filtering (e.g. ALS) case is keyed by user_id, not book_id."""
+    user_id = UserId.generate()
+    engine = _FakeRecommendationEngine([BookId.generate()])
+    dataset = EvaluationDataset(
+        cases=(EvaluationCase(user_id=user_id, relevant_book_ids=frozenset({BookId.generate()})),)
+    )
+
+    EvaluateRecommendationEngineUseCase().execute(engine, "fake", dataset, k=5)
+
+    assert engine.received_queries[0].user_id == user_id
+    assert engine.received_queries[0].book_id is None
 
 
 def test_execute_aggregates_metrics_as_the_mean_across_cases() -> None:

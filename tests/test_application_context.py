@@ -7,6 +7,7 @@ import pytest
 
 from readmatch_ai.application.register_book_use_case import RegisterBookInput
 from readmatch_ai.application_context import ApplicationContext
+from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
 from readmatch_ai.domain.book_popularity import BookPopularity
 from readmatch_ai.domain.evaluation import EvaluationCase, EvaluationDataset
 from readmatch_ai.domain.recommendation import (
@@ -15,11 +16,17 @@ from readmatch_ai.domain.recommendation import (
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.domain.user import UserId
+from readmatch_ai.domain.user_book_interaction import UserBookInteraction
+from readmatch_ai.infrastructure.als_recommendation_engine import ALSRecommendationEngine
 from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
 from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
     InMemoryBookEmbeddingRepository,
 )
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
+from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
+    InMemoryUserBookInteractionRepository,
+)
 from readmatch_ai.infrastructure.popularity_recommendation_engine import (
     PopularityRecommendationEngine,
 )
@@ -51,6 +58,16 @@ def _other_input() -> RegisterBookInput:
         title="Effective Java",
         author="Joshua Bloch",
         category="Software Engineering",
+    )
+
+
+def _book(isbn: str, title: str) -> Book:
+    return Book(
+        id=BookId.generate(),
+        isbn=ISBN(isbn),
+        title=Title(title),
+        author=Author("Author"),
+        category=Category("Category"),
     )
 
 
@@ -203,27 +220,107 @@ def test_create_exposes_the_resolved_recommendation_engines() -> None:
     assert isinstance(context.recommendation_engine, PopularityRecommendationEngine)
     assert isinstance(context.semantic_recommendation_engine, SemanticRecommendationEngine)
     assert isinstance(context.hybrid_recommendation_engine, HybridRecommendationEngine)
+    assert isinstance(context.als_recommendation_engine, ALSRecommendationEngine)
 
 
-def test_evaluate_recommendation_engine_use_case_scores_the_three_wired_engines() -> None:
+def test_create_defaults_to_in_memory_user_book_interaction_repository() -> None:
     context = ApplicationContext.create()
-    source = context.register_book_use_case.execute(_valid_input())
-    other = context.register_book_use_case.execute(_other_input())
+
+    assert isinstance(
+        context.user_book_interaction_repository, InMemoryUserBookInteractionRepository
+    )
+
+
+def test_create_accepts_an_explicit_user_book_interaction_repository() -> None:
+    repository = InMemoryUserBookInteractionRepository()
+
+    context = ApplicationContext.create(user_book_interaction_repository=repository)
+
+    assert context.user_book_interaction_repository is repository
+
+
+def test_create_accepts_an_explicit_als_recommendation_engine() -> None:
+    sentinel_result = RecommendationResult(Recommendation(items=[]))
+    engine = _FakeRecommendationEngine(sentinel_result)
+
+    context = ApplicationContext.create(als_recommendation_engine=engine)
+
+    result = context.generate_als_recommendation_use_case.execute(
+        user_id=str(uuid.uuid4()), limit=1
+    )
+    assert result is sentinel_result
+
+
+def test_als_recommendations_exclude_already_interacted_books() -> None:
+    """ALS trains once at ApplicationContext.create() time from whatever
+    interactions exist then, so interactions must be recorded beforehand —
+    recording them after context creation would not retroactively retrain
+    this ALS engine instance (see application_context.py's docstring).
+    """
+    book_repository = InMemoryBookRepository()
+    interaction_repository = InMemoryUserBookInteractionRepository()
+    liked = _book("978-3-16-148410-0", "Liked")
+    unseen = _book("0-306-40615-2", "Unseen")
+    book_repository.add(liked)
+    book_repository.add(unseen)
+
+    user, other_user = UserId.generate(), UserId.generate()
+    interaction_repository.record(UserBookInteraction(user, liked.id, interaction_count=5))
+    interaction_repository.record(UserBookInteraction(other_user, liked.id, interaction_count=4))
+    interaction_repository.record(UserBookInteraction(other_user, unseen.id, interaction_count=3))
+
+    context = ApplicationContext.create(
+        book_repository=book_repository, user_book_interaction_repository=interaction_repository
+    )
+
+    result = context.generate_als_recommendation_use_case.execute(
+        user_id=str(user.value), limit=10
+    )
+
+    recommended_ids = {item.book.id for item in result.recommendation.items}
+    assert liked.id not in recommended_ids
+    assert all(item.source == "als" for item in result.recommendation.items)
+
+
+def test_evaluate_recommendation_engine_use_case_scores_the_four_wired_engines() -> None:
+    book_repository = InMemoryBookRepository()
+    interaction_repository = InMemoryUserBookInteractionRepository()
+    source = _book("978-3-16-148410-0", "Source")
+    other = _book("0-306-40615-2", "Other")
+    book_repository.add(source)
+    book_repository.add(other)
+
+    user, other_user = UserId.generate(), UserId.generate()
+    interaction_repository.record(UserBookInteraction(user, source.id, interaction_count=1))
+    interaction_repository.record(UserBookInteraction(other_user, source.id, interaction_count=5))
+    interaction_repository.record(UserBookInteraction(other_user, other.id, interaction_count=5))
+
+    context = ApplicationContext.create(
+        book_repository=book_repository, user_book_interaction_repository=interaction_repository
+    )
     context.generate_book_embedding_use_case.execute(str(source.id.value))
     context.generate_book_embedding_use_case.execute(str(other.id.value))
     context.book_popularity_repository.record(
         BookPopularity(other.id, loan_count=100, period_start="2024-01-01", period_end="2024-01-31")
     )
-    dataset = EvaluationDataset(
+
+    book_based_dataset = EvaluationDataset(
         cases=(EvaluationCase(book_id=source.id, relevant_book_ids=frozenset({other.id})),)
     )
-    engines = {
-        "popularity": context.recommendation_engine,
-        "semantic": context.semantic_recommendation_engine,
-        "hybrid": context.hybrid_recommendation_engine,
+    # A single eligible candidate (`other`; `source` is excluded as already
+    # interacted) makes ALS's ranking unambiguous too, so the same precise
+    # assertions below hold for all four engines.
+    user_based_dataset = EvaluationDataset(
+        cases=(EvaluationCase(user_id=user, relevant_book_ids=frozenset({other.id})),)
+    )
+    engines_and_datasets = {
+        "popularity": (context.recommendation_engine, book_based_dataset),
+        "semantic": (context.semantic_recommendation_engine, book_based_dataset),
+        "hybrid": (context.hybrid_recommendation_engine, book_based_dataset),
+        "als": (context.als_recommendation_engine, user_based_dataset),
     }
 
-    for name, engine in engines.items():
+    for name, (engine, dataset) in engines_and_datasets.items():
         result = context.evaluate_recommendation_engine_use_case.execute(
             engine, name, dataset, k=10
         )

@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 1 — Data Foundation
-- Current Sprint: Sprint 8 — Book Import Pipeline (Task 1-4) — Complete
-- Last Completed Task: Sprint 8 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: 917e5b3 (Sprint 8 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (47 tests)
+- Current Sprint: Sprint 9 — PostgreSQL Repository Adapter (Task 1-4) — Complete
+- Last Completed Task: Sprint 9 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: ffceed4 (Sprint 9 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (58 tests, including PostgreSQL integration tests via testcontainers)
 
 ## Task Log
 
@@ -317,7 +317,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/infrastructure/postgresql_book_repository.py` implementing `PostgreSQLBookRepository(BookRepository)` — add/get_by_id/get_by_isbn/update/remove via parameterized SQL against a `books` table (schema defined in Task 2). Connection is injected via constructor (lifecycle owned by the caller, not the adapter). ISBN uniqueness relies on the database's UNIQUE constraint; `psycopg.errors.UniqueViolation` is caught and translated into the existing `DuplicateISBNError` so Infrastructure exceptions never leak past this adapter. Added production dependency `psycopg[binary]>=3.1` and dev dependency `testcontainers[postgres]` (for Task 3's disposable integration tests) to `pyproject.toml`.
 - Validation: `ruff check` (pass), `mypy` (pass, strict); full `ruff check src tests` / `mypy src tests` / `pytest -q` re-run to confirm the new dependency didn't break anything (47 passed, unchanged). No execution against a real database yet — the `books` table doesn't exist until Task 2's migration is applied; full behavioral validation is Task 3.
-- Commit: (recorded after commit)
+- Commit: 465ba5d
 - Notes: PostgreSQL itself was already approved (ADR-001); `psycopg` (v3, binary distribution — no compiler/libpq-dev needed, important since this sandbox has no passwordless sudo for system packages) was chosen as the specific driver, an implementation-level choice analogous to Sprint 7's stdlib-vs-requests decision, not a new architectural decision.
 
 ### Task 2 — Database Schema
@@ -325,7 +325,7 @@ Use this format:
 - Status: Done
 - Summary: Added `migrations/0001_create_books_table.sql` (repo root, sibling to `src`/`tests`): `books` table with `id UUID PRIMARY KEY`, `isbn TEXT NOT NULL UNIQUE`, `title`/`author`/`category TEXT NOT NULL` — matching Task 1's adapter columns exactly.
 - Validation: Started a disposable `postgres:16-alpine` container via plain `docker run` (ad hoc, not yet the automated Task 3 suite), applied the migration via `psql`, confirmed via `\d books` that the table/constraints match the intended schema (PK on `id`, UNIQUE on `isbn`). Then ran an end-to-end smoke script against that same instance exercising `PostgreSQLBookRepository` (add, get_by_id, get_by_isbn, update, duplicate-ISBN rejection, remove, remove-missing) — all passed. Container stopped and removed afterward.
-- Commit: (recorded after commit)
+- Commit: 5513614
 - Notes: No migration-runner tool (e.g. Alembic) introduced — a single checked-in SQL file is the smallest complete change for the first migration; not wired into the Docker image yet since there is no migration-running entrypoint in production (consistent with Sprint 6's placeholder-CMD approach). `migrations/` is not copied into the Docker image (`.dockerignore` predates this file and doesn't need to change, since it isn't referenced by any runtime code path yet).
 
 ### Task 3 — Repository Validation
@@ -337,8 +337,16 @@ Use this format:
   - `python3 -m mypy src tests` — pass (32 source files)
   - `python3 -m pytest -q` — pass (58 passed, ~14s; includes the 11 new Postgres integration tests spinning up/tearing down a real disposable container)
   - Confirmed no leftover containers after the run (`docker ps -a`) — only a pre-existing, unrelated container from outside this session remained.
-- Commit: (recorded after commit)
+- Commit: ffceed4
 - Notes: Since GitHub-hosted Actions runners provide Docker by default, the Sprint 6 CI workflow (`pytest -q`) will run these integration tests automatically with no workflow changes needed — confirmed by inspection, not by an actual GitHub run.
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to mark Sprint 9 complete and back-filled Sprint 9 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

@@ -328,6 +328,18 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: No migration-runner tool (e.g. Alembic) introduced — a single checked-in SQL file is the smallest complete change for the first migration; not wired into the Docker image yet since there is no migration-running entrypoint in production (consistent with Sprint 6's placeholder-CMD approach). `migrations/` is not copied into the Docker image (`.dockerignore` predates this file and doesn't need to change, since it isn't referenced by any runtime code path yet).
 
+### Task 3 — Repository Validation
+
+- Status: Done
+- Summary: Added `tests/infrastructure/test_postgresql_book_repository.py`, mirroring `test_in_memory_book_repository.py`'s exact scenarios (add/get_by_id/get_by_isbn/update/remove/duplicate ISBN, both in-batch and update-conflict) against `PostgreSQLBookRepository`, run against a `testcontainers` `PostgresContainer("postgres:16-alpine")` — a disposable instance started once per test module, with `migrations/0001_create_books_table.sql` applied on startup and `TRUNCATE TABLE books` between tests for isolation, then torn down automatically at module end. Added `[[tool.mypy.overrides]] module = "testcontainers.*"` to `pyproject.toml` since the package ships no type stubs.
+- Validation:
+  - `python3 -m ruff check src tests` — pass
+  - `python3 -m mypy src tests` — pass (32 source files)
+  - `python3 -m pytest -q` — pass (58 passed, ~14s; includes the 11 new Postgres integration tests spinning up/tearing down a real disposable container)
+  - Confirmed no leftover containers after the run (`docker ps -a`) — only a pre-existing, unrelated container from outside this session remained.
+- Commit: (recorded after commit)
+- Notes: Since GitHub-hosted Actions runners provide Docker by default, the Sprint 6 CI workflow (`pytest -q`) will run these integration tests automatically with no workflow changes needed — confirmed by inspection, not by an actual GitHub run.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

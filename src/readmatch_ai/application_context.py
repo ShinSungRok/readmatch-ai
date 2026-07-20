@@ -7,6 +7,9 @@ import psycopg
 from readmatch_ai.application.generate_book_embedding_use_case import (
     GenerateBookEmbeddingUseCase,
 )
+from readmatch_ai.application.generate_hybrid_recommendation_use_case import (
+    GenerateHybridRecommendationUseCase,
+)
 from readmatch_ai.application.generate_semantic_recommendation_use_case import (
     GenerateSemanticRecommendationUseCase,
 )
@@ -23,6 +26,7 @@ from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.infrastructure.deterministic_fake_book_embedding_generator import (
     DeterministicFakeBookEmbeddingGenerator,
 )
+from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
 from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
     InMemoryBookEmbeddingRepository,
 )
@@ -58,6 +62,7 @@ class ApplicationContext:
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
+    generate_hybrid_recommendation_use_case: GenerateHybridRecommendationUseCase
 
     @classmethod
     def create(
@@ -68,6 +73,7 @@ class ApplicationContext:
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
+        hybrid_recommendation_engine: RecommendationEngine | None = None,
     ) -> ApplicationContext:
         """Wire the Book/Recommendation/Embedding use cases to their dependencies.
 
@@ -84,7 +90,11 @@ class ApplicationContext:
         defaults to DeterministicFakeBookEmbeddingGenerator (no real model
         yet). semantic_recommendation_engine defaults to
         SemanticRecommendationEngine built from those same (already-resolved)
-        book_embedding_repository/book_repository.
+        book_embedding_repository/book_repository. hybrid_recommendation_engine
+        defaults to HybridRecommendationEngine built from the same
+        (already-resolved) popularity/semantic engines used above — an
+        explicit override of either of those also flows into the default
+        Hybrid engine, keeping composition consistent.
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -112,6 +122,11 @@ class ApplicationContext:
             if semantic_recommendation_engine is not None
             else SemanticRecommendationEngine(embedding_repository, repository)
         )
+        hybrid_engine = (
+            hybrid_recommendation_engine
+            if hybrid_recommendation_engine is not None
+            else HybridRecommendationEngine(engine, semantic_engine)
+        )
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
@@ -125,6 +140,9 @@ class ApplicationContext:
             ),
             generate_semantic_recommendation_use_case=GenerateSemanticRecommendationUseCase(
                 semantic_engine
+            ),
+            generate_hybrid_recommendation_use_case=GenerateHybridRecommendationUseCase(
+                hybrid_engine
             ),
         )
 

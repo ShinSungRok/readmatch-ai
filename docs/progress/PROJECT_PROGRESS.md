@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 1 — Data Foundation
-- Current Sprint: Sprint 7 — Data Ingestion Foundation (External Book Data Source) (Task 1-4) — Complete
-- Last Completed Task: Sprint 7 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: 2d7b484 (Sprint 7 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (43 tests)
+- Current Sprint: Sprint 8 — Book Import Pipeline (Task 1-4) — Complete
+- Last Completed Task: Sprint 8 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: 917e5b3 (Sprint 8 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (47 tests)
 
 ## Task Log
 
@@ -280,7 +280,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application/book_import_mapper.py` with `map_to_book(source: PopularLoanBook) -> Book`, delegating all validation to the existing `ISBN`/`Title`/`Author`/`Category` value objects (no new validation logic). Discovered `PopularLoanBook` (Sprint 7) had no `category` field, which `Book` requires — added `category: str` to `PopularLoanBook`, and updated `Data4LibraryBookDataSource._parse_response` to populate it from the real API's `class_nm` (KDC classification name) field. Fixed the Sprint 7 adapter test accordingly.
 - Validation: `ruff check src tests` (pass), `mypy src tests` (pass, 28 source files), `pytest -q` (pass, 43 passed); interactive smoke check confirmed a valid `PopularLoanBook` maps correctly and an invalid ISBN raises `ValueError` via the existing `ISBN` value object.
-- Commit: (recorded after commit)
+- Commit: 6522b54
 - Notes: Extending `PopularLoanBook` and its one existing consumer (the Data4Library adapter/test from Sprint 7) was necessary to make the mapping possible at all — not an unrelated refactor, since `category` is a required `Book` field and this Sprint's explicit purpose is that mapping.
 
 ### Task 2 — ImportBooksUseCase
@@ -288,7 +288,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/application/import_books_use_case.py` with `ImportBooksUseCase` (constructor-injected `BookDataSource` + `BookRepository`) and `ImportBooksResult` (imported books + skipped duplicate ISBNs). `execute(query: PopularLoanBooksQuery)` fetches from the data source, maps each result via `map_to_book`, and persists via `BookRepository.add`, catching `DuplicateISBNError` per-book so one duplicate does not abort the batch. Reused the existing `PopularLoanBooksQuery` as the use case input instead of introducing a redundant DTO.
 - Validation: `ruff check src/readmatch_ai/application` (pass), `mypy src/readmatch_ai/application` (pass); interactive smoke check with a fake `BookDataSource` and `InMemoryBookRepository` confirmed: 2 new books imported, 1 in-batch duplicate ISBN correctly skipped and reported. Formal test suite (success/duplicate/empty) added in Task 3.
-- Commit: (recorded after commit)
+- Commit: df13846
 - Notes: Mapper-raised `ValueError` (invalid external data) is intentionally left unhandled/propagating — not in this Task's named scenarios (success, duplicate ISBN, empty results); data cleaning is a separate future concern per ROADMAP Phase 1.
 
 ### Task 3 — Application Validation
@@ -299,8 +299,16 @@ Use this format:
   - `python3 -m ruff check src tests` — pass
   - `python3 -m mypy src tests` — pass (30 source files)
   - `python3 -m pytest -q` — pass (47 passed)
-- Commit: (recorded after commit)
+- Commit: 917e5b3
 - Notes: No test calls the real Data4Library API — `FakeBookDataSource` is entirely in-memory, consistent with Sprint 7's contract-testing approach.
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to mark Sprint 8 complete and back-filled Sprint 8 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

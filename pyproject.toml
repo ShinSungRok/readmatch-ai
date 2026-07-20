@@ -19,6 +19,12 @@ dev = [
     "testcontainers[postgres]",
     "httpx2>=2.0",
 ]
+# Optional, not part of `dev`: DeterministicFakeBookEmbeddingGenerator remains
+# the default provider and all automated tests use it or a fake stand-in, so
+# this heavy dependency (pulls in torch) is never required for development/CI.
+embeddings = [
+    "sentence-transformers>=3.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -41,6 +47,10 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = "testcontainers.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sentence_transformers.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

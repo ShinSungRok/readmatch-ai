@@ -7,15 +7,21 @@ from readmatch_ai.domain.book_embedding import BookEmbedding
 from readmatch_ai.domain.book_embedding_generator import BookEmbeddingGenerator
 
 _DEFAULT_MODEL_NAME = "deterministic-fake"
-_DEFAULT_DIMENSIONS = 8
+# Matches SentenceTransformerBookEmbeddingGenerator's default model dimension
+# (sentence-transformers/all-MiniLM-L6-v2) so both providers are storable in
+# the same fixed-width pgvector column regardless of which is configured.
+_DEFAULT_DIMENSIONS = 384
 
 
 class DeterministicFakeBookEmbeddingGenerator(BookEmbeddingGenerator):
-    """Deterministic, dependency-free BookEmbeddingGenerator for testing.
+    """Deterministic, dependency-free BookEmbeddingGenerator — the default provider.
 
     Derives a vector from a SHA-256 digest of the Book's text fields — not a
     real ML model. The same Book text always produces the same vector, and
-    different text produces a different vector in practice.
+    different text produces a different vector in practice. Remains the
+    default for tests and local deterministic scenarios; a real provider
+    (SentenceTransformerBookEmbeddingGenerator) is opt-in via
+    EMBEDDING_GENERATOR_BACKEND.
     """
 
     def __init__(

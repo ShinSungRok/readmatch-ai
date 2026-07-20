@@ -43,3 +43,41 @@ class BookRepositoryConfig:
             )
 
         return cls(backend=backend, database_url=database_url)
+
+
+_EMBEDDING_GENERATOR_BACKEND_ENV_VAR = "EMBEDDING_GENERATOR_BACKEND"
+_EMBEDDING_MODEL_NAME_ENV_VAR = "EMBEDDING_MODEL_NAME"
+
+DETERMINISTIC_BACKEND = "deterministic"
+SENTENCE_TRANSFORMERS_BACKEND = "sentence_transformers"
+_VALID_EMBEDDING_GENERATOR_BACKENDS = {DETERMINISTIC_BACKEND, SENTENCE_TRANSFORMERS_BACKEND}
+
+
+class UnknownEmbeddingGeneratorBackendError(Exception):
+    """Raised when EMBEDDING_GENERATOR_BACKEND is set to an unsupported value."""
+
+
+@dataclass(frozen=True)
+class EmbeddingGeneratorConfig:
+    """Configuration selecting which BookEmbeddingGenerator ApplicationContext composes.
+
+    Defaults to `deterministic` (DeterministicFakeBookEmbeddingGenerator) —
+    unlike BookRepositoryConfig, this default is not meant to change for
+    production use without an explicit opt-in, since the real provider is a
+    heavy optional dependency.
+    """
+
+    backend: str
+    model_name: str | None = None
+
+    @classmethod
+    def from_env(cls) -> EmbeddingGeneratorConfig:
+        backend = os.environ.get(_EMBEDDING_GENERATOR_BACKEND_ENV_VAR, DETERMINISTIC_BACKEND)
+        if backend not in _VALID_EMBEDDING_GENERATOR_BACKENDS:
+            raise UnknownEmbeddingGeneratorBackendError(
+                f"Unknown {_EMBEDDING_GENERATOR_BACKEND_ENV_VAR}: {backend!r} "
+                f"(expected one of {sorted(_VALID_EMBEDDING_GENERATOR_BACKENDS)})"
+            )
+
+        model_name = os.environ.get(_EMBEDDING_MODEL_NAME_ENV_VAR)
+        return cls(backend=backend, model_name=model_name)

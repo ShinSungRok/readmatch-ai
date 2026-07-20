@@ -20,7 +20,12 @@ from readmatch_ai.application.get_book_by_id_use_case import GetBookByIdUseCase
 from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
 from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
-from readmatch_ai.config import POSTGRESQL_BACKEND, BookRepositoryConfig
+from readmatch_ai.config import (
+    POSTGRESQL_BACKEND,
+    SENTENCE_TRANSFORMERS_BACKEND,
+    BookRepositoryConfig,
+    EmbeddingGeneratorConfig,
+)
 from readmatch_ai.domain.book_embedding_generator import BookEmbeddingGenerator
 from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepository
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
@@ -94,8 +99,12 @@ class ApplicationContext:
         InMemoryBookEmbeddingRepository (preserved as the default whenever
         the backend is unset/in_memory) or PostgreSQLBookEmbeddingRepository
         when BOOK_REPOSITORY_BACKEND=postgresql. book_embedding_generator
-        defaults to DeterministicFakeBookEmbeddingGenerator (no real model
-        yet). semantic_recommendation_engine defaults to
+        defaults via EmbeddingGeneratorConfig.from_env():
+        DeterministicFakeBookEmbeddingGenerator (default, and the default
+        stays deterministic even when unset — unlike the repository
+        backends) or SentenceTransformerBookEmbeddingGenerator when
+        EMBEDDING_GENERATOR_BACKEND=sentence_transformers.
+        semantic_recommendation_engine defaults to
         SemanticRecommendationEngine built from those same (already-resolved)
         book_embedding_repository/book_repository. hybrid_recommendation_engine
         defaults to HybridRecommendationEngine built from the same
@@ -126,7 +135,7 @@ class ApplicationContext:
         embedding_generator = (
             book_embedding_generator
             if book_embedding_generator is not None
-            else DeterministicFakeBookEmbeddingGenerator()
+            else _build_book_embedding_generator()
         )
         semantic_engine = (
             semantic_recommendation_engine
@@ -187,3 +196,19 @@ def _build_book_embedding_repository() -> BookEmbeddingRepository:
         connection = psycopg.connect(config.database_url)
         return PostgreSQLBookEmbeddingRepository(connection)
     return InMemoryBookEmbeddingRepository()
+
+
+def _build_book_embedding_generator() -> BookEmbeddingGenerator:
+    config = EmbeddingGeneratorConfig.from_env()
+    if config.backend == SENTENCE_TRANSFORMERS_BACKEND:
+        # Imported lazily: sentence-transformers is an optional dependency
+        # (pyproject.toml's `embeddings` extra), only required when this
+        # backend is actually selected.
+        from readmatch_ai.infrastructure.sentence_transformer_book_embedding_generator import (
+            SentenceTransformerBookEmbeddingGenerator,
+        )
+
+        if config.model_name is not None:
+            return SentenceTransformerBookEmbeddingGenerator(model_name=config.model_name)
+        return SentenceTransformerBookEmbeddingGenerator()
+    return DeterministicFakeBookEmbeddingGenerator()

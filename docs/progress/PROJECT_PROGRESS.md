@@ -202,6 +202,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 6 — Runtime Foundation & CI
+
+### Task 1 — Docker Runtime Foundation
+
+- Status: Done
+- Summary: Added `Dockerfile` (python:3.12-slim, `pip install --no-cache-dir .` for production deps only — dev extras excluded, non-root `appuser`) and `.dockerignore`. No FastAPI/server exists yet (ADR-009 not implemented), so CMD is an honest placeholder (`import readmatch_ai; print(__version__)`) rather than a fabricated service entrypoint.
+- Validation: `docker build -t readmatch-ai:foundation-test .` — succeeded; `docker run --rm readmatch-ai:foundation-test` printed `0.1.0`; confirmed process runs as `appuser`, not root. Test image removed after validation.
+- Commit: (recorded after commit)
+- Notes: CMD is a placeholder pending Phase 5/Serving (ADR-009); flagged here so it is not mistaken for a real service entrypoint.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

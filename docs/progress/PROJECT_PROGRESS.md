@@ -505,6 +505,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 14 — Recommendation Application Integration
+
+### Task 1 — Recommendation UseCase
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/application/get_recommendations_use_case.py`: `GetRecommendationsUseCase(recommendation_engine: RecommendationEngine)`, `execute(limit: int) -> RecommendationResult`. Constructs `RecommendationQuery` internally from the primitive `limit`, matching the existing primitive-in/domain-type-internally pattern used by `GetBookByIdUseCase`/`GetBookByISBNUseCase`.
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check with `PopularityRecommendationEngine` over `InMemoryBookRepository`/`InMemoryBookPopularityRepository` confirmed correct delegation and result.
+- Commit: (recorded after commit)
+- Notes: Depends only on the `RecommendationEngine` port (Domain), not `PopularityRecommendationEngine` directly — Hexagonal dependency direction preserved.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

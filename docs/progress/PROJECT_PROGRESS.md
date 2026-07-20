@@ -183,6 +183,17 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `InMemoryBookRepository` is imported only in this module — the one place in the codebase allowed to reference a concrete Infrastructure adapter directly.
 
+### Task 3 — Runtime Validation
+
+- Status: Done
+- Summary: Added `tests/test_application_context.py` covering: default wiring resolves to `InMemoryBookRepository`, an explicit repository can be injected, all three use cases operate on the same repository instance end-to-end (register then read-by-id and read-by-isbn), missing-book lookups return `None`, and separate `create()` calls produce independent, non-shared state.
+- Validation:
+  - `python3 -m ruff check src tests` — pass
+  - `python3 -m mypy src tests` — pass (23 source files)
+  - `python3 -m pytest -q` — pass (37 passed)
+- Commit: (recorded after commit)
+- Notes: Placed at `tests/` root (not under `tests/application/`) mirroring `application_context.py`'s package-root placement as the composition root.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

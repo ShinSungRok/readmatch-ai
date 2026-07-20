@@ -236,6 +236,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Kept "Current Phase" labeled Phase 0 (marked Complete) rather than pre-declaring Phase 1, consistent with how Sprint numbers have only been advanced once the next Sprint's kickoff explicitly states it.
 
+## Sprint 7 — Data Ingestion Foundation (External Book Data Source)
+
+### Task 1 — Book Data Source Port
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/book_data_source.py` with `BookDataSource` (ABC), `PopularLoanBooksQuery` (start/end date request DTO), and `PopularLoanBook` (unvalidated external response DTO). Distinct from `BookRepository`: this port is for fetching metadata from external providers, not persisting our own aggregate.
+- Validation: `ruff check` (pass), `mypy` (pass); confirmed the ABC cannot be instantiated directly.
+- Commit: (recorded after commit)
+- Notes: Provider selected by the user: 도서관 정보나루 (Data4Library) Open API, targeting the 인기대출도서 (popular loan books) endpoint first. `PopularLoanBook` is deliberately unvalidated (no ISBN checksum, etc.) since cleaning/mapping into `Book` is a later import-pipeline task, not this Sprint. National Library of Korea ISBN bibliographic API explicitly deferred to a future Sprint as a separate provider adapter (per user instruction) — not designed for here.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

@@ -579,6 +579,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 16 — Embedding Generation Pipeline
+
+### Task 1 — Embedding Generation UseCase
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/application/generate_book_embedding_use_case.py`: `GenerateBookEmbeddingUseCase(book_repository, book_embedding_generator, book_embedding_repository)`. `execute(book_id: str) -> BookEmbedding | None` resolves the `Book` via `BookRepository.get_by_id` first (needed since `BookEmbeddingGenerator.generate` requires a full `Book`), returns `None` without persisting anything if the book is missing, otherwise generates via `BookEmbeddingGenerator` and persists via `BookEmbeddingRepository.save` (upsert, so a second run for the same book replaces the first).
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed: missing book returns `None` and persists nothing; a real book generates and persists correctly; re-running for the same book replaces the stored embedding without error.
+- Commit: (recorded after commit)
+- Notes: `execute` takes a primitive `book_id: str` (not `BookId`), matching the existing `GetBookByIdUseCase` convention.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

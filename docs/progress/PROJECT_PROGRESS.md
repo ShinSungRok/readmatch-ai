@@ -426,6 +426,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: No contract tests for `RecommendationEngine` (as originally listed in the Sprint brief) since that port was deferred along with the engine per the mid-sprint Goal adjustment — validation here covers what was actually built (`BookPopularityRepository` + import wiring).
 
+## Sprint 12 — Popularity Persistence & Repeated Import Correction
+
+### Task 1 — Repeated Import Behavior
+
+- Status: Done
+- Summary: Fixed `ImportBooksUseCase.execute()`: when `DuplicateISBNError` is raised, it now looks up the existing Book via `book_repository.get_by_isbn` and records/refreshes its popularity against that Book's real identity (instead of silently doing nothing, as Sprint 11 had it). Extracted `_record_popularity` to avoid duplicating the `BookPopularity` construction between the new-book and existing-book paths. No duplicate `Book` is ever created — the existing identity is reused, `add()` still fails/is caught exactly as before.
+- Validation: `ruff check src tests scripts` (pass), `mypy src tests scripts` (pass, 39 source files). Interactive smoke check: import a book, then re-import the same ISBN in a later "period" with a different `loan_count` — confirmed exactly one `BookPopularity` record exists, referencing the *original* `BookId`, with the *refreshed* `loan_count`/period, and no second `Book` was created. Updated Sprint 11's `test_duplicate_isbn_does_not_record_popularity` (renamed/rewritten — its old assertion happened to still pass numerically but its stated intent was now wrong) and added `test_reimporting_existing_book_refreshes_popularity_without_duplicate_book`. Full suite: `pytest -q` — 68 passed.
+- Commit: (recorded after commit)
+- Notes: This corrects a behavior explicitly identified as wrong in Sprint 11's own design (that Sprint recorded no popularity at all for duplicates) — the Sprint 12 brief called this out directly ("Do not suppress a valid popularity update merely because the Book already exists").
+
 ## Current Constraints
 
 - Implement only approved Tasks.

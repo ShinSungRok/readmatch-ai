@@ -128,7 +128,9 @@ def test_successful_import_records_popularity_with_provenance() -> None:
     assert top[0].period_end == "2024-01-31"
 
 
-def test_duplicate_isbn_does_not_record_popularity() -> None:
+def test_duplicate_isbn_within_batch_still_records_popularity_once() -> None:
+    """A duplicate ISBN within one batch refreshes the same book_id's popularity,
+    rather than being skipped — it does not create a second, separate record."""
     repository = InMemoryBookRepository()
     popularity_repository = InMemoryBookPopularityRepository()
     source_books = [
@@ -139,6 +141,45 @@ def test_duplicate_isbn_does_not_record_popularity() -> None:
         FakeBookDataSource(source_books), repository, popularity_repository
     )
 
-    use_case.execute(_query())
+    result = use_case.execute(_query())
 
-    assert len(popularity_repository.top_by_loan_count(10)) == 1
+    top = popularity_repository.top_by_loan_count(10)
+    assert len(top) == 1
+    assert top[0].book_id == result.imported[0].id
+
+
+def test_reimporting_existing_book_refreshes_popularity_without_duplicate_book() -> None:
+    repository = InMemoryBookRepository()
+    popularity_repository = InMemoryBookPopularityRepository()
+    first_import = ImportBooksUseCase(
+        FakeBookDataSource([_popular_loan_book(isbn13="978-3-16-148410-0")]),
+        repository,
+        popularity_repository,
+    )
+    first_result = first_import.execute(_query())
+    existing_book_id = first_result.imported[0].id
+
+    reimported_book = PopularLoanBook(
+        isbn13="978-3-16-148410-0",
+        title="Clean Code",
+        author="Robert C. Martin",
+        publisher="Prentice Hall",
+        category="Software Engineering",
+        loan_count=500,
+    )
+    second_import = ImportBooksUseCase(
+        FakeBookDataSource([reimported_book]), repository, popularity_repository
+    )
+    second_result = second_import.execute(
+        PopularLoanBooksQuery(start_date="2024-02-01", end_date="2024-02-29")
+    )
+
+    assert second_result.imported == []
+    assert second_result.skipped_duplicate_isbns == ["9783161484100"]
+
+    top = popularity_repository.top_by_loan_count(10)
+    assert len(top) == 1
+    assert top[0].book_id == existing_book_id
+    assert top[0].loan_count == 500
+    assert top[0].period_start == "2024-02-01"
+    assert top[0].period_end == "2024-02-29"

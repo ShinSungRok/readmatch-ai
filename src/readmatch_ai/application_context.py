@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 import psycopg
 
+from readmatch_ai.application.evaluate_recommendation_engine_use_case import (
+    EvaluateRecommendationEngineUseCase,
+)
 from readmatch_ai.application.generate_book_embedding_use_case import (
     GenerateBookEmbeddingUseCase,
 )
@@ -56,6 +59,9 @@ class ApplicationContext:
     book_repository: BookRepository
     book_popularity_repository: BookPopularityRepository
     book_embedding_repository: BookEmbeddingRepository
+    recommendation_engine: RecommendationEngine
+    semantic_recommendation_engine: RecommendationEngine
+    hybrid_recommendation_engine: RecommendationEngine
     register_book_use_case: RegisterBookUseCase
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
@@ -63,6 +69,7 @@ class ApplicationContext:
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
     generate_hybrid_recommendation_use_case: GenerateHybridRecommendationUseCase
+    evaluate_recommendation_engine_use_case: EvaluateRecommendationEngineUseCase
 
     @classmethod
     def create(
@@ -94,7 +101,11 @@ class ApplicationContext:
         defaults to HybridRecommendationEngine built from the same
         (already-resolved) popularity/semantic engines used above — an
         explicit override of either of those also flows into the default
-        Hybrid engine, keeping composition consistent.
+        Hybrid engine, keeping composition consistent. The three resolved
+        engines are also exposed directly as fields (recommendation_engine,
+        semantic_recommendation_engine, hybrid_recommendation_engine) so
+        evaluate_recommendation_engine_use_case (stateless; parametrized per
+        call, not bound to one engine) can be run against any of them.
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -131,6 +142,9 @@ class ApplicationContext:
             book_repository=repository,
             book_popularity_repository=popularity_repository,
             book_embedding_repository=embedding_repository,
+            recommendation_engine=engine,
+            semantic_recommendation_engine=semantic_engine,
+            hybrid_recommendation_engine=hybrid_engine,
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
@@ -144,6 +158,7 @@ class ApplicationContext:
             generate_hybrid_recommendation_use_case=GenerateHybridRecommendationUseCase(
                 hybrid_engine
             ),
+            evaluate_recommendation_engine_use_case=EvaluateRecommendationEngineUseCase(),
         )
 
 

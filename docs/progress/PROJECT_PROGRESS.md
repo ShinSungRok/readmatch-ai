@@ -104,6 +104,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Port extension (`update`/`remove`) was not explicitly specified in the Sprint brief ("CRUD" implied it); asked the user/Planning Agent to confirm before changing the domain interface, since ADR.md reserves architecture-level decisions to the Planning Agent. Confirmed: extend the port.
 
+### Task 2 — Repository CRUD behavior validation
+
+- Status: Done
+- Summary: Added `tests/infrastructure/test_in_memory_book_repository.py` covering all five `BookRepository` operations against the real `InMemoryBookRepository`: add+get_by_id, get_by_id/get_by_isbn miss cases, update (success + missing raises `BookNotFoundError`), remove (success + missing raises `BookNotFoundError`).
+- Validation: `ruff check src tests` (pass), `mypy src tests` (pass, 13 source files), `pytest -q` (pass, 22 passed)
+- Commit: (recorded after commit)
+- Notes: Duplicate-ISBN behavior intentionally not tested here — dedicated to Task 3.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

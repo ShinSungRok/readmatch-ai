@@ -523,6 +523,17 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `recommendation_engine` is not config-driven (unlike the two repositories) since there is currently only one implementation; this can gain backend selection later once a second engine (e.g. Semantic) exists.
 
+### Task 3 — Application Validation
+
+- Status: Done
+- Summary: Added `tests/application/test_get_recommendations_use_case.py` with a mocked `FakeRecommendationEngine` (per Task instruction): confirms `limit` is passed through as `RecommendationQuery`, the engine's result is returned unchanged, and an empty-recommendation result flows through correctly. Extended `tests/test_application_context.py`: `test_recommendations_reflect_persisted_popularity` (end-to-end through the default composition) and `test_create_accepts_an_explicit_recommendation_engine` (override param, mirroring the existing `book_repository`/`book_popularity_repository` override tests).
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (48 source files)
+  - `python3 -m pytest -q` — pass (83 passed, up from 78; 5 new tests)
+- Commit: (recorded after commit)
+- Notes: Considered asserting `isinstance(..., PopularityRecommendationEngine)` directly on the default-composed context, but that requires reaching into `GetRecommendationsUseCase`'s private attribute (no public field exposes the engine); the behavioral test (`test_recommendations_reflect_persisted_popularity`) already proves the correct engine is wired, so the private-attribute check was dropped as fragile and redundant.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

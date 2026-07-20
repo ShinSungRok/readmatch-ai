@@ -13,4 +13,6 @@ RUN pip install --no-cache-dir .
 RUN useradd --create-home --uid 1000 appuser
 USER appuser
 
-CMD ["python", "-c", "import readmatch_ai; print(readmatch_ai.__version__)"]
+EXPOSE 8000
+
+CMD ["uvicorn", "readmatch_ai.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

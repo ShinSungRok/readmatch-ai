@@ -2,11 +2,11 @@
 
 ## Current State
 
-- Current Phase: Phase 0
-- Current Sprint: Sprint 5 — Composition Root & Dependency Injection (Book) (Task 1-4) — Complete
-- Last Completed Task: Sprint 5 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: 2450152 (Sprint 5 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (37 tests)
+- Current Phase: Phase 0 — Foundation — Complete (Sprints 1-6)
+- Current Sprint: Sprint 6 — Runtime Foundation & CI (Task 1-4) — Complete
+- Last Completed Task: Sprint 6 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: 1db187a (Sprint 6 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (37 tests); Docker build/run and docker-compose up verified locally; CI workflow added (pending first GitHub-hosted run)
 
 ## Task Log
 
@@ -209,7 +209,7 @@ Use this format:
 - Status: Done
 - Summary: Added `Dockerfile` (python:3.12-slim, `pip install --no-cache-dir .` for production deps only — dev extras excluded, non-root `appuser`) and `.dockerignore`. No FastAPI/server exists yet (ADR-009 not implemented), so CMD is an honest placeholder (`import readmatch_ai; print(__version__)`) rather than a fabricated service entrypoint.
 - Validation: `docker build -t readmatch-ai:foundation-test .` — succeeded; `docker run --rm readmatch-ai:foundation-test` printed `0.1.0`; confirmed process runs as `appuser`, not root. Test image removed after validation.
-- Commit: (recorded after commit)
+- Commit: d26b9d3
 - Notes: CMD is a placeholder pending Phase 5/Serving (ADR-009); flagged here so it is not mistaken for a real service entrypoint.
 
 ### Task 2 — Local Development Environment
@@ -217,7 +217,7 @@ Use this format:
 - Status: Done
 - Summary: Added `docker-compose.yml` with a single `app` service building from the existing `Dockerfile`, mounting `./src` read-only for local iteration. No PostgreSQL, pgvector, or other external services added, per Task instruction.
 - Validation: `docker compose config` (valid), `docker compose up --build` — built and ran successfully, printed `0.1.0`, exited 0. Ran `docker compose down --rmi local` to remove the test image/network afterward.
-- Commit: (recorded after commit)
+- Commit: d8fbe90
 - Notes: No `version:` key (deprecated in current Compose spec). No ports exposed — no service listens yet.
 
 ### Task 3 — Continuous Integration
@@ -225,8 +225,16 @@ Use this format:
 - Status: Done
 - Summary: Added `.github/workflows/ci.yml` triggered on every `push` and `pull_request`. Runs `actions/checkout` + `actions/setup-python` (3.12) + `pip install -e ".[dev]"`, then `ruff check src tests`, `mypy src tests`, `pytest -q` — the same commands used locally throughout all prior Sprints. Independent of Docker (Tasks 1-2); runs directly on the GitHub-hosted runner's Python environment for simplicity.
 - Validation: YAML parsed successfully via `python3 -c "import yaml; yaml.safe_load(...)"`; the three CI commands (`ruff check src tests`, `mypy src tests`, `pytest -q`) re-run locally and passed (37 tests). Actual GitHub Actions execution cannot be verified in this environment — will run on first push.
-- Commit: (recorded after commit)
+- Commit: 1db187a
 - Notes: Python version pinned to 3.12 in CI, matching the Dockerfile's base image for consistency.
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to mark Phase 0 — Foundation complete (Sprints 1-6) and Sprint 6 complete; back-filled Sprint 6 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: Kept "Current Phase" labeled Phase 0 (marked Complete) rather than pre-declaring Phase 1, consistent with how Sprint numbers have only been advanced once the next Sprint's kickoff explicitly states it.
 
 ## Current Constraints
 

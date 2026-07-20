@@ -444,6 +444,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `period_start`/`period_end` kept as `TEXT` (not `DATE`), matching the Domain's `str` representation and avoiding adapter-side type-casting complexity not otherwise needed.
 
+### Task 3 — PostgreSQLBookPopularityRepository
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/infrastructure/postgresql_book_popularity_repository.py`: `PostgreSQLBookPopularityRepository(BookPopularityRepository)`. `record()` uses `INSERT ... ON CONFLICT (book_id) DO UPDATE` (atomic upsert, avoids a check-then-write race). `top_by_loan_count()` uses `ORDER BY loan_count DESC LIMIT`. Any `psycopg.Error` during `record()` is caught, the connection rolled back, and re-raised as a new `BookPopularityPersistenceError` (defined in this module) — callers never see a raw psycopg exception, per "keep database-specific exceptions inside Infrastructure". `InMemoryBookPopularityRepository` was not touched.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). End-to-end smoke test against a disposable `postgres:16-alpine` instance (migrations 0001+0002 applied): initial record, upsert-refresh on repeated period, ranking with `limit`, and a deliberate FK violation (popularity for a non-existent `book_id`) correctly raised `BookPopularityPersistenceError` instead of a raw `psycopg` exception. Container stopped/removed afterward. Full `ruff check`/`mypy` re-run: 40 source files, clean.
+- Commit: (recorded after commit)
+- Notes: Automated pytest integration tests (via `testcontainers`) are Task 4's responsibility — this Task's Postgres validation was manual/ad hoc, matching the Task 1/Task 2 pattern established in Sprint 9.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

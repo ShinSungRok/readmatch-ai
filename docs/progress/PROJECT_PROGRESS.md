@@ -2,11 +2,11 @@
 
 ## Current State
 
-- Current Phase: Phase 1 — Data Foundation — Complete (Sprints 7-10)
-- Current Sprint: Sprint 10 — Production Import Workflow (Task 1-4) — Complete
-- Last Completed Task: Sprint 10 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: 12c95fb (Sprint 10 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (60 tests, including PostgreSQL integration tests via testcontainers)
+- Current Phase: Phase 2 — Recommendation Models
+- Current Sprint: Sprint 11 — Popularity Data Foundation (Task 1-4) — Complete (Goal narrowed mid-sprint; see Sprint 11 header)
+- Last Completed Task: Sprint 11 / Task 4 — Validation
+- Last Commit: dc091e6 (Sprint 11 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (67 tests)
 
 ## Task Log
 
@@ -395,7 +395,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/book_popularity.py`: `BookPopularity` (`book_id`, `loan_count`, `period_start`, `period_end` — the last two are minimal provenance tracking which query period the signal was observed under, matching `PopularLoanBooksQuery`'s date format) and `BookPopularityRepository` port (`record` upsert, `top_by_loan_count(limit)`).
 - Validation: `ruff check` (pass), `mypy` (pass); confirmed the port is abstract and the value object constructs/reads correctly.
-- Commit: (recorded after commit)
+- Commit: 0b196bf
 - Notes: An earlier draft of this Task also added `domain/recommendation.py` (`Recommendation`/`RecommendationItem`) per the original Task 1 wording, but that was removed (uncommitted) once the Sprint Goal was narrowed — those types have no consumer this Sprint (the engine that would produce/consume them is deferred) and would be dead code. `Book`/`BookRepository` not modified.
 
 ### Task 2 — InMemory Popularity Repository
@@ -403,7 +403,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/infrastructure/in_memory_book_popularity_repository.py`: `InMemoryBookPopularityRepository(BookPopularityRepository)`, dict-keyed by `BookId` (upsert semantics via `record`), `top_by_loan_count` sorts descending and slices to `limit`.
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed ranking order, limit truncation, and upsert-overwrite behavior.
-- Commit: (recorded after commit)
+- Commit: 9e4f34b
 - Notes: No PostgreSQL adapter added — explicitly out of scope for this Sprint per user instruction.
 
 ### Task 3 — Import Wiring for Popularity
@@ -411,8 +411,20 @@ Use this format:
 - Status: Done
 - Summary: `ImportBooksUseCase` constructor now also takes `book_popularity_repository: BookPopularityRepository`; for each successfully imported book, records `BookPopularity(book_id, loan_count=source_book.loan_count, period_start=query.start_date, period_end=query.end_date)` — reuses `loan_count` already present in the in-hand `PopularLoanBook`/`PopularLoanBooksQuery`, no extra `BookDataSource` call (per user's explicit "no live call at recommendation time" constraint — moot for the engine, but this confirms the import path was already call-free too). `scripts/import_books.py` wires `InMemoryBookPopularityRepository` by default (overridable, mirroring existing optional-param pattern). Fixed Sprint 8's `tests/application/test_import_books_use_case.py` (constructor signature change) to keep the suite green.
 - Validation: `ruff check src tests scripts` (pass), `mypy src tests scripts` (pass, 37 source files), `pytest -q` (pass, 60 passed — Sprint 8 regressions fixed). Interactive smoke check confirmed the script records `BookPopularity` with correct `loan_count` and period provenance end-to-end.
-- Commit: (recorded after commit)
+- Commit: dc091e6
 - Notes: Because there is still no PostgreSQL adapter for `BookPopularityRepository`, and the script constructs a fresh `InMemoryBookPopularityRepository()` per run when not injected, popularity data does not currently persist across process runs in production use — a known, explicitly in-scope-excluded gap (PostgreSQL persistence deferred, per user instruction) to address in a future Sprint alongside `PopularityRecommendationEngine`.
+
+### Task 4 — Validation
+
+- Status: Done
+- Summary: Added `tests/domain/test_book_popularity.py` (port is abstract), `tests/infrastructure/test_in_memory_book_popularity_repository.py` (ranking order, limit truncation, empty case, upsert-by-book_id), and extended `tests/application/test_import_books_use_case.py` with `test_successful_import_records_popularity_with_provenance` and `test_duplicate_isbn_does_not_record_popularity`. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 11 completion (adjusted goal) and back-filled Task 1-3 commit hashes.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (39 source files)
+  - `python3 -m pytest -q` — pass (67 passed, up from 60; 7 new tests)
+  - Confirmed no leftover Docker containers after the run.
+- Commit: (recorded after commit)
+- Notes: No contract tests for `RecommendationEngine` (as originally listed in the Sprint brief) since that port was deferred along with the engine per the mid-sprint Goal adjustment — validation here covers what was actually built (`BookPopularityRepository` + import wiring).
 
 ## Current Constraints
 

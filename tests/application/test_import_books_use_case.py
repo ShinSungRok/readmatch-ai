@@ -100,3 +100,45 @@ def test_empty_provider_results_returns_empty_result() -> None:
 
     assert result.imported == []
     assert result.skipped_duplicate_isbns == []
+
+
+def test_successful_import_records_popularity_with_provenance() -> None:
+    repository = InMemoryBookRepository()
+    popularity_repository = InMemoryBookPopularityRepository()
+    source_book = _popular_loan_book(isbn13="978-3-16-148410-0")
+    source_book_high_count = PopularLoanBook(
+        isbn13=source_book.isbn13,
+        title=source_book.title,
+        author=source_book.author,
+        publisher=source_book.publisher,
+        category=source_book.category,
+        loan_count=777,
+    )
+    use_case = ImportBooksUseCase(
+        FakeBookDataSource([source_book_high_count]), repository, popularity_repository
+    )
+
+    result = use_case.execute(_query())
+
+    top = popularity_repository.top_by_loan_count(1)
+    assert len(top) == 1
+    assert top[0].book_id == result.imported[0].id
+    assert top[0].loan_count == 777
+    assert top[0].period_start == "2024-01-01"
+    assert top[0].period_end == "2024-01-31"
+
+
+def test_duplicate_isbn_does_not_record_popularity() -> None:
+    repository = InMemoryBookRepository()
+    popularity_repository = InMemoryBookPopularityRepository()
+    source_books = [
+        _popular_loan_book(isbn13="978-3-16-148410-0"),
+        _popular_loan_book(isbn13="978-3-16-148410-0"),
+    ]
+    use_case = ImportBooksUseCase(
+        FakeBookDataSource(source_books), repository, popularity_repository
+    )
+
+    use_case.execute(_query())
+
+    assert len(popularity_repository.top_by_loan_count(10)) == 1

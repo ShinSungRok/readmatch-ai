@@ -3,23 +3,30 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from readmatch_ai.domain.book import BookId
+from readmatch_ai.domain.user import UserId
 
 
 @dataclass(frozen=True)
 class EvaluationCase:
-    """One evaluation query: a source book and the books considered relevant to it.
+    """One evaluation query and the books considered relevant to it.
 
-    Deliberately decoupled from how relevance was derived (category overlap,
-    curated fixtures, or a future user-interaction signal) — the evaluation
-    pipeline only needs the resulting set.
+    Exactly mirrors RecommendationQuery's optional book_id/user_id split: a
+    book-similarity case (Semantic/Hybrid) sets book_id, a personalized case
+    (ALS) sets user_id, and a case may set both to evaluate an engine that
+    uses either/both. Deliberately decoupled from how relevance was derived
+    (category overlap, held-out interactions, curated fixtures) — the
+    evaluation pipeline only needs the resulting set.
     """
 
-    book_id: BookId
     relevant_book_ids: frozenset[BookId]
+    book_id: BookId | None = None
+    user_id: UserId | None = None
 
     def __post_init__(self) -> None:
         if not self.relevant_book_ids:
             raise ValueError("relevant_book_ids must not be empty")
+        if self.book_id is None and self.user_id is None:
+            raise ValueError("EvaluationCase requires at least one of book_id or user_id")
 
 
 @dataclass(frozen=True)

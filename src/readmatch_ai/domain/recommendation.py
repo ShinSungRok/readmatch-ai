@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from readmatch_ai.domain.book import Book, BookId
+from readmatch_ai.domain.user import UserId
 
 
 @dataclass(frozen=True)
@@ -31,12 +32,15 @@ class RecommendationQuery:
     """Input to a RecommendationEngine: how many recommendations to return.
 
     `book_id` is the optional source book for engines that recommend "similar
-    to this book" (e.g. Semantic); non-personalized engines (e.g. Popularity)
-    ignore it.
+    to this book" (e.g. Semantic); `user_id` is the optional user for
+    engines that personalize from a user's own history (e.g. ALS
+    collaborative filtering). Engines that don't need a given field ignore
+    it (e.g. Popularity ignores both).
     """
 
     limit: int
     book_id: BookId | None = None
+    user_id: UserId | None = None
 
 
 @dataclass(frozen=True)

@@ -7,6 +7,9 @@ import psycopg
 from readmatch_ai.application.evaluate_recommendation_engine_use_case import (
     EvaluateRecommendationEngineUseCase,
 )
+from readmatch_ai.application.generate_als_recommendation_use_case import (
+    GenerateAlsRecommendationUseCase,
+)
 from readmatch_ai.application.generate_book_embedding_use_case import (
     GenerateBookEmbeddingUseCase,
 )
@@ -23,6 +26,7 @@ from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
 from readmatch_ai.config import (
     POSTGRESQL_BACKEND,
     SENTENCE_TRANSFORMERS_BACKEND,
+    AlsModelConfig,
     BookRepositoryConfig,
     EmbeddingGeneratorConfig,
 )
@@ -31,6 +35,10 @@ from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepositor
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.domain.user_book_interaction_repository import UserBookInteractionRepository
+from readmatch_ai.infrastructure.als_model import train_als_model
+from readmatch_ai.infrastructure.als_model_store import AlsModelFileStore
+from readmatch_ai.infrastructure.als_recommendation_engine import ALSRecommendationEngine
 from readmatch_ai.infrastructure.deterministic_fake_book_embedding_generator import (
     DeterministicFakeBookEmbeddingGenerator,
 )
@@ -42,6 +50,9 @@ from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
 )
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
+from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
+    InMemoryUserBookInteractionRepository,
+)
 from readmatch_ai.infrastructure.popularity_recommendation_engine import (
     PopularityRecommendationEngine,
 )
@@ -52,6 +63,9 @@ from readmatch_ai.infrastructure.postgresql_book_popularity_repository import (
     PostgreSQLBookPopularityRepository,
 )
 from readmatch_ai.infrastructure.postgresql_book_repository import PostgreSQLBookRepository
+from readmatch_ai.infrastructure.postgresql_user_book_interaction_repository import (
+    PostgreSQLUserBookInteractionRepository,
+)
 from readmatch_ai.infrastructure.semantic_recommendation_engine import (
     SemanticRecommendationEngine,
 )
@@ -64,9 +78,11 @@ class ApplicationContext:
     book_repository: BookRepository
     book_popularity_repository: BookPopularityRepository
     book_embedding_repository: BookEmbeddingRepository
+    user_book_interaction_repository: UserBookInteractionRepository
     recommendation_engine: RecommendationEngine
     semantic_recommendation_engine: RecommendationEngine
     hybrid_recommendation_engine: RecommendationEngine
+    als_recommendation_engine: RecommendationEngine
     register_book_use_case: RegisterBookUseCase
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
@@ -74,6 +90,7 @@ class ApplicationContext:
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
     generate_hybrid_recommendation_use_case: GenerateHybridRecommendationUseCase
+    generate_als_recommendation_use_case: GenerateAlsRecommendationUseCase
     evaluate_recommendation_engine_use_case: EvaluateRecommendationEngineUseCase
 
     @classmethod
@@ -86,6 +103,8 @@ class ApplicationContext:
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
+        user_book_interaction_repository: UserBookInteractionRepository | None = None,
+        als_recommendation_engine: RecommendationEngine | None = None,
     ) -> ApplicationContext:
         """Wire the Book/Recommendation/Embedding use cases to their dependencies.
 
@@ -110,11 +129,23 @@ class ApplicationContext:
         defaults to HybridRecommendationEngine built from the same
         (already-resolved) popularity/semantic engines used above — an
         explicit override of either of those also flows into the default
-        Hybrid engine, keeping composition consistent. The three resolved
-        engines are also exposed directly as fields (recommendation_engine,
-        semantic_recommendation_engine, hybrid_recommendation_engine) so
-        evaluate_recommendation_engine_use_case (stateless; parametrized per
-        call, not bound to one engine) can be run against any of them.
+        Hybrid engine, keeping composition consistent. The resolved engines
+        are also exposed directly as fields (recommendation_engine,
+        semantic_recommendation_engine, hybrid_recommendation_engine,
+        als_recommendation_engine) so evaluate_recommendation_engine_use_case
+        (stateless; parametrized per call, not bound to one engine) can be
+        run against any of them.
+
+        user_book_interaction_repository defaults via the same
+        BookRepositoryConfig.from_env() as the other repositories.
+        als_recommendation_engine defaults to an ALSRecommendationEngine
+        wrapping a model resolved via AlsModelConfig.from_env(): loaded from
+        ALS_MODEL_PATH if set and present, otherwise trained fresh
+        in-process from user_book_interaction_repository's current
+        contents (and saved to ALS_MODEL_PATH afterwards if that was set)
+        — training is a batch/Infrastructure concern (see
+        infrastructure.als_model), so this engine reflects a snapshot, not
+        interactions recorded after it was built.
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -147,13 +178,25 @@ class ApplicationContext:
             if hybrid_recommendation_engine is not None
             else HybridRecommendationEngine(engine, semantic_engine)
         )
+        interaction_repository = (
+            user_book_interaction_repository
+            if user_book_interaction_repository is not None
+            else _build_user_book_interaction_repository()
+        )
+        als_engine = (
+            als_recommendation_engine
+            if als_recommendation_engine is not None
+            else _build_als_recommendation_engine(interaction_repository, repository)
+        )
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
             book_embedding_repository=embedding_repository,
+            user_book_interaction_repository=interaction_repository,
             recommendation_engine=engine,
             semantic_recommendation_engine=semantic_engine,
             hybrid_recommendation_engine=hybrid_engine,
+            als_recommendation_engine=als_engine,
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
@@ -167,6 +210,7 @@ class ApplicationContext:
             generate_hybrid_recommendation_use_case=GenerateHybridRecommendationUseCase(
                 hybrid_engine
             ),
+            generate_als_recommendation_use_case=GenerateAlsRecommendationUseCase(als_engine),
             evaluate_recommendation_engine_use_case=EvaluateRecommendationEngineUseCase(),
         )
 
@@ -212,3 +256,26 @@ def _build_book_embedding_generator() -> BookEmbeddingGenerator:
             return SentenceTransformerBookEmbeddingGenerator(model_name=config.model_name)
         return SentenceTransformerBookEmbeddingGenerator()
     return DeterministicFakeBookEmbeddingGenerator()
+
+
+def _build_user_book_interaction_repository() -> UserBookInteractionRepository:
+    config = BookRepositoryConfig.from_env()
+    if config.backend == POSTGRESQL_BACKEND:
+        assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
+        connection = psycopg.connect(config.database_url)
+        return PostgreSQLUserBookInteractionRepository(connection)
+    return InMemoryUserBookInteractionRepository()
+
+
+def _build_als_recommendation_engine(
+    interaction_repository: UserBookInteractionRepository, book_repository: BookRepository
+) -> RecommendationEngine:
+    config = AlsModelConfig.from_env()
+    store = AlsModelFileStore()
+    if config.model_path is not None and store.exists(config.model_path):
+        model = store.load(config.model_path)
+    else:
+        model = train_als_model(interaction_repository.list_all())
+        if config.model_path is not None:
+            store.save(model, config.model_path)
+    return ALSRecommendationEngine(model, book_repository, interaction_repository)

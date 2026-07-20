@@ -34,7 +34,7 @@ class EvaluateRecommendationEngineUseCase:
         hit_rate_scores: list[float] = []
 
         for case in dataset.cases:
-            query = RecommendationQuery(limit=k, book_id=case.book_id)
+            query = RecommendationQuery(limit=k, book_id=case.book_id, user_id=case.user_id)
             result = recommendation_engine.recommend(query)
             recommended = [item.book.id for item in result.recommendation.items]
 

@@ -81,3 +81,24 @@ class EmbeddingGeneratorConfig:
 
         model_name = os.environ.get(_EMBEDDING_MODEL_NAME_ENV_VAR)
         return cls(backend=backend, model_name=model_name)
+
+
+_ALS_MODEL_PATH_ENV_VAR = "ALS_MODEL_PATH"
+
+
+@dataclass(frozen=True)
+class AlsModelConfig:
+    """Configuration selecting where ApplicationContext persists/loads the trained ALS model.
+
+    When `model_path` is set and a model already exists there, it's loaded
+    instead of retraining. When unset (the default), a fresh model is
+    trained in-process from the current UserBookInteractionRepository state
+    every time — fine for tests/small fixtures, but a real deployment should
+    set this so training happens once, not on every process start.
+    """
+
+    model_path: str | None = None
+
+    @classmethod
+    def from_env(cls) -> AlsModelConfig:
+        return cls(model_path=os.environ.get(_ALS_MODEL_PATH_ENV_VAR))

@@ -9,6 +9,12 @@ dependencies = [
     "fastapi>=0.115",
     "pydantic>=2.5",
     "uvicorn[standard]>=0.30",
+    # implicit ALS collaborative filtering (PROJECT_INSTRUCTIONS.md's approved
+    # "implicit ALS" recommendation type) -- lightweight (numpy/scipy-based,
+    # no torch), so unlike the `embeddings` extra this is a required
+    # dependency, not optional.
+    "implicit>=0.7",
+    "threadpoolctl>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +57,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "sentence_transformers.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["implicit.*", "scipy.*", "threadpoolctl.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

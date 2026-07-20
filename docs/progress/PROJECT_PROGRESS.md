@@ -283,6 +283,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Extending `PopularLoanBook` and its one existing consumer (the Data4Library adapter/test from Sprint 7) was necessary to make the mapping possible at all — not an unrelated refactor, since `category` is a required `Book` field and this Sprint's explicit purpose is that mapping.
 
+### Task 2 — ImportBooksUseCase
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/application/import_books_use_case.py` with `ImportBooksUseCase` (constructor-injected `BookDataSource` + `BookRepository`) and `ImportBooksResult` (imported books + skipped duplicate ISBNs). `execute(query: PopularLoanBooksQuery)` fetches from the data source, maps each result via `map_to_book`, and persists via `BookRepository.add`, catching `DuplicateISBNError` per-book so one duplicate does not abort the batch. Reused the existing `PopularLoanBooksQuery` as the use case input instead of introducing a redundant DTO.
+- Validation: `ruff check src/readmatch_ai/application` (pass), `mypy src/readmatch_ai/application` (pass); interactive smoke check with a fake `BookDataSource` and `InMemoryBookRepository` confirmed: 2 new books imported, 1 in-batch duplicate ISBN correctly skipped and reported. Formal test suite (success/duplicate/empty) added in Task 3.
+- Commit: (recorded after commit)
+- Notes: Mapper-raised `ValueError` (invalid external data) is intentionally left unhandled/propagating — not in this Task's named scenarios (success, duplicate ISBN, empty results); data cleaning is a separate future concern per ROADMAP Phase 1.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

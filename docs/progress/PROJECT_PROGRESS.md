@@ -366,6 +366,18 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `ImportBooksUseCase`, `Book`, `BookRepository`, etc. (Application/Domain) were not modified — all adapter selection/wiring for this workflow lives in this script, per Task instruction ("keep orchestration outside the Application layer").
 
+### Task 3 — Runtime Validation
+
+- Status: Done
+- Summary: Added `tests/test_import_books_runtime.py`, loading `scripts/import_books.py` via `importlib` (it's a script, not an importable package) and exercising its real `main()` against a `testcontainers` disposable `postgres:16-alpine` instance (migration applied) with a `FakeBookDataSource` (no real API calls). Covers: import → retrievable via `context.get_book_by_isbn_use_case` and `get_book_by_id_use_case` → also retrievable via a *second, independently constructed* `PostgreSQLBookRepository` against the same database (proves real persistence, not just in-process object identity); and duplicate entries within a batch don't fail the run.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (35 source files)
+  - `python3 -m pytest -q` — pass (60 passed, ~20s; includes 2 new end-to-end tests spinning up/tearing down a real disposable Postgres container each)
+  - Confirmed no leftover containers after the run.
+- Commit: (recorded after commit)
+- Notes: This completes Phase 1 — Data Foundation per the Sprint goal.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

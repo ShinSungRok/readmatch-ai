@@ -1,0 +1,100 @@
+import pytest
+
+from readmatch_ai.application.evaluate_recommendation_engine_use_case import (
+    EvaluateRecommendationEngineUseCase,
+)
+from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
+from readmatch_ai.domain.evaluation import EvaluationCase, EvaluationDataset
+from readmatch_ai.domain.recommendation import (
+    Recommendation,
+    RecommendationItem,
+    RecommendationQuery,
+    RecommendationResult,
+)
+from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+
+
+def _book(book_id: BookId) -> Book:
+    # A fixed valid ISBN is fine here: these Books are never persisted
+    # through a repository, so ISBN uniqueness doesn't matter.
+    return Book(
+        id=book_id,
+        isbn=ISBN("978-3-16-148410-0"),
+        title=Title("Title"),
+        author=Author("Author"),
+        category=Category("Category"),
+    )
+
+
+class _FakeRecommendationEngine(RecommendationEngine):
+    """Returns a fixed ranked list of book ids for every query, regardless of book_id."""
+
+    def __init__(self, ranked_book_ids: list[BookId]) -> None:
+        self._items = [
+            RecommendationItem(book=_book(book_id), score=1.0, source="fake")
+            for book_id in ranked_book_ids
+        ]
+        self.received_queries: list[RecommendationQuery] = []
+
+    def recommend(self, query: RecommendationQuery) -> RecommendationResult:
+        self.received_queries.append(query)
+        return RecommendationResult(recommendation=Recommendation(items=self._items[: query.limit]))
+
+
+def test_execute_queries_the_engine_per_case_with_k_as_limit() -> None:
+    source_a = BookId.generate()
+    source_b = BookId.generate()
+    engine = _FakeRecommendationEngine([BookId.generate()])
+    dataset = EvaluationDataset(
+        cases=(
+            EvaluationCase(book_id=source_a, relevant_book_ids=frozenset({BookId.generate()})),
+            EvaluationCase(book_id=source_b, relevant_book_ids=frozenset({BookId.generate()})),
+        )
+    )
+
+    EvaluateRecommendationEngineUseCase().execute(engine, "fake", dataset, k=3)
+
+    assert [query.book_id for query in engine.received_queries] == [source_a, source_b]
+    assert all(query.limit == 3 for query in engine.received_queries)
+
+
+def test_execute_aggregates_metrics_as_the_mean_across_cases() -> None:
+    hit, miss = BookId.generate(), BookId.generate()
+    # Case 1: the engine's only recommendation is relevant -> perfect scores.
+    # Case 2: the engine's only recommendation is not relevant -> zero scores.
+    hit_case = EvaluationCase(book_id=BookId.generate(), relevant_book_ids=frozenset({hit}))
+    miss_case = EvaluationCase(book_id=BookId.generate(), relevant_book_ids=frozenset({miss}))
+    dataset = EvaluationDataset(cases=(hit_case, miss_case))
+
+    class _PerCaseEngine(RecommendationEngine):
+        def recommend(self, query: RecommendationQuery) -> RecommendationResult:
+            book_id = hit if query.book_id == hit_case.book_id else BookId.generate()
+            item = RecommendationItem(book=_book(book_id), score=1.0, source="fake")
+            return RecommendationResult(recommendation=Recommendation(items=[item]))
+
+    result = EvaluateRecommendationEngineUseCase().execute(_PerCaseEngine(), "fake", dataset, k=1)
+
+    assert result.engine_name == "fake"
+    assert result.k == 1
+    assert result.case_count == 2
+    assert result.precision_at_k == pytest.approx(0.5)
+    assert result.recall_at_k == pytest.approx(0.5)
+    assert result.map_at_k == pytest.approx(0.5)
+    assert result.ndcg_at_k == pytest.approx(0.5)
+    assert result.hit_rate_at_k == pytest.approx(0.5)
+
+
+def test_execute_returns_zero_scores_when_no_recommendation_is_relevant() -> None:
+    case = EvaluationCase(
+        book_id=BookId.generate(), relevant_book_ids=frozenset({BookId.generate()})
+    )
+    dataset = EvaluationDataset(cases=(case,))
+    engine = _FakeRecommendationEngine([BookId.generate(), BookId.generate()])
+
+    result = EvaluateRecommendationEngineUseCase().execute(engine, "fake", dataset, k=2)
+
+    assert result.precision_at_k == 0.0
+    assert result.recall_at_k == 0.0
+    assert result.map_at_k == 0.0
+    assert result.ndcg_at_k == 0.0
+    assert result.hit_rate_at_k == 0.0

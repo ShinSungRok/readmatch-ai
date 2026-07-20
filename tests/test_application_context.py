@@ -1,18 +1,28 @@
 import uuid
 
+import pytest
+
 from readmatch_ai.application.register_book_use_case import RegisterBookInput
 from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.book_popularity import BookPopularity
+from readmatch_ai.domain.evaluation import EvaluationCase, EvaluationDataset
 from readmatch_ai.domain.recommendation import (
     Recommendation,
     RecommendationQuery,
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
 from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
     InMemoryBookEmbeddingRepository,
 )
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
+from readmatch_ai.infrastructure.popularity_recommendation_engine import (
+    PopularityRecommendationEngine,
+)
+from readmatch_ai.infrastructure.semantic_recommendation_engine import (
+    SemanticRecommendationEngine,
+)
 
 
 class _FakeRecommendationEngine(RecommendationEngine):
@@ -182,3 +192,44 @@ def test_create_accepts_an_explicit_hybrid_recommendation_engine() -> None:
 
     result = context.generate_hybrid_recommendation_use_case.execute(limit=1)
     assert result is sentinel_result
+
+
+def test_create_exposes_the_resolved_recommendation_engines() -> None:
+    context = ApplicationContext.create()
+
+    assert isinstance(context.recommendation_engine, PopularityRecommendationEngine)
+    assert isinstance(context.semantic_recommendation_engine, SemanticRecommendationEngine)
+    assert isinstance(context.hybrid_recommendation_engine, HybridRecommendationEngine)
+
+
+def test_evaluate_recommendation_engine_use_case_scores_the_three_wired_engines() -> None:
+    context = ApplicationContext.create()
+    source = context.register_book_use_case.execute(_valid_input())
+    other = context.register_book_use_case.execute(_other_input())
+    context.generate_book_embedding_use_case.execute(str(source.id.value))
+    context.generate_book_embedding_use_case.execute(str(other.id.value))
+    context.book_popularity_repository.record(
+        BookPopularity(other.id, loan_count=100, period_start="2024-01-01", period_end="2024-01-31")
+    )
+    dataset = EvaluationDataset(
+        cases=(EvaluationCase(book_id=source.id, relevant_book_ids=frozenset({other.id})),)
+    )
+    engines = {
+        "popularity": context.recommendation_engine,
+        "semantic": context.semantic_recommendation_engine,
+        "hybrid": context.hybrid_recommendation_engine,
+    }
+
+    for name, engine in engines.items():
+        result = context.evaluate_recommendation_engine_use_case.execute(
+            engine, name, dataset, k=10
+        )
+
+        assert result.engine_name == name
+        assert result.k == 10
+        assert result.case_count == 1
+        assert result.precision_at_k == pytest.approx(1 / 10)
+        assert result.recall_at_k == pytest.approx(1.0)
+        assert result.map_at_k == pytest.approx(1.0)
+        assert result.ndcg_at_k == pytest.approx(1.0)
+        assert result.hit_rate_at_k == pytest.approx(1.0)

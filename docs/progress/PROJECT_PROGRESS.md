@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 20 — Hybrid Recommendation Foundation (Task 1-2) — Complete
-- Last Completed Task: Sprint 20 / Task 2 — Validation, Update PROJECT_PROGRESS.md
-- Last Commit: (recorded after commit; Sprint 20 / Task 2)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (140 tests, including a PostgreSQL/pgvector hybrid-recommendation integration test via testcontainers)
+- Current Sprint: Sprint 21 — Recommendation Evaluation Framework (Task 1-2) — Complete
+- Last Completed Task: Sprint 21 / Task 2 — Validation, Update PROJECT_PROGRESS.md
+- Last Commit: (recorded after commit; Sprint 21 / Task 2)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (171 tests, including an ApplicationContext integration test evaluating all three wired recommendation engines)
 
 ## Task Log
 
@@ -716,6 +716,28 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (70 source files)
   - `python3 -m pytest -q` — pass (140 passed, up from 125; 15 new tests)
+  - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
+- Commit: (recorded after commit)
+- Notes: —
+
+## Sprint 21 — Recommendation Evaluation Framework
+
+### Task 1 — Evaluation Domain, Metrics, and Pipeline
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/evaluation.py`: `EvaluationCase` (`book_id` + non-empty `relevant_book_ids: frozenset[BookId]`, deliberately decoupled from *how* relevance was derived — category overlap, curated fixtures, or a future user-interaction signal are all equally valid producers, none of which exist as an approved capability yet, so the port only defines the resulting contract), `EvaluationDataset` (non-empty `tuple[EvaluationCase, ...]`), and `EvaluationResult` (per-engine aggregate metrics: `engine_name`, `k`, `precision_at_k`, `recall_at_k`, `map_at_k`, `ndcg_at_k`, `hit_rate_at_k`, `case_count` — comparable across engines since every field is a plain mean). Added `src/readmatch_ai/domain/evaluation_metrics.py`: five pure, dependency-free ranking-metric functions (`precision_at_k`, `recall_at_k`, `average_precision_at_k`, `ndcg_at_k` — binary relevance, standard log2 discount — and `hit_rate_at_k`), each operating on a plain `Sequence[BookId]`/`frozenset[BookId]` so they have no dependency on `RecommendationItem`/engines at all; `k <= 0` raises `ValueError` uniformly. `precision_at_k` divides by `k` (not by however many were actually recommended), matching the standard IR convention of penalizing a short result list rather than scoring it as if `k` were smaller. Added `src/readmatch_ai/application/evaluate_recommendation_engine_use_case.py`: `EvaluateRecommendationEngineUseCase` — unlike every other use case in this codebase, it is *stateless* (no constructor dependencies) and takes the `RecommendationEngine` to evaluate as an `execute()` parameter alongside `engine_name`/`dataset`/`k`, since evaluation's entire purpose is comparing multiple engines against the same dataset (a fixed constructor-injected engine, as `GetRecommendationsUseCase` uses, would work against exactly the wrong shape for this problem). For each `EvaluationCase`, queries the engine once (`RecommendationQuery(limit=k, book_id=case.book_id)` — reusing the same port every other recommendation use case already goes through, so Popularity/Semantic/Hybrid are evaluated identically without any engine-specific code), computes all five metrics against that case's `relevant_book_ids`, then returns the mean of each metric across the dataset as one `EvaluationResult`. Wired into `ApplicationContext`: added `evaluate_recommendation_engine_use_case` field (constructed with no arguments — it's stateless) plus three new fields exposing the already-resolved engine instances directly — `recommendation_engine`, `semantic_recommendation_engine`, `hybrid_recommendation_engine` (previously local-only inside `create()`) — so a caller can hand any of them to the evaluation use case. No repository or Infrastructure adapter is imported by either the Domain evaluation module or the Application use case — the entire pipeline depends only on `RecommendationEngine` (an existing Domain port) and plain Domain value objects, satisfying "without introducing infrastructure coupling" by construction, not by convention.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Formal test suite is Task 2.
+- Commit: (recorded after commit)
+- Notes: No "ground truth from category" or similar auto-derivation helper was added — inventing a specific relevance-derivation policy (e.g. same-`Category` = relevant) wasn't named in the Sprint brief and would be a scope-expanding architectural choice belonging to the Planning Agent, not an implementation detail. `EvaluationCase.relevant_book_ids` is deliberately a plain field so any future ground-truth source (curated fixtures now; a real user-interaction signal later, if ever approved) can populate it without touching the evaluation pipeline itself.
+
+### Task 2 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/domain/test_evaluation.py` (`EvaluationCase`/`EvaluationDataset` reject empty `relevant_book_ids`/`cases`; construct correctly otherwise). Added `tests/domain/test_evaluation_metrics.py`: all five metrics reject `k <= 0`; `precision_at_k`/`recall_at_k` hand-computed hit-counting including the "divides by k, not by result length" case; `average_precision_at_k`/`ndcg_at_k` verified against an independently hand-computed (and, for NDCG, independently re-derived via `math.log2` in the test itself) multi-hit ranked scenario, plus perfect-ranking (`== 1.0`), no-hits (`== 0.0`), and empty-relevant (`== 0.0`) edge cases; `hit_rate_at_k` confirms a hit within `k` scores `1.0`, a hit beyond `k` is correctly ignored (scores `0.0`). Added `tests/application/test_evaluate_recommendation_engine_use_case.py` (fake engines, deterministic per-case control): confirms each `EvaluationCase` is queried with `limit=k` and the case's `book_id`; confirms dataset-level aggregation is the mean across cases via a hand-picked hit/miss pair (`0.5` for every metric); confirms an all-miss dataset returns all-zero metrics. Extended `tests/test_application_context.py`: `test_create_exposes_the_resolved_recommendation_engines` (the three new fields hold the expected concrete adapter types by default) and `test_evaluate_recommendation_engine_use_case_scores_the_three_wired_engines` — the Sprint's integration test: registers two books, generates both embeddings, records popularity for one, builds a single-case `EvaluationDataset`, then runs the *same* `evaluate_recommendation_engine_use_case` against `context.recommendation_engine`/`semantic_recommendation_engine`/`hybrid_recommendation_engine` in turn and confirms all three independently score a perfect result (this scenario is simple enough that Popularity, Semantic, and Hybrid all correctly recommend the one relevant book). No new Docker container/image was introduced for this Sprint — the integration test runs entirely against the default in-memory `ApplicationContext`, since evaluation logic is engine-agnostic and Sprint 19/20 already validated Postgres/pgvector wiring for the underlying engines themselves. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 21 completion.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (76 source files)
+  - `python3 -m pytest -q` — pass (171 passed, up from 140; 31 new tests)
   - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
 - Commit: (recorded after commit)
 - Notes: —

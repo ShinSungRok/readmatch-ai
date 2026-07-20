@@ -320,6 +320,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: PostgreSQL itself was already approved (ADR-001); `psycopg` (v3, binary distribution — no compiler/libpq-dev needed, important since this sandbox has no passwordless sudo for system packages) was chosen as the specific driver, an implementation-level choice analogous to Sprint 7's stdlib-vs-requests decision, not a new architectural decision.
 
+### Task 2 — Database Schema
+
+- Status: Done
+- Summary: Added `migrations/0001_create_books_table.sql` (repo root, sibling to `src`/`tests`): `books` table with `id UUID PRIMARY KEY`, `isbn TEXT NOT NULL UNIQUE`, `title`/`author`/`category TEXT NOT NULL` — matching Task 1's adapter columns exactly.
+- Validation: Started a disposable `postgres:16-alpine` container via plain `docker run` (ad hoc, not yet the automated Task 3 suite), applied the migration via `psql`, confirmed via `\d books` that the table/constraints match the intended schema (PK on `id`, UNIQUE on `isbn`). Then ran an end-to-end smoke script against that same instance exercising `PostgreSQLBookRepository` (add, get_by_id, get_by_isbn, update, duplicate-ISBN rejection, remove, remove-missing) — all passed. Container stopped and removed afterward.
+- Commit: (recorded after commit)
+- Notes: No migration-runner tool (e.g. Alembic) introduced — a single checked-in SQL file is the smallest complete change for the first migration; not wired into the Docker image yet since there is no migration-running entrypoint in production (consistent with Sprint 6's placeholder-CMD approach). `migrations/` is not copied into the Docker image (`.dockerignore` predates this file and doesn't need to change, since it isn't referenced by any runtime code path yet).
+
 ## Current Constraints
 
 - Implement only approved Tasks.

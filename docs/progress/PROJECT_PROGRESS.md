@@ -291,6 +291,17 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Mapper-raised `ValueError` (invalid external data) is intentionally left unhandled/propagating — not in this Task's named scenarios (success, duplicate ISBN, empty results); data cleaning is a separate future concern per ROADMAP Phase 1.
 
+### Task 3 — Application Validation
+
+- Status: Done
+- Summary: Added `tests/application/test_import_books_use_case.py` with a test-only `FakeBookDataSource` (mocked `BookDataSource`, per Task instruction) and `InMemoryBookRepository`. Covers: successful import persists all books; duplicate ISBN within the same batch is skipped, not fatal; duplicate ISBN against a book already in the repository is skipped; empty provider results return an empty `ImportBooksResult`.
+- Validation:
+  - `python3 -m ruff check src tests` — pass
+  - `python3 -m mypy src tests` — pass (30 source files)
+  - `python3 -m pytest -q` — pass (47 passed)
+- Commit: (recorded after commit)
+- Notes: No test calls the real Data4Library API — `FakeBookDataSource` is entirely in-memory, consistent with Sprint 7's contract-testing approach.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

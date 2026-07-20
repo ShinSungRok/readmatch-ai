@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 0
-- Current Sprint: Sprint 2 — Domain Foundation (Task 1-4) — Complete
-- Last Completed Task: Sprint 2 / Task 4 — Progress
-- Last Commit: 5a0db80 (Sprint 2 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (17 tests)
+- Current Sprint: Sprint 3 — Infrastructure Adapter (Book) (Task 1-4) — Complete
+- Last Completed Task: Sprint 3 / Task 4 — Progress Log
+- Last Commit: 424f090 (Sprint 3 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (25 tests)
 
 ## Task Log
 
@@ -101,7 +101,7 @@ Use this format:
 - Status: Done
 - Summary: Extended `BookRepository` port with `update`/`remove` (approved via user clarification — see Notes) and added `BookNotFoundError`. Added `src/readmatch_ai/infrastructure/in_memory_book_repository.py` implementing full CRUD (add, get_by_id, get_by_isbn, update, remove), no ISBN uniqueness yet (Task 3). Replaced the Sprint 2 test-only fake `InMemoryBookRepository` in `tests/domain/test_book_repository.py` (now broken by the port extension) with the real adapter; that file now only keeps the domain-level "port is abstract" contract test.
 - Validation: `ruff check src tests` (pass), `mypy src tests` (pass, 11 source files), `pytest -q` (pass, 14 passed — down from 17 after removing the now-redundant fake-based tests, to be re-covered by Task 2 against the real adapter). Interactive smoke check confirmed add/get/update/remove and BookNotFoundError on missing update/remove.
-- Commit: (recorded after commit)
+- Commit: 9faaef4
 - Notes: Port extension (`update`/`remove`) was not explicitly specified in the Sprint brief ("CRUD" implied it); asked the user/Planning Agent to confirm before changing the domain interface, since ADR.md reserves architecture-level decisions to the Planning Agent. Confirmed: extend the port.
 
 ### Task 2 — Repository CRUD behavior validation
@@ -109,7 +109,7 @@ Use this format:
 - Status: Done
 - Summary: Added `tests/infrastructure/test_in_memory_book_repository.py` covering all five `BookRepository` operations against the real `InMemoryBookRepository`: add+get_by_id, get_by_id/get_by_isbn miss cases, update (success + missing raises `BookNotFoundError`), remove (success + missing raises `BookNotFoundError`).
 - Validation: `ruff check src tests` (pass), `mypy src tests` (pass, 13 source files), `pytest -q` (pass, 22 passed)
-- Commit: (recorded after commit)
+- Commit: 866ae47
 - Notes: Duplicate-ISBN behavior intentionally not tested here — dedicated to Task 3.
 
 ### Task 3 — Duplicate ISBN constraint
@@ -117,8 +117,16 @@ Use this format:
 - Status: Done
 - Summary: Added `DuplicateISBNError` to `book_repository.py` (domain-level, so any future adapter must raise it too). `InMemoryBookRepository.add`/`update` now reject a Book whose ISBN matches another stored Book with a different `BookId`. Added tests: add-duplicate raises, update-to-another-book's-ISBN raises, update keeping own ISBN unchanged succeeds.
 - Validation: `ruff check src tests` (pass), `mypy src tests` (pass, 13 source files), `pytest -q` (pass, 25 passed)
-- Commit: (recorded after commit)
+- Commit: 424f090
 - Notes: Constraint enforced in both `add` and `update` since both can introduce an ISBN collision; `remove`/`get_*` unaffected.
+
+### Task 4 — Progress Log
+
+- Status: Done
+- Summary: Updated Current State for Sprint 3 completion and back-filled Sprint 3 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

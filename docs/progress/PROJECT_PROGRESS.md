@@ -310,6 +310,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 9 — PostgreSQL Repository Adapter
+
+### Task 1 — PostgreSQL Repository Port Integration
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/infrastructure/postgresql_book_repository.py` implementing `PostgreSQLBookRepository(BookRepository)` — add/get_by_id/get_by_isbn/update/remove via parameterized SQL against a `books` table (schema defined in Task 2). Connection is injected via constructor (lifecycle owned by the caller, not the adapter). ISBN uniqueness relies on the database's UNIQUE constraint; `psycopg.errors.UniqueViolation` is caught and translated into the existing `DuplicateISBNError` so Infrastructure exceptions never leak past this adapter. Added production dependency `psycopg[binary]>=3.1` and dev dependency `testcontainers[postgres]` (for Task 3's disposable integration tests) to `pyproject.toml`.
+- Validation: `ruff check` (pass), `mypy` (pass, strict); full `ruff check src tests` / `mypy src tests` / `pytest -q` re-run to confirm the new dependency didn't break anything (47 passed, unchanged). No execution against a real database yet — the `books` table doesn't exist until Task 2's migration is applied; full behavioral validation is Task 3.
+- Commit: (recorded after commit)
+- Notes: PostgreSQL itself was already approved (ADR-001); `psycopg` (v3, binary distribution — no compiler/libpq-dev needed, important since this sandbox has no passwordless sudo for system packages) was chosen as the specific driver, an implementation-level choice analogous to Sprint 7's stdlib-vs-requests decision, not a new architectural decision.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

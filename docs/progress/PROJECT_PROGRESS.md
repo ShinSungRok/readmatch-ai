@@ -616,6 +616,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 17 — Vector Storage Foundation
+
+### Task 1 — PostgreSQL Embedding Repository
+
+- Status: Done
+- Summary: Added `migrations/0003_create_book_embeddings_table.sql` (`book_embeddings(book_id UUID PRIMARY KEY REFERENCES books(id), vector DOUBLE PRECISION[] NOT NULL, model_name TEXT NOT NULL, dimensions INTEGER NOT NULL)` — a plain PostgreSQL array column, no pgvector extension yet per this Sprint's explicit deferral to Sprint 18) and `src/readmatch_ai/infrastructure/postgresql_book_embedding_repository.py`: `PostgreSQLBookEmbeddingRepository(BookEmbeddingRepository)`. `save()` uses `INSERT ... ON CONFLICT (book_id) DO UPDATE` (atomic upsert, PK-by-book_id matches `InMemoryBookEmbeddingRepository`'s overwrite semantics). `psycopg.Error` is caught and translated into a new `BookEmbeddingPersistenceError` (mirrors `BookPopularityPersistenceError` from Sprint 12) so no database-specific exception escapes Infrastructure.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). End-to-end smoke test against a disposable `postgres:16-alpine` instance (migrations 0001+0003 applied): missing embedding returns `None`, save+get round-trips correctly, a second save with different vector/model_name/dimensions replaces the first (upsert), and a deliberate FK violation (embedding for a non-existent `book_id`) correctly raised `BookEmbeddingPersistenceError` instead of a raw `psycopg` exception. Container stopped/removed afterward.
+- Commit: (recorded after commit)
+- Notes: No separate "Database Schema" Task existed this Sprint (unlike Sprint 9/12) — the migration was added here as a necessary part of implementing a working adapter.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

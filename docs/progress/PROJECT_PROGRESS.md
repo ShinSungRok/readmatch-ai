@@ -246,6 +246,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Provider selected by the user: 도서관 정보나루 (Data4Library) Open API, targeting the 인기대출도서 (popular loan books) endpoint first. `PopularLoanBook` is deliberately unvalidated (no ISBN checksum, etc.) since cleaning/mapping into `Book` is a later import-pipeline task, not this Sprint. National Library of Korea ISBN bibliographic API explicitly deferred to a future Sprint as a separate provider adapter (per user instruction) — not designed for here.
 
+### Task 2 — Library API Client Skeleton
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/infrastructure/data4library_book_data_source.py` implementing `BookDataSource` for the Data4Library `loanItemSrch` endpoint: builds the request URL (authKey/startDt/endDt/format), calls it via stdlib `urllib.request.urlopen` (10s timeout), and parses the JSON response into `PopularLoanBook`. Auth key resolves from an explicit constructor arg or the `DATA4LIBRARY_AUTH_KEY` env var (raises `Data4LibraryAuthKeyMissingError` if neither is present). No mapping into `Book` and no `BookRepository` writes — import pipeline explicitly out of scope.
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed missing-key error and correct request URL construction (`authKey`, `startDt`, `endDt` present) — no real network call made (only `_build_request_url` was exercised directly).
+- Commit: (recorded after commit)
+- Notes: Used stdlib `urllib` instead of adding a new HTTP client dependency (e.g. `requests`) to avoid introducing new infrastructure beyond what this Task requires; `dependencies` in `pyproject.toml` remains empty. No real key present anywhere in code/tests.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

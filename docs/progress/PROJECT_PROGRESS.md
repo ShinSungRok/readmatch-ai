@@ -2,11 +2,11 @@
 
 ## Current State
 
-- Current Phase: Phase 0 — Foundation — Complete (Sprints 1-6)
-- Current Sprint: Sprint 6 — Runtime Foundation & CI (Task 1-4) — Complete
-- Last Completed Task: Sprint 6 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: 1db187a (Sprint 6 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (37 tests); Docker build/run and docker-compose up verified locally; CI workflow added (pending first GitHub-hosted run)
+- Current Phase: Phase 1 — Data Foundation
+- Current Sprint: Sprint 7 — Data Ingestion Foundation (External Book Data Source) (Task 1-4) — Complete
+- Last Completed Task: Sprint 7 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: 2d7b484 (Sprint 7 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (43 tests)
 
 ## Task Log
 
@@ -243,7 +243,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/domain/book_data_source.py` with `BookDataSource` (ABC), `PopularLoanBooksQuery` (start/end date request DTO), and `PopularLoanBook` (unvalidated external response DTO). Distinct from `BookRepository`: this port is for fetching metadata from external providers, not persisting our own aggregate.
 - Validation: `ruff check` (pass), `mypy` (pass); confirmed the ABC cannot be instantiated directly.
-- Commit: (recorded after commit)
+- Commit: 08247e2
 - Notes: Provider selected by the user: 도서관 정보나루 (Data4Library) Open API, targeting the 인기대출도서 (popular loan books) endpoint first. `PopularLoanBook` is deliberately unvalidated (no ISBN checksum, etc.) since cleaning/mapping into `Book` is a later import-pipeline task, not this Sprint. National Library of Korea ISBN bibliographic API explicitly deferred to a future Sprint as a separate provider adapter (per user instruction) — not designed for here.
 
 ### Task 2 — Library API Client Skeleton
@@ -251,7 +251,7 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/infrastructure/data4library_book_data_source.py` implementing `BookDataSource` for the Data4Library `loanItemSrch` endpoint: builds the request URL (authKey/startDt/endDt/format), calls it via stdlib `urllib.request.urlopen` (10s timeout), and parses the JSON response into `PopularLoanBook`. Auth key resolves from an explicit constructor arg or the `DATA4LIBRARY_AUTH_KEY` env var (raises `Data4LibraryAuthKeyMissingError` if neither is present). No mapping into `Book` and no `BookRepository` writes — import pipeline explicitly out of scope.
 - Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed missing-key error and correct request URL construction (`authKey`, `startDt`, `endDt` present) — no real network call made (only `_build_request_url` was exercised directly).
-- Commit: (recorded after commit)
+- Commit: a6b71dd
 - Notes: Used stdlib `urllib` instead of adding a new HTTP client dependency (e.g. `requests`) to avoid introducing new infrastructure beyond what this Task requires; `dependencies` in `pyproject.toml` remains empty. No real key present anywhere in code/tests.
 
 ### Task 3 — Contract Validation
@@ -262,8 +262,16 @@ Use this format:
   - `python3 -m ruff check src tests` — pass
   - `python3 -m mypy src tests` — pass (27 source files)
   - `python3 -m pytest -q` — pass (43 passed)
-- Commit: (recorded after commit)
+- Commit: 2d7b484
 - Notes: No test calls the real Data4Library API, per Task instruction — `urlopen` is fully mocked in every test that exercises `search_popular_loans`.
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to Phase 1 — Data Foundation, marked Sprint 7 complete, back-filled Sprint 7 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

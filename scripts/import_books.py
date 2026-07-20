@@ -21,9 +21,6 @@ from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.book_data_source import BookDataSource, PopularLoanBooksQuery
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.infrastructure.data4library_book_data_source import Data4LibraryBookDataSource
-from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
-    InMemoryBookPopularityRepository,
-)
 
 
 def main(
@@ -43,7 +40,7 @@ def main(
     popularity_repository = (
         book_popularity_repository
         if book_popularity_repository is not None
-        else InMemoryBookPopularityRepository()
+        else context.book_popularity_repository
     )
 
     use_case = ImportBooksUseCase(data_source, context.book_repository, popularity_repository)

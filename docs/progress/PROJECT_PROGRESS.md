@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 11 — Popularity Data Foundation (Task 1-4) — Complete (Goal narrowed mid-sprint; see Sprint 11 header)
-- Last Completed Task: Sprint 11 / Task 4 — Validation
-- Last Commit: dc091e6 (Sprint 11 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (67 tests)
+- Current Sprint: Sprint 12 — Popularity Persistence & Repeated Import Correction (Task 1-4) — Complete
+- Last Completed Task: Sprint 12 / Task 4 — Validation and Progress
+- Last Commit: a7472f8 (Sprint 12 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (73 tests, including PostgreSQL popularity integration tests via testcontainers)
 
 ## Task Log
 
@@ -433,7 +433,7 @@ Use this format:
 - Status: Done
 - Summary: Fixed `ImportBooksUseCase.execute()`: when `DuplicateISBNError` is raised, it now looks up the existing Book via `book_repository.get_by_isbn` and records/refreshes its popularity against that Book's real identity (instead of silently doing nothing, as Sprint 11 had it). Extracted `_record_popularity` to avoid duplicating the `BookPopularity` construction between the new-book and existing-book paths. No duplicate `Book` is ever created — the existing identity is reused, `add()` still fails/is caught exactly as before.
 - Validation: `ruff check src tests scripts` (pass), `mypy src tests scripts` (pass, 39 source files). Interactive smoke check: import a book, then re-import the same ISBN in a later "period" with a different `loan_count` — confirmed exactly one `BookPopularity` record exists, referencing the *original* `BookId`, with the *refreshed* `loan_count`/period, and no second `Book` was created. Updated Sprint 11's `test_duplicate_isbn_does_not_record_popularity` (renamed/rewritten — its old assertion happened to still pass numerically but its stated intent was now wrong) and added `test_reimporting_existing_book_refreshes_popularity_without_duplicate_book`. Full suite: `pytest -q` — 68 passed.
-- Commit: (recorded after commit)
+- Commit: 0fb004e
 - Notes: This corrects a behavior explicitly identified as wrong in Sprint 11's own design (that Sprint recorded no popularity at all for duplicates) — the Sprint 12 brief called this out directly ("Do not suppress a valid popularity update merely because the Book already exists").
 
 ### Task 2 — PostgreSQL Popularity Schema
@@ -441,7 +441,7 @@ Use this format:
 - Status: Done
 - Summary: Added `migrations/0002_create_book_popularity_table.sql`: `book_popularity(book_id UUID PRIMARY KEY REFERENCES books(id), loan_count INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL)` plus `idx_book_popularity_loan_count ON book_popularity (loan_count DESC)` for ranking queries. `PRIMARY KEY(book_id)` (not a composite/history key) intentionally matches `InMemoryBookPopularityRepository`'s overwrite-latest-signal semantics — "repeated collection periods" are handled as an upsert-refresh of the single current signal per book, consistent with Task 1's corrected behavior, not an append-only history log.
 - Validation: Started a disposable `postgres:16-alpine` container, applied migrations `0001` then `0002` in order, confirmed via `\d book_popularity` that the PK/FK/index all match intent. Verified the FK constraint rejects a `book_popularity` row referencing a non-existent `book_id` (`ForeignKeyViolation`). Container stopped and removed afterward.
-- Commit: (recorded after commit)
+- Commit: ffaba15
 - Notes: `period_start`/`period_end` kept as `TEXT` (not `DATE`), matching the Domain's `str` representation and avoiding adapter-side type-casting complexity not otherwise needed.
 
 ### Task 3 — PostgreSQLBookPopularityRepository
@@ -449,8 +449,24 @@ Use this format:
 - Status: Done
 - Summary: Added `src/readmatch_ai/infrastructure/postgresql_book_popularity_repository.py`: `PostgreSQLBookPopularityRepository(BookPopularityRepository)`. `record()` uses `INSERT ... ON CONFLICT (book_id) DO UPDATE` (atomic upsert, avoids a check-then-write race). `top_by_loan_count()` uses `ORDER BY loan_count DESC LIMIT`. Any `psycopg.Error` during `record()` is caught, the connection rolled back, and re-raised as a new `BookPopularityPersistenceError` (defined in this module) — callers never see a raw psycopg exception, per "keep database-specific exceptions inside Infrastructure". `InMemoryBookPopularityRepository` was not touched.
 - Validation: `ruff check` (pass), `mypy` (pass, strict). End-to-end smoke test against a disposable `postgres:16-alpine` instance (migrations 0001+0002 applied): initial record, upsert-refresh on repeated period, ranking with `limit`, and a deliberate FK violation (popularity for a non-existent `book_id`) correctly raised `BookPopularityPersistenceError` instead of a raw `psycopg` exception. Container stopped/removed afterward. Full `ruff check`/`mypy` re-run: 40 source files, clean.
-- Commit: (recorded after commit)
+- Commit: a7472f8
 - Notes: Automated pytest integration tests (via `testcontainers`) are Task 4's responsibility — this Task's Postgres validation was manual/ad hoc, matching the Task 1/Task 2 pattern established in Sprint 9.
+
+### Task 4 — Validation and Progress
+
+- Status: Done
+- Summary:
+  - Added `tests/infrastructure/test_postgresql_book_popularity_repository.py`: record + top_by_loan_count, ranking order, limit truncation, repeated-period upsert (same book_id), and a full `ImportBooksUseCase` end-to-end test with *both* `PostgreSQLBookRepository` and `PostgreSQLBookPopularityRepository` against a disposable `testcontainers` instance (migrations 0001+0002 applied) — confirms repeated import refreshes popularity via the existing Book identity and that no duplicate `books` row is created (verified with a direct `COUNT(*)` query).
+  - Extended `ApplicationContext`: added `book_popularity_repository` field and a matching `book_popularity_repository` override param on `create()`; new `_build_book_popularity_repository()` resolves it independently via the same `BookRepositoryConfig.from_env()` used for `book_repository` (InMemory by default, PostgreSQL when `BOOK_REPOSITORY_BACKEND=postgresql`).
+  - Updated `scripts/import_books.py` to default `popularity_repository` to `context.book_popularity_repository` instead of always constructing a fresh `InMemoryBookPopularityRepository()` — so a `postgresql`-configured run now persists popularity durably.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (41 source files)
+  - `python3 -m pytest -q` — pass (73 passed, up from 68; 5 new integration tests)
+  - Confirmed no leftover Docker containers after the run.
+  - Separately verified end-to-end with `BOOK_REPOSITORY_BACKEND=postgresql`/`DATABASE_URL` against a disposable instance: `ApplicationContext.create()` produced `isinstance(..., PostgreSQLBookRepository)` **and** `isinstance(..., PostgreSQLBookPopularityRepository)` — satisfies "PostgreSQL imports use PostgreSQLBookPopularityRepository".
+- Commit: (recorded after commit)
+- Notes: `book_repository` and `book_popularity_repository` still resolve via two independent `psycopg.connect()` calls when both default under the `postgresql` backend (not a shared connection) — correct but slightly wasteful; not addressed here as it wasn't requested and doesn't affect correctness.
 
 ## Current Constraints
 

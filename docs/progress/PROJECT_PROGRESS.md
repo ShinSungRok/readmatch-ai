@@ -220,6 +220,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: No `version:` key (deprecated in current Compose spec). No ports exposed — no service listens yet.
 
+### Task 3 — Continuous Integration
+
+- Status: Done
+- Summary: Added `.github/workflows/ci.yml` triggered on every `push` and `pull_request`. Runs `actions/checkout` + `actions/setup-python` (3.12) + `pip install -e ".[dev]"`, then `ruff check src tests`, `mypy src tests`, `pytest -q` — the same commands used locally throughout all prior Sprints. Independent of Docker (Tasks 1-2); runs directly on the GitHub-hosted runner's Python environment for simplicity.
+- Validation: YAML parsed successfully via `python3 -c "import yaml; yaml.safe_load(...)"`; the three CI commands (`ruff check src tests`, `mypy src tests`, `pytest -q`) re-run locally and passed (37 tests). Actual GitHub Actions execution cannot be verified in this environment — will run on first push.
+- Commit: (recorded after commit)
+- Notes: Python version pinned to 3.12 in CI, matching the Dockerfile's base image for consistency.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

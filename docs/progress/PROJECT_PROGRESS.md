@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 — Recommendation Models
-- Current Sprint: Sprint 16 — Embedding Generation Pipeline (Task 1-4) — Complete
-- Last Completed Task: Sprint 16 / Task 4 — Update PROJECT_PROGRESS.md
-- Last Commit: 4578643 (Sprint 16 / Task 3; this Task's commit recorded after commit)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (103 tests)
+- Current Sprint: Sprint 17 — Vector Storage Foundation (Task 1-4) — Complete
+- Last Completed Task: Sprint 17 / Task 4 — Update PROJECT_PROGRESS.md
+- Last Commit: c3a4753 (Sprint 17 / Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (106 tests, including PostgreSQL embedding integration tests via testcontainers)
 
 ## Task Log
 
@@ -623,7 +623,7 @@ Use this format:
 - Status: Done
 - Summary: Added `migrations/0003_create_book_embeddings_table.sql` (`book_embeddings(book_id UUID PRIMARY KEY REFERENCES books(id), vector DOUBLE PRECISION[] NOT NULL, model_name TEXT NOT NULL, dimensions INTEGER NOT NULL)` — a plain PostgreSQL array column, no pgvector extension yet per this Sprint's explicit deferral to Sprint 18) and `src/readmatch_ai/infrastructure/postgresql_book_embedding_repository.py`: `PostgreSQLBookEmbeddingRepository(BookEmbeddingRepository)`. `save()` uses `INSERT ... ON CONFLICT (book_id) DO UPDATE` (atomic upsert, PK-by-book_id matches `InMemoryBookEmbeddingRepository`'s overwrite semantics). `psycopg.Error` is caught and translated into a new `BookEmbeddingPersistenceError` (mirrors `BookPopularityPersistenceError` from Sprint 12) so no database-specific exception escapes Infrastructure.
 - Validation: `ruff check` (pass), `mypy` (pass, strict). End-to-end smoke test against a disposable `postgres:16-alpine` instance (migrations 0001+0003 applied): missing embedding returns `None`, save+get round-trips correctly, a second save with different vector/model_name/dimensions replaces the first (upsert), and a deliberate FK violation (embedding for a non-existent `book_id`) correctly raised `BookEmbeddingPersistenceError` instead of a raw `psycopg` exception. Container stopped/removed afterward.
-- Commit: (recorded after commit)
+- Commit: d7b3d78
 - Notes: No separate "Database Schema" Task existed this Sprint (unlike Sprint 9/12) — the migration was added here as a necessary part of implementing a working adapter.
 
 ### Task 2 — Application Composition
@@ -631,7 +631,7 @@ Use this format:
 - Status: Done
 - Summary: Added `_build_book_embedding_repository()` to `application_context.py`, following the exact same shape as `_build_book_repository`/`_build_book_popularity_repository`: resolves `PostgreSQLBookEmbeddingRepository` when `BOOK_REPOSITORY_BACKEND=postgresql`, otherwise `InMemoryBookEmbeddingRepository` — preserving InMemory as the default whenever the backend is unset (the config's own default value). The existing `book_embedding_repository` override param on `create()` (added Sprint 16) now defaults to this new resolver instead of unconditionally constructing `InMemoryBookEmbeddingRepository()`.
 - Validation: `ruff check` (pass), `mypy` (pass, strict). Confirmed with no env vars set: `ApplicationContext.create().book_embedding_repository` is still `InMemoryBookEmbeddingRepository` (default preserved). Confirmed with `BOOK_REPOSITORY_BACKEND=postgresql`/`DATABASE_URL` against a disposable instance: it resolves to `PostgreSQLBookEmbeddingRepository`, and `generate_book_embedding_use_case` (unmodified `GenerateBookEmbeddingUseCase`) works end-to-end against it — demonstrating the switch requires zero Application-layer changes. Full `ruff check`/`mypy`/`pytest -q` re-run: 103 passed, no regressions.
-- Commit: (recorded after commit)
+- Commit: 9524b65
 - Notes: `book_embedding_generator` is unaffected by this Task — it remains hardcoded to `DeterministicFakeBookEmbeddingGenerator` regardless of backend (no real generator exists yet; not part of this Sprint's scope).
 
 ### Task 3 — Application Validation
@@ -643,6 +643,14 @@ Use this format:
   - `python3 -m mypy src tests scripts` — pass (62 source files)
   - `python3 -m pytest -q` — pass (106 passed, up from 103; 3 new integration tests)
   - Confirmed no leftover Docker containers after the run.
+- Commit: c3a4753
+- Notes: —
+
+### Task 4 — Update PROJECT_PROGRESS.md
+
+- Status: Done
+- Summary: Updated Current State to mark Sprint 17 complete and back-filled Sprint 17 Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
 - Commit: (recorded after commit)
 - Notes: —
 

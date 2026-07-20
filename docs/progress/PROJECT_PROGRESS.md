@@ -348,6 +348,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 10 — Production Import Workflow
+
+### Task 1 — Import Configuration
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/config.py` with `BookRepositoryConfig.from_env()`, reading `BOOK_REPOSITORY_BACKEND` (`in_memory` default, or `postgresql`) and `DATABASE_URL`. Updated `ApplicationContext.create()`'s default path (used only when no explicit `book_repository` is passed — the existing override parameter is untouched) to call a new `_build_book_repository()` that composes `InMemoryBookRepository` or `PostgreSQLBookRepository` based on this config. `application/` package (use cases, mapper) was not touched.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Smoke checks: (1) no env set → still defaults to `InMemoryBookRepository` (backward compatible with Sprint 5 behavior); (2) unknown backend value raises `UnknownBookRepositoryBackendError`; (3) `postgresql` backend without `DATABASE_URL` raises `DatabaseUrlMissingError`; (4) `postgresql` backend with `DATABASE_URL` pointed at a disposable `docker run postgres:16-alpine` (migration applied) correctly composed a real `PostgreSQLBookRepository`. Full `ruff check src tests` / `mypy src tests` / `pytest -q` re-run: 58 passed, no regressions.
+- Commit: (recorded after commit)
+- Notes: Config module only parses/validates env vars — it does not import any Infrastructure adapter, so `application_context.py` remains the sole place that references concrete adapters (both `InMemoryBookRepository` and now `PostgreSQLBookRepository`), consistent with Sprint 5.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

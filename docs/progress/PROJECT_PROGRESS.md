@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 0
-- Current Sprint: Not started
-- Last Completed Task: None
-- Last Commit: None
-- Validation: Not established
+- Current Sprint: Repository Foundation (Task 1-4) — Complete
+- Last Completed Task: Task 4 — Project Progress
+- Last Commit: b71f3b4 (Task 3; this Task's commit recorded after commit)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing
 
 ## Task Log
 
@@ -33,7 +33,7 @@ Use this format:
 - Status: Done
 - Summary: Added `pyproject.toml` with ruff, mypy (strict), and pytest configuration. Dev dependencies installed via `pip3 install --user --break-system-packages -e ".[dev]"` (system venv module unavailable: missing `python3.14-venv`, no sudo access). Added `.gitignore` for build/cache artifacts.
 - Validation: `python3 -m ruff check src tests` (pass), `python3 -m mypy src` (pass), `python3 -m pytest -q` (no tests collected — expected, tests added in Task 3)
-- Commit: (recorded after commit)
+- Commit: ef3c6ca
 - Notes: FastAPI, PostgreSQL, Docker, Next.js intentionally excluded per Task scope.
 
 ### Task 3 — Validation
@@ -44,8 +44,16 @@ Use this format:
   - `python3 -m ruff check src tests` — pass
   - `python3 -m mypy src tests` — pass (3 source files)
   - `python3 -m pytest -q` — pass (1 passed)
-- Commit: (recorded after commit)
+- Commit: b71f3b4
 - Notes: Commands run directly (no Makefile/task-runner introduced — out of Task scope).
+
+### Task 4 — Project Progress
+
+- Status: Done
+- Summary: Updated Current State section (Phase, Sprint, Last Completed Task, Last Commit, Validation) and back-filled Task 1-3 commit hashes.
+- Validation: N/A (documentation-only update)
+- Commit: (recorded after commit)
+- Notes: —
 
 ## Current Constraints
 

@@ -175,6 +175,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Fields typed against `BookRepository` (the port), not `InMemoryBookRepository` — keeps the container itself abstraction-clean; the concrete adapter choice is confined to the Task 2 factory.
 
+### Task 2 — Dependency Injection
+
+- Status: Done
+- Summary: Added `ApplicationContext.create(book_repository: BookRepository | None = None)` classmethod. Defaults to `InMemoryBookRepository` (the only adapter available) and injects the same repository instance into all three use cases. Accepts an optional explicit `BookRepository` for tests or future adapters.
+- Validation: `ruff check src/readmatch_ai/application_context.py` (pass), `mypy src/readmatch_ai/application_context.py` (pass); interactive smoke check confirmed all three use cases share the same repository instance end-to-end. Dedicated composition tests added in Task 3.
+- Commit: (recorded after commit)
+- Notes: `InMemoryBookRepository` is imported only in this module — the one place in the codebase allowed to reference a concrete Infrastructure adapter directly.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

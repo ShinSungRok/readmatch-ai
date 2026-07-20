@@ -9,6 +9,9 @@ from readmatch_ai.domain.recommendation import (
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
+    InMemoryBookEmbeddingRepository,
+)
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
 
 
@@ -89,3 +92,27 @@ def test_create_accepts_an_explicit_recommendation_engine() -> None:
     context = ApplicationContext.create(recommendation_engine=engine)
 
     assert context.get_recommendations_use_case.execute(limit=1) is sentinel_result
+
+
+def test_create_defaults_to_in_memory_embedding_repository() -> None:
+    context = ApplicationContext.create()
+
+    assert isinstance(context.book_embedding_repository, InMemoryBookEmbeddingRepository)
+
+
+def test_generated_embedding_is_retrievable_via_embedding_repository() -> None:
+    context = ApplicationContext.create()
+    book = context.register_book_use_case.execute(_valid_input())
+
+    embedding = context.generate_book_embedding_use_case.execute(str(book.id.value))
+
+    assert embedding is not None
+    assert context.book_embedding_repository.get_by_book_id(book.id) == embedding
+
+
+def test_generate_book_embedding_returns_none_for_missing_book() -> None:
+    context = ApplicationContext.create()
+
+    result = context.generate_book_embedding_use_case.execute(str(uuid.uuid4()))
+
+    assert result is None

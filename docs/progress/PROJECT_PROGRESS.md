@@ -597,6 +597,17 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: `book_embedding_generator` is not exposed as a separate `ApplicationContext` field (only used internally to build `generate_book_embedding_use_case`), mirroring how `recommendation_engine` (Sprint 14) also wasn't exposed as its own field — only shared repositories get dedicated fields.
 
+### Task 3 — Application Validation
+
+- Status: Done
+- Summary: Added `tests/application/test_generate_book_embedding_use_case.py`: generation persists correctly, re-running replaces (not duplicates) the stored embedding, missing Book returns `None`, and missing Book persists nothing. Extended `tests/test_application_context.py` with 3 end-to-end tests via the default composition: default `book_embedding_repository` is `InMemoryBookEmbeddingRepository`, a generated embedding is retrievable through `context.book_embedding_repository`, and a missing book returns `None` through the full context wiring.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (60 source files)
+  - `python3 -m pytest -q` — pass (103 passed, up from 96; 7 new tests)
+- Commit: (recorded after commit)
+- Notes: —
+
 ## Current Constraints
 
 - Implement only approved Tasks.

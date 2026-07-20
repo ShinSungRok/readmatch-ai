@@ -55,6 +55,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+### Task 1 — Book Domain
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/book.py` with `BookId`, `ISBN` (ISBN-10/13 checksum validation), `Title`, `Author`, `Category` value objects, and `Book` entity (identity-based equality via `BookId`).
+- Validation: `ruff check src/readmatch_ai/domain` (pass), `mypy src/readmatch_ai/domain` (pass); interactive smoke check confirmed valid/invalid ISBN handling. Unit tests added in Task 3.
+- Commit: (recorded after commit)
+- Notes: No persistence/infrastructure added — domain layer only, per Sprint scope.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

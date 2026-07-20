@@ -358,6 +358,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: Config module only parses/validates env vars — it does not import any Infrastructure adapter, so `application_context.py` remains the sole place that references concrete adapters (both `InMemoryBookRepository` and now `PostgreSQLBookRepository`), consistent with Sprint 5.
 
+### Task 2 — Production Import Runtime
+
+- Status: Done
+- Summary: Added `scripts/import_books.py` (the `scripts/` directory created empty in Sprint 1, now used for the first time). `main(argv, *, book_data_source=None, application_context=None)` parses `--start-date`/`--end-date`, defaults to `ApplicationContext.create()` (Task 1's config-driven wiring) and `Data4LibraryBookDataSource()`, and orchestrates `ImportBooksUseCase` (unchanged, from Sprint 8) against them. The `book_data_source`/`application_context` parameters mirror the existing optional-override pattern already used by `ApplicationContext.create(book_repository=...)` (Sprint 5), enabling Task 3 to exercise the real script without hitting the real API or requiring a specific backend to be pre-configured via env vars.
+- Validation: `ruff check` (pass), `mypy` (pass, strict); interactive smoke check ran `main()` end-to-end with an injected fake `BookDataSource` and an `InMemoryBookRepository`-backed `ApplicationContext` (no real network/DB), confirming the imported book was retrievable afterward via `context.get_book_by_isbn_use_case`. Full PostgreSQL-backed end-to-end validation is Task 3.
+- Commit: (recorded after commit)
+- Notes: `ImportBooksUseCase`, `Book`, `BookRepository`, etc. (Application/Domain) were not modified — all adapter selection/wiring for this workflow lives in this script, per Task instruction ("keep orchestration outside the Application layer").
+
 ## Current Constraints
 
 - Implement only approved Tasks.

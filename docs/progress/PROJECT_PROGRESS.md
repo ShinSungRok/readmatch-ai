@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 3 — Service Layer
-- Current Sprint: Sprint 22 — Recommendation API Foundation (Task 1-2) — Complete
-- Last Completed Task: Sprint 22 / Task 2 — Validation, Update PROJECT_PROGRESS.md
-- Last Commit: (recorded after commit; Sprint 22 / Task 2)
-- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (186 tests); additionally smoke-tested against a real running `uvicorn` process (not just TestClient) for all three endpoints, validation errors, and `/docs`/`/openapi.json`
+- Current Sprint: Sprint 23 — Recommendation Demo & End-to-End Showcase (Task 1-2) — Complete
+- Last Completed Task: Sprint 23 / Task 2 — Validation, Update PROJECT_PROGRESS.md
+- Last Commit: (recorded after commit; Sprint 23 / Task 2)
+- Validation: Established — `ruff check`, `mypy` (strict), `pytest` all passing (190 tests); demo script additionally run directly (`python scripts/run_demo.py`), output inspected by hand
 
 ## Task Log
 
@@ -767,6 +767,35 @@ Use this format:
   - `python3 -m ruff check src tests scripts` — pass
   - `python3 -m mypy src tests scripts` — pass (87 source files)
   - `python3 -m pytest -q` — pass (186 passed, up from 171; 15 new tests)
+  - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
+- Commit: (recorded after commit)
+- Notes: —
+
+## Sprint 23 — Recommendation Demo & End-to-End Showcase
+
+### Task 1 — Demo Script and README
+
+- Status: Done
+- Summary: Added `scripts/run_demo.py`, following the existing `scripts/import_books.py` convention (`main(argv, *, application_context=None) -> int`, `_parse_args`, `if __name__ == "__main__": sys.exit(main())`) so it can be driven both from the CLI and (with an injected `ApplicationContext`) from tests.
+  - `_SEED_BOOKS`: 8 hand-picked, deterministic books across 3 categories (Software Engineering ×3, Science Fiction ×3, History ×2) with varied `loan_count`, so Popularity/Semantic/Hybrid visibly diverge. ISBN-13 check digits are computed programmatically (`_isbn13`), not hand-typed, to guarantee they pass `ISBN`'s existing checksum validation.
+  - `seed_demo_dataset(context)`: registers each book, records its popularity, and generates its embedding — reusing `register_book_use_case`/`book_popularity_repository.record`/`generate_book_embedding_use_case` exactly as they're used elsewhere; no new Application-layer code needed.
+  - The demo calls the *actual* REST API, not the use cases directly: it builds a real `create_app()` instance, overrides `get_application_context` (the same seam Sprint 22's tests use) to the seeded context, and issues real HTTP requests via `fastapi.testclient.TestClient` — this exercises real routing/Pydantic validation/JSON serialization in-process, satisfying "exercises the ... recommendation APIs end-to-end" literally, without needing a bound network port or an external server (there's also no book-write endpoint to seed an arbitrary external server through, since Sprint 22 only added read endpoints).
+  - `_print_recommendation_comparison`: prints Popularity/Semantic/Hybrid results side by side for one spotlight book, so the differences between strategies are visible in one place (not three separate reports).
+  - `_build_evaluation_dataset`/`_print_evaluation_report`: defines "relevant" as same-category books — a policy decision made *locally in this script*, not added to the Evaluation domain itself (`EvaluationCase.relevant_book_ids` was deliberately left source-agnostic in Sprint 21 for exactly this reason). Runs `evaluate_recommendation_engine_use_case` against all three of `ApplicationContext`'s exposed engine fields (`recommendation_engine`/`semantic_recommendation_engine`/`hybrid_recommendation_engine`, from Sprint 21) and prints a metrics table — satisfying "integrate offline evaluation results into the demonstration output."
+  - The evaluation output explicitly states embeddings are `DeterministicFakeBookEmbeddingGenerator`, a placeholder — not a real ML model — so semantic/hybrid metrics aren't overstated as representative recommendation quality, per PROJECT_INSTRUCTIONS.md ("do not exaggerate features or evaluation results"; "clearly label synthetic data").
+  - Added `README.md` (none existed previously): quick start (install/lint/typecheck/test), how to run the demo and the API server (`uvicorn`/`docker compose`), an API reference for all three endpoints with real curl examples and example JSON responses (verified against actual, checksum-valid ISBNs), and pointers to `docs/agent/architecture/ADR.md`/`SYSTEM_ARCHITECTURE.md` and `docs/progress/PROJECT_PROGRESS.md` for deeper documentation. Opens with the same "this is a placeholder embedding model" caveat as the demo output, for the same reason.
+- Validation: `ruff check` (pass), `mypy` (pass, strict). Ran `python scripts/run_demo.py` directly and inspected the output by hand: 8 books seeded across 3 categories; Popularity/Semantic/Hybrid sections all populated and visibly different from each other; evaluation table printed with plausible (0-1 range) metrics for all three engines. Formal automated test suite is Task 2.
+- Commit: (recorded after commit)
+- Notes: Referencing `docs/agent/architecture/ADR.md`/`SYSTEM_ARCHITECTURE.md` from the README points at their canonical (committed, tracked-in-git) location even though both remain deleted in this session's *uncommitted* working tree — a pre-existing, unrelated anomaly first noted in Sprint 1 and left untouched per that standing precedent; the README reflects repository state, not this sandbox's working-tree quirk.
+
+### Task 2 — Validation and Progress
+
+- Status: Done
+- Summary: Added `tests/test_run_demo.py`, loading `scripts/run_demo.py` via `importlib` (mirroring `tests/test_import_books_runtime.py`'s existing pattern for testing a non-package script). Discovered and fixed a real bug surfaced by this test: `importlib.util.module_from_spec` + `exec_module` alone does not register the module in `sys.modules` before execution, and `run_demo.py`'s module-level `@dataclass` (`_SeedBook`) needs that registration to resolve its own module's globals — omitting `sys.modules[spec.name] = module` before `exec_module` crashed with `AttributeError: 'NoneType' object has no attribute '__dict__'`. Fixed by registering the module first, which is the standard/correct fix for this importlib pattern (not previously hit by `import_books.py`, which has no module-level dataclasses). Tests cover: the full CLI run produces the expected sections (`[Popularity]`/`[Semantic]`/`[Hybrid]`/evaluation table) via `capsys`; the demo's seeded data is actually persisted and retrievable through the `ApplicationContext` (not just printed); the semantic endpoint invoked through the real API returns valid JSON excluding the source book; and the category-based evaluation dataset groups books correctly. Updated `PROJECT_PROGRESS.md` (this entry) for Sprint 23 completion.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass (89 source files)
+  - `python3 -m pytest -q` — pass (190 passed, up from 186; 4 new tests)
   - Confirmed no leftover Docker containers after the run (only pre-existing, unrelated containers from outside this session remained).
 - Commit: (recorded after commit)
 - Notes: —

@@ -25,15 +25,22 @@ from readmatch_ai.application.get_recommendations_use_case import GetRecommendat
 from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
 from readmatch_ai.config import (
     POSTGRESQL_BACKEND,
+    RRF_STRATEGY,
     SENTENCE_TRANSFORMERS_BACKEND,
     AlsModelConfig,
     BookRepositoryConfig,
     EmbeddingGeneratorConfig,
+    HybridRankingConfig,
 )
 from readmatch_ai.domain.book_embedding_generator import BookEmbeddingGenerator
 from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepository
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
+from readmatch_ai.domain.ranking_strategies import (
+    ReciprocalRankFusionStrategy,
+    WeightedScoreFusionStrategy,
+)
+from readmatch_ai.domain.ranking_strategy import RankingStrategy
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.domain.user_book_interaction_repository import UserBookInteractionRepository
 from readmatch_ai.infrastructure.als_model import train_als_model
@@ -42,7 +49,12 @@ from readmatch_ai.infrastructure.als_recommendation_engine import ALSRecommendat
 from readmatch_ai.infrastructure.deterministic_fake_book_embedding_generator import (
     DeterministicFakeBookEmbeddingGenerator,
 )
-from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
+from readmatch_ai.infrastructure.hybrid_recommendation_engine import (
+    ALS_SOURCE,
+    POPULARITY_SOURCE,
+    SEMANTIC_SOURCE,
+    HybridRecommendationEngine,
+)
 from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
     InMemoryBookEmbeddingRepository,
 )
@@ -125,16 +137,7 @@ class ApplicationContext:
         EMBEDDING_GENERATOR_BACKEND=sentence_transformers.
         semantic_recommendation_engine defaults to
         SemanticRecommendationEngine built from those same (already-resolved)
-        book_embedding_repository/book_repository. hybrid_recommendation_engine
-        defaults to HybridRecommendationEngine built from the same
-        (already-resolved) popularity/semantic engines used above — an
-        explicit override of either of those also flows into the default
-        Hybrid engine, keeping composition consistent. The resolved engines
-        are also exposed directly as fields (recommendation_engine,
-        semantic_recommendation_engine, hybrid_recommendation_engine,
-        als_recommendation_engine) so evaluate_recommendation_engine_use_case
-        (stateless; parametrized per call, not bound to one engine) can be
-        run against any of them.
+        book_embedding_repository/book_repository.
 
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
@@ -146,6 +149,26 @@ class ApplicationContext:
         — training is a batch/Infrastructure concern (see
         infrastructure.als_model), so this engine reflects a snapshot, not
         interactions recorded after it was built.
+
+        hybrid_recommendation_engine defaults to HybridRecommendationEngine
+        built from the same (already-resolved) popularity/semantic/ALS
+        engines used above — an explicit override of any of those also
+        flows into the default Hybrid engine, keeping composition
+        consistent — paired with a RankingStrategy resolved via
+        HybridRankingConfig.from_env(): WeightedScoreFusionStrategy
+        (default) or ReciprocalRankFusionStrategy when
+        HYBRID_RANKING_STRATEGY=rrf. Swapping strategies is a Composition
+        Root concern only; neither HybridRecommendationEngine nor the
+        Application layer changes either way.
+
+        The resolved engines are also exposed directly as fields
+        (recommendation_engine, semantic_recommendation_engine,
+        hybrid_recommendation_engine, als_recommendation_engine) so
+        evaluate_recommendation_engine_use_case (stateless; parametrized per
+        call, not bound to one engine) can be run against any of them —
+        including constructing additional HybridRecommendationEngine
+        instances with a different RankingStrategy directly from these same
+        building blocks, to compare strategies (see scripts/run_demo.py).
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -173,11 +196,6 @@ class ApplicationContext:
             if semantic_recommendation_engine is not None
             else SemanticRecommendationEngine(embedding_repository, repository)
         )
-        hybrid_engine = (
-            hybrid_recommendation_engine
-            if hybrid_recommendation_engine is not None
-            else HybridRecommendationEngine(engine, semantic_engine)
-        )
         interaction_repository = (
             user_book_interaction_repository
             if user_book_interaction_repository is not None
@@ -187,6 +205,13 @@ class ApplicationContext:
             als_recommendation_engine
             if als_recommendation_engine is not None
             else _build_als_recommendation_engine(interaction_repository, repository)
+        )
+        hybrid_engine = (
+            hybrid_recommendation_engine
+            if hybrid_recommendation_engine is not None
+            else HybridRecommendationEngine(
+                engine, semantic_engine, als_engine, _build_ranking_strategy()
+            )
         )
         return cls(
             book_repository=repository,
@@ -279,3 +304,13 @@ def _build_als_recommendation_engine(
         if config.model_path is not None:
             store.save(model, config.model_path)
     return ALSRecommendationEngine(model, book_repository, interaction_repository)
+
+
+_DEFAULT_HYBRID_WEIGHTS = {POPULARITY_SOURCE: 1 / 3, SEMANTIC_SOURCE: 1 / 3, ALS_SOURCE: 1 / 3}
+
+
+def _build_ranking_strategy() -> RankingStrategy:
+    config = HybridRankingConfig.from_env()
+    if config.strategy == RRF_STRATEGY:
+        return ReciprocalRankFusionStrategy()
+    return WeightedScoreFusionStrategy(dict(_DEFAULT_HYBRID_WEIGHTS))

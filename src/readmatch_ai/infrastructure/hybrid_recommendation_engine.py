@@ -1,92 +1,64 @@
 from __future__ import annotations
 
-from readmatch_ai.domain.book import Book, BookId
+from readmatch_ai.domain.ranking_strategy import RankingCandidateList, RankingStrategy
 from readmatch_ai.domain.recommendation import (
     Recommendation,
-    RecommendationItem,
     RecommendationQuery,
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 
-_SOURCE = "hybrid"
-_DEFAULT_POPULARITY_WEIGHT = 0.5
+POPULARITY_SOURCE = "popularity"
+SEMANTIC_SOURCE = "semantic"
+ALS_SOURCE = "als"
 
 
 class HybridRecommendationEngine(RecommendationEngine):
-    """RecommendationEngine combining a popularity engine and a semantic engine.
+    """RecommendationEngine combining Popularity, Semantic, and ALS candidates.
 
-    Fetches up to `query.limit` candidates from each sub-engine, min-max
-    normalizes each engine's own scores independently to [0, 1] (ADR-006:
-    "weighted normalized scores form the MVP hybrid ranker"), then combines
-    them with a configurable popularity/semantic weight split. A book
-    recommended by both engines is merged into a single item whose score is
-    the full weighted-sum combination of both signals, not just one side —
-    so a book strong in both sources correctly outranks one strong in only
-    one.
-
-    Falls back fully to the popularity signal (effective weight 1.0) when no
-    source book is given, or the source book has no embedding yet, rather
-    than silently scaling every score down by the configured popularity
-    weight — matching ADR-004's "Popularity is the baseline and cold-start
-    fallback".
+    Fetches up to `query.limit` candidates from each available sub-engine —
+    Semantic only if `query.book_id` is set, ALS only if `query.user_id` is
+    set, matching each engine's own required-input contract — and delegates
+    all fusion (normalization, weighting/ranking, duplicate merging,
+    truncation) to the injected RankingStrategy. Swapping fusion algorithms
+    (e.g. weighted score fusion vs. reciprocal rank fusion) requires only a
+    different RankingStrategy at composition time; this class and the
+    Application layer are unaffected either way.
     """
 
     def __init__(
         self,
         popularity_engine: RecommendationEngine,
         semantic_engine: RecommendationEngine,
-        popularity_weight: float = _DEFAULT_POPULARITY_WEIGHT,
+        als_engine: RecommendationEngine,
+        ranking_strategy: RankingStrategy,
     ) -> None:
-        if not 0.0 <= popularity_weight <= 1.0:
-            raise ValueError(f"popularity_weight must be within [0, 1], got {popularity_weight!r}")
         self._popularity_engine = popularity_engine
         self._semantic_engine = semantic_engine
-        self._popularity_weight = popularity_weight
+        self._als_engine = als_engine
+        self._ranking_strategy = ranking_strategy
 
     def recommend(self, query: RecommendationQuery) -> RecommendationResult:
-        popularity_items = self._popularity_engine.recommend(query).recommendation.items
-        semantic_items = (
-            self._semantic_engine.recommend(query).recommendation.items
-            if query.book_id is not None
-            else []
-        )
-
-        popularity_weight, semantic_weight = self._effective_weights(semantic_items)
-        normalized_popularity = self._normalize(popularity_items)
-        normalized_semantic = self._normalize(semantic_items)
-
-        books: dict[BookId, Book] = {
-            item.book.id: item.book for item in (*popularity_items, *semantic_items)
-        }
-        combined_scores = {
-            book_id: (
-                popularity_weight * normalized_popularity.get(book_id, 0.0)
-                + semantic_weight * normalized_semantic.get(book_id, 0.0)
+        candidate_lists = [
+            RankingCandidateList(
+                source=POPULARITY_SOURCE,
+                items=self._popularity_engine.recommend(query).recommendation.items,
             )
-            for book_id in books
-        }
-
-        ranked_book_ids = sorted(
-            combined_scores, key=lambda book_id: combined_scores[book_id], reverse=True
-        )[: query.limit]
-        items = [
-            RecommendationItem(book=books[book_id], score=combined_scores[book_id], source=_SOURCE)
-            for book_id in ranked_book_ids
         ]
+        if query.book_id is not None:
+            candidate_lists.append(
+                RankingCandidateList(
+                    source=SEMANTIC_SOURCE,
+                    items=self._semantic_engine.recommend(query).recommendation.items,
+                )
+            )
+        if query.user_id is not None:
+            candidate_lists.append(
+                RankingCandidateList(
+                    source=ALS_SOURCE,
+                    items=self._als_engine.recommend(query).recommendation.items,
+                )
+            )
+
+        items = self._ranking_strategy.fuse(candidate_lists, query.limit)
         return RecommendationResult(recommendation=Recommendation(items=items))
-
-    def _effective_weights(self, semantic_items: list[RecommendationItem]) -> tuple[float, float]:
-        if not semantic_items:
-            return 1.0, 0.0
-        return self._popularity_weight, 1.0 - self._popularity_weight
-
-    @staticmethod
-    def _normalize(items: list[RecommendationItem]) -> dict[BookId, float]:
-        if not items:
-            return {}
-        scores = [item.score for item in items]
-        minimum, maximum = min(scores), max(scores)
-        if minimum == maximum:
-            return {item.book.id: 1.0 for item in items}
-        return {item.book.id: (item.score - minimum) / (maximum - minimum) for item in items}

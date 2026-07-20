@@ -2,9 +2,13 @@ import pytest
 
 from readmatch_ai.config import (
     DETERMINISTIC_BACKEND,
+    RRF_STRATEGY,
     SENTENCE_TRANSFORMERS_BACKEND,
+    WEIGHTED_STRATEGY,
     EmbeddingGeneratorConfig,
+    HybridRankingConfig,
     UnknownEmbeddingGeneratorBackendError,
+    UnknownRankingStrategyError,
 )
 
 
@@ -40,3 +44,28 @@ def test_from_env_rejects_an_unknown_backend(monkeypatch: pytest.MonkeyPatch) ->
 
     with pytest.raises(UnknownEmbeddingGeneratorBackendError, match="openai"):
         EmbeddingGeneratorConfig.from_env()
+
+
+def test_hybrid_ranking_config_defaults_to_weighted_strategy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HYBRID_RANKING_STRATEGY", raising=False)
+
+    config = HybridRankingConfig.from_env()
+
+    assert config.strategy == WEIGHTED_STRATEGY
+
+
+def test_hybrid_ranking_config_selects_rrf_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HYBRID_RANKING_STRATEGY", "rrf")
+
+    config = HybridRankingConfig.from_env()
+
+    assert config.strategy == RRF_STRATEGY
+
+
+def test_hybrid_ranking_config_rejects_an_unknown_strategy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HYBRID_RANKING_STRATEGY", "borda_count")
+
+    with pytest.raises(UnknownRankingStrategyError, match="borda_count"):
+        HybridRankingConfig.from_env()

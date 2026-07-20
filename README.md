@@ -4,9 +4,11 @@ A production-oriented hybrid book recommendation portfolio project, built with
 Domain-Driven Design, Clean Architecture, and Hexagonal Architecture.
 
 Core capabilities: public book-data import, popularity recommendation,
-semantic (embedding) recommendation, hybrid (popularity + semantic) ranking,
-offline evaluation, and a FastAPI recommendation service backed by PostgreSQL
-and pgvector.
+semantic (embedding) recommendation, implicit-ALS collaborative filtering,
+hybrid ranking (fuses Popularity + Semantic + ALS via a pluggable
+`RankingStrategy` — Weighted Score Fusion or Reciprocal Rank Fusion), offline
+evaluation, and a FastAPI recommendation service backed by PostgreSQL and
+pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -55,14 +57,24 @@ PostgreSQL/pgvector instead, set:
 ```bash
 export BOOK_REPOSITORY_BACKEND=postgresql
 export DATABASE_URL=postgresql://user:pass@localhost:5432/readmatch
-# apply migrations/*.sql in order (0001, 0002, 0003, 0004) against that database first
+# apply migrations/*.sql in order (0001-0006) against that database first
+```
+
+The Hybrid engine's fusion algorithm is selected independently via:
+
+```bash
+export HYBRID_RANKING_STRATEGY=weighted   # default: min-max normalized weighted sum
+export HYBRID_RANKING_STRATEGY=rrf        # Reciprocal Rank Fusion (rank-based, score-scale-agnostic)
 ```
 
 ### Run the demo
 
 A self-contained, deterministic, end-to-end walkthrough: seeds a small book
-dataset, calls the real Popularity/Semantic/Hybrid REST endpoints in-process,
-and prints an offline evaluation report.
+dataset (plus synthetic user interactions for ALS), calls the real
+Popularity/Semantic/Hybrid REST endpoints in-process, prints both Hybrid
+ranking strategies (Weighted Score Fusion vs. Reciprocal Rank Fusion) side by
+side, and prints an offline evaluation report comparing Popularity, Semantic,
+ALS, Hybrid (Weighted), and Hybrid (RRF).
 
 ```bash
 python scripts/run_demo.py
@@ -149,9 +161,12 @@ curl "http://localhost:8000/recommendations/semantic/a2f1e6d4-2b9a-4b1e-9a3f-6b7
 
 ### `GET /recommendations/hybrid`
 
-Combines popularity and semantic signals (min-max normalized, weighted sum).
-`book_id` is optional — omitting it degrades gracefully to the popularity
-signal alone.
+Combines Popularity, Semantic, and ALS signals via the configured
+`RankingStrategy` (`HYBRID_RANKING_STRATEGY`; see Quick Start). `book_id` is
+optional — omitting it degrades gracefully to whatever sources remain active
+(at minimum, Popularity). Every source's contribution is renormalized across
+whichever sources actually produced candidates for a given call, so an
+inactive source never silently deflates the combined score.
 
 | Param     | Type          | Default | Constraints |
 |-----------|---------------|---------|-------------|
@@ -161,6 +176,13 @@ signal alone.
 ```bash
 curl "http://localhost:8000/recommendations/hybrid?book_id=a2f1e6d4-2b9a-4b1e-9a3f-6b7c8d9e0f11&limit=2"
 ```
+
+> This endpoint currently only accepts `book_id` (no `user_id`), so the ALS
+> signal never activates through the REST API today — it does activate
+> through `HybridRecommendationEngine` directly whenever a query carries a
+> `user_id` (e.g. the evaluation framework and `scripts/run_demo.py`, which
+> exercise all three signals together). Exposing `user_id` on this endpoint
+> is a natural follow-up, not yet implemented.
 
 ## Testing
 

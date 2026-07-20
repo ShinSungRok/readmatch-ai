@@ -102,3 +102,35 @@ class AlsModelConfig:
     @classmethod
     def from_env(cls) -> AlsModelConfig:
         return cls(model_path=os.environ.get(_ALS_MODEL_PATH_ENV_VAR))
+
+
+_HYBRID_RANKING_STRATEGY_ENV_VAR = "HYBRID_RANKING_STRATEGY"
+
+WEIGHTED_STRATEGY = "weighted"
+RRF_STRATEGY = "rrf"
+_VALID_RANKING_STRATEGIES = {WEIGHTED_STRATEGY, RRF_STRATEGY}
+
+
+class UnknownRankingStrategyError(Exception):
+    """Raised when HYBRID_RANKING_STRATEGY is set to an unsupported value."""
+
+
+@dataclass(frozen=True)
+class HybridRankingConfig:
+    """Configuration selecting which RankingStrategy HybridRecommendationEngine composes with.
+
+    Defaults to `weighted` (WeightedScoreFusionStrategy), matching the
+    engine's original (Sprint 20) behavior.
+    """
+
+    strategy: str
+
+    @classmethod
+    def from_env(cls) -> HybridRankingConfig:
+        strategy = os.environ.get(_HYBRID_RANKING_STRATEGY_ENV_VAR, WEIGHTED_STRATEGY)
+        if strategy not in _VALID_RANKING_STRATEGIES:
+            raise UnknownRankingStrategyError(
+                f"Unknown {_HYBRID_RANKING_STRATEGY_ENV_VAR}: {strategy!r} "
+                f"(expected one of {sorted(_VALID_RANKING_STRATEGIES)})"
+            )
+        return cls(strategy=strategy)

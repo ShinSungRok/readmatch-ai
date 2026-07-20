@@ -6,6 +6,7 @@ from types import ModuleType
 import pytest
 
 from readmatch_ai.application_context import ApplicationContext
+from readmatch_ai.domain.recommendation import RecommendationQuery
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,8 +42,10 @@ def test_demo_seeds_and_serves_all_three_recommendation_strategies(
     assert "[Popularity]" in output
     assert "[Semantic]" in output
     assert "[Hybrid]" in output
+    assert "[Hybrid (Weighted Score Fusion)]" in output
+    assert "[Hybrid (Reciprocal Rank Fusion)]" in output
     assert "Offline evaluation" in output
-    for engine_name in ("popularity", "semantic", "hybrid"):
+    for engine_name in ("popularity", "semantic", "als", "hybrid_weighted", "hybrid_rrf"):
         assert engine_name in output
 
 
@@ -77,11 +80,32 @@ def test_demo_recommendation_endpoints_return_valid_json_via_the_real_api() -> N
 def test_evaluation_dataset_groups_books_by_category() -> None:
     context = ApplicationContext.create()
     books = _run_demo.seed_demo_dataset(context)
+    user_id = _run_demo._user_id(_run_demo.DEMO_USER_LABEL)
 
-    dataset = _run_demo._build_evaluation_dataset(books)
+    dataset = _run_demo._build_evaluation_dataset(books, user_id)
 
     assert len(dataset.cases) == len(books)
     software_engineering_case = next(
         case for case in dataset.cases if case.book_id == books[0].id
     )
     assert len(software_engineering_case.relevant_book_ids) == 2
+    assert software_engineering_case.user_id == user_id
+
+
+def test_als_engine_recommends_effective_java_for_alice_via_shared_reader_correlation() -> None:
+    """Sanity-checks the demo's own seeded ALS training signal.
+
+    alice and bob both read "The Pragmatic Programmer"; bob also read
+    "Effective Java", which alice hasn't -- ALS should be able to surface it
+    for alice via that shared-reader correlation.
+    """
+    context = ApplicationContext.create()
+    books = _run_demo.seed_demo_dataset(context)
+    als_engine = _run_demo._build_als_engine(context)
+    alice = _run_demo._user_id("alice")
+
+    result = als_engine.recommend(RecommendationQuery(limit=len(books), user_id=alice))
+
+    effective_java = next(book for book in books if book.title.value == "Effective Java")
+    recommended_ids = {item.book.id for item in result.recommendation.items}
+    assert effective_java.id in recommended_ids

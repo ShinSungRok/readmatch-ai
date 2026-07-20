@@ -398,6 +398,14 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: An earlier draft of this Task also added `domain/recommendation.py` (`Recommendation`/`RecommendationItem`) per the original Task 1 wording, but that was removed (uncommitted) once the Sprint Goal was narrowed — those types have no consumer this Sprint (the engine that would produce/consume them is deferred) and would be dead code. `Book`/`BookRepository` not modified.
 
+### Task 2 — InMemory Popularity Repository
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/infrastructure/in_memory_book_popularity_repository.py`: `InMemoryBookPopularityRepository(BookPopularityRepository)`, dict-keyed by `BookId` (upsert semantics via `record`), `top_by_loan_count` sorts descending and slices to `limit`.
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed ranking order, limit truncation, and upsert-overwrite behavior.
+- Commit: (recorded after commit)
+- Notes: No PostgreSQL adapter added — explicitly out of scope for this Sprint per user instruction.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

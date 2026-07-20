@@ -542,6 +542,16 @@ Use this format:
 - Commit: (recorded after commit)
 - Notes: —
 
+## Sprint 15 — Semantic Embedding Foundation
+
+### Task 1 — Embedding Domain
+
+- Status: Done
+- Summary: Added `src/readmatch_ai/domain/book_embedding.py`: `BookEmbedding` (`book_id`, `vector: tuple[float, ...]`, `model_name`, `dimensions`), kept separate from `Book` (mirrors `BookPopularity`'s separation rationale — model/version varies independently of catalog metadata). `__post_init__` validates: `model_name` non-empty, `dimensions` positive, `len(vector) == dimensions`. `vector` uses `tuple` (not `list`) so the frozen dataclass is genuinely immutable/hashable.
+- Validation: `ruff check` (pass), `mypy` (pass); interactive smoke check confirmed construction and all three invariant violations raise `ValueError` with clear messages.
+- Commit: (recorded after commit)
+- Notes: `Book` entity itself was not modified.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

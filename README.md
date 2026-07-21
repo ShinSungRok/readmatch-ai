@@ -17,8 +17,9 @@ structured recommendation execution logging, in-process operational metrics),
 fail-fast operational configuration validation with a redacted runtime
 summary, read-only production persistence/pgvector runtime validation
 integrated with readiness, deterministic deployment/container runtime
-validation, an aggregated read-only operations report, and a FastAPI
-recommendation service backed by PostgreSQL and pgvector.
+validation, an aggregated read-only operations report, a unified release
+validation pipeline, and a FastAPI recommendation service backed by
+PostgreSQL and pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -992,6 +993,89 @@ diagnoses that category), not how to fix it beyond what that capability
 already documents. The default (fast) report does not re-verify that the
 application can start from scratch — pass `--include-deployment-check` for
 that, understanding it is comparatively expensive.
+
+## CI/CD and Release Automation
+
+Introduced in Sprint 36: one deterministic release validation pipeline that
+orchestrates every existing validation capability — runtime configuration,
+persistence, deployment, and an operations report (Sprints 32-35) — into a
+single pre-release check, without reimplementing any of them.
+
+**Release workflow**:
+
+```bash
+python scripts/validate_release.py
+# also run this project's own quality gates (ruff/mypy/pytest) as a stage:
+python scripts/validate_release.py --include-tests
+```
+
+```
+Release validation summary:
+
+  mode: development
+  checked: configuration, deployment, operations
+  valid: True
+  application_version: 0.1.0
+
+Release valid.
+```
+
+**Validation sequence** — five stages, run in order, each reusing an
+existing capability directly rather than reimplementing it:
+
+| Stage | Reused from | Runs when |
+|---|---|---|
+| `configuration` | `ApplicationConfiguration`/`ApplicationConfigurationValidator` (Sprint 32) | always, first |
+| `persistence` | `validate_postgresql_persistence` (Sprint 33) | `BOOK_REPOSITORY_BACKEND=postgresql` |
+| `deployment` | `ContainerRuntimeValidator` (Sprint 34) | configuration valid |
+| `operations` | `OperationsService` (Sprint 35) | configuration valid |
+| `tests` | `ruff check` / `mypy --strict` / `pytest -q` (as subprocesses) | `--include-tests` only |
+
+A statically invalid `configuration` stage short-circuits every later stage
+— exactly as `scripts/validate_runtime.py` already does — since none of
+`persistence`/`deployment`/`operations` could meaningfully run (or safely
+attempt any connection) against an already-known-invalid environment, and
+each would otherwise report a confusing, redundant secondary failure for
+the same root cause. `tests` is off by default (it is comparatively slow —
+a full `pytest -q` run); pass `--include-tests` to run it as part of the
+same pipeline invocation, using the exact same three commands
+`.github/workflows/ci.yml` already runs.
+
+**Release checklist** (what `--include-tests` covers end-to-end):
+
+1. `ruff check src tests scripts` passes;
+2. `mypy --strict src tests scripts` passes;
+3. `pytest -q` passes;
+4. runtime configuration is valid for the target environment
+   (`APPLICATION_MODE`, `BOOK_REPOSITORY_BACKEND`, ...);
+5. the persistence/pgvector runtime is reachable and correctly shaped
+   (PostgreSQL deployments only);
+6. the application actually starts and serves `GET /health`/`GET
+   /readiness`/a real recommendation endpoint;
+7. the resulting operations report is operational.
+
+**Troubleshooting**: every violation names its own `stage`, so a failure
+always points to exactly which of the five checks above to investigate —
+and, for `configuration`/`persistence`/`deployment`, to that Sprint's own
+documentation earlier in this README for the full diagnostic detail. A
+`tests` violation (`<name>_failed`) names the failing command and its exit
+code only, never captured stdout/stderr (which could be large or embed
+environment detail) — re-run that command directly for the full output.
+
+**Secret redaction**: this capability introduces no new redaction rules —
+every violation is translated from an already-redacted upstream violation
+(`ConfigurationViolation`, `PersistenceValidationViolation`,
+`DeploymentValidationViolation`), or names a subprocess command/exit code
+only — never `DATABASE_URL`, credentials, or any raw environment value.
+
+**Limitations**: this orchestrates existing, already-documented validators
+— it introduces no new deployment logic and no external CI platform
+dependency (no GitHub Actions/GitLab CI SDK, no cloud release-management
+integration); `.github/workflows/ci.yml` remains the actual CI entry point,
+and this pipeline is a local, on-demand equivalent an operator can run
+before pushing or tagging a release. It validates, but does not itself
+perform, a release — no artifact is built, tagged, or published by this
+capability.
 
 ## Testing
 

@@ -1,25 +1,11 @@
 from __future__ import annotations
 
-from readmatch_ai.config import (
-    BookRepositoryConfig,
-    DatabaseUrlMissingError,
-    EmbeddingGeneratorConfig,
-    HybridRankingConfig,
-    UnknownBookRepositoryBackendError,
-    UnknownEmbeddingGeneratorBackendError,
-    UnknownRankingStrategyError,
-)
+from readmatch_ai.config import ApplicationConfiguration
 from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.health import ComponentCheck, ReadinessStatus
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
-
-_CONFIGURATION_ERRORS = (
-    UnknownBookRepositoryBackendError,
-    DatabaseUrlMissingError,
-    UnknownEmbeddingGeneratorBackendError,
-    UnknownRankingStrategyError,
-)
+from readmatch_ai.runtime_configuration import ApplicationConfigurationValidator
 
 
 class ReadinessCheckService:
@@ -54,18 +40,20 @@ class ReadinessCheckService:
         return ReadinessStatus(ready=all(check.available for check in checks), checks=checks)
 
     def _check_configuration(self) -> ComponentCheck:
-        # Re-parses the same env-derived config ApplicationContext.create()
-        # already resolved at startup -- redundant in the common case, but
-        # a real, deterministic, side-effect-free signal if runtime
-        # configuration has become invalid since then. Error messages from
-        # these specific exceptions only ever name a backend/env-var, never
-        # a secret value (see config.py), so `str(exc)` is safe to surface.
-        try:
-            BookRepositoryConfig.from_env()
-            EmbeddingGeneratorConfig.from_env()
-            HybridRankingConfig.from_env()
-        except _CONFIGURATION_ERRORS as exc:
-            return ComponentCheck(name="configuration", available=False, detail=str(exc))
+        # Re-parses the same env-derived configuration
+        # ApplicationContext.create() already validated at startup (Sprint
+        # 32's ApplicationConfiguration/ApplicationConfigurationValidator --
+        # extended here, not duplicated) -- redundant in the common case,
+        # but a real, deterministic, side-effect-free signal if runtime
+        # configuration has become invalid since then (e.g. an operator
+        # changed an env var without restarting). Violation messages never
+        # carry a secret value (see ConfigurationViolation's own docstring),
+        # so joining them into `detail` is safe.
+        configuration = ApplicationConfiguration.from_env()
+        result = ApplicationConfigurationValidator().validate(configuration)
+        if not result.valid:
+            detail = "; ".join(f"{v.field}: {v.message}" for v in result.violations)
+            return ComponentCheck(name="configuration", available=False, detail=detail)
         return ComponentCheck(name="configuration", available=True)
 
     def _check_book_repository(self) -> ComponentCheck:

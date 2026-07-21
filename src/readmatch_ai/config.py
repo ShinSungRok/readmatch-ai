@@ -3,6 +3,28 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+_RUNTIME_MODE_ENV_VAR = "APPLICATION_MODE"
+
+DEVELOPMENT_MODE = "development"
+TEST_MODE = "test"
+PRODUCTION_MODE = "production"
+_VALID_RUNTIME_MODES = {DEVELOPMENT_MODE, TEST_MODE, PRODUCTION_MODE}
+
+
+class UnknownRuntimeModeError(Exception):
+    """Raised when APPLICATION_MODE is set to an unsupported value."""
+
+
+def _resolve_runtime_mode() -> str:
+    mode = os.environ.get(_RUNTIME_MODE_ENV_VAR, DEVELOPMENT_MODE)
+    if mode not in _VALID_RUNTIME_MODES:
+        raise UnknownRuntimeModeError(
+            f"Unknown {_RUNTIME_MODE_ENV_VAR}: {mode!r} "
+            f"(expected one of {sorted(_VALID_RUNTIME_MODES)})"
+        )
+    return mode
+
+
 _BACKEND_ENV_VAR = "BOOK_REPOSITORY_BACKEND"
 _DATABASE_URL_ENV_VAR = "DATABASE_URL"
 
@@ -134,3 +156,117 @@ class HybridRankingConfig:
                 f"(expected one of {sorted(_VALID_RANKING_STRATEGIES)})"
             )
         return cls(strategy=strategy)
+
+
+@dataclass(frozen=True)
+class ConfigurationViolation:
+    """One independent, operator-facing configuration problem.
+
+    `code` is a stable, machine-checkable category (e.g.
+    "unknown_book_repository_backend"); `field` names the affected
+    environment variable/capability; `message` is a concise, human-readable
+    explanation. Never carries a secret value -- every producer of this type
+    (see ApplicationConfiguration.from_env and
+    runtime_configuration.ApplicationConfigurationValidator) is responsible
+    for that, mirroring the same discipline ReadinessCheckService already
+    applies to ComponentCheck.detail (Sprint 31).
+    """
+
+    code: str
+    field: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ApplicationConfiguration:
+    """The application settings ApplicationContext.create() actually composes,
+    aggregated from the existing per-capability config classes above plus the
+    new runtime mode -- extending, not duplicating, the existing
+    configuration mechanisms.
+
+    Unlike BookRepositoryConfig.from_env()/etc. (each of which raises
+    immediately on its own first invalid value), `from_env()` here resolves
+    every category independently: an invalid value in one category never
+    prevents detecting problems in another, so
+    runtime_configuration.ApplicationConfigurationValidator can report every
+    independent violation from one startup attempt. A category that failed
+    to parse is `None` here; the corresponding `ConfigurationViolation` (same
+    exception type/message the existing XConfig.from_env() would have
+    raised) is in `parsing_violations`. `als_model` has no invalid values to
+    reject (AlsModelConfig.from_env() never raises), so it's always present.
+    """
+
+    mode: str | None
+    book_repository: BookRepositoryConfig | None
+    embedding_generator: EmbeddingGeneratorConfig | None
+    hybrid_ranking: HybridRankingConfig | None
+    als_model: AlsModelConfig
+    parsing_violations: tuple[ConfigurationViolation, ...]
+
+    @classmethod
+    def from_env(cls) -> ApplicationConfiguration:
+        violations: list[ConfigurationViolation] = []
+
+        mode: str | None
+        try:
+            mode = _resolve_runtime_mode()
+        except UnknownRuntimeModeError as exc:
+            violations.append(
+                ConfigurationViolation(
+                    code="unknown_runtime_mode", field=_RUNTIME_MODE_ENV_VAR, message=str(exc)
+                )
+            )
+            mode = None
+
+        book_repository: BookRepositoryConfig | None
+        try:
+            book_repository = BookRepositoryConfig.from_env()
+        except UnknownBookRepositoryBackendError as exc:
+            violations.append(
+                ConfigurationViolation(
+                    code="unknown_book_repository_backend", field=_BACKEND_ENV_VAR, message=str(exc)
+                )
+            )
+            book_repository = None
+        except DatabaseUrlMissingError as exc:
+            violations.append(
+                ConfigurationViolation(
+                    code="database_url_missing", field=_DATABASE_URL_ENV_VAR, message=str(exc)
+                )
+            )
+            book_repository = None
+
+        embedding_generator: EmbeddingGeneratorConfig | None
+        try:
+            embedding_generator = EmbeddingGeneratorConfig.from_env()
+        except UnknownEmbeddingGeneratorBackendError as exc:
+            violations.append(
+                ConfigurationViolation(
+                    code="unknown_embedding_generator_backend",
+                    field=_EMBEDDING_GENERATOR_BACKEND_ENV_VAR,
+                    message=str(exc),
+                )
+            )
+            embedding_generator = None
+
+        hybrid_ranking: HybridRankingConfig | None
+        try:
+            hybrid_ranking = HybridRankingConfig.from_env()
+        except UnknownRankingStrategyError as exc:
+            violations.append(
+                ConfigurationViolation(
+                    code="unknown_hybrid_ranking_strategy",
+                    field=_HYBRID_RANKING_STRATEGY_ENV_VAR,
+                    message=str(exc),
+                )
+            )
+            hybrid_ranking = None
+
+        return cls(
+            mode=mode,
+            book_repository=book_repository,
+            embedding_generator=embedding_generator,
+            hybrid_ranking=hybrid_ranking,
+            als_model=AlsModelConfig.from_env(),
+            parsing_violations=tuple(violations),
+        )

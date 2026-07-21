@@ -186,6 +186,11 @@ def _print_health_and_readiness(client: TestClient) -> None:
         for check in body["checks"]:
             detail = f" ({check['detail']})" if check["detail"] else ""
             print(f"  - {check['name']}: {check['available']}{detail}")
+        if "mode" in body:
+            # Sprint 32: the active APPLICATION_MODE, a minimal, safe
+            # runtime-configuration signal surfaced on readiness -- see
+            # README's Operational Configuration and Runtime Hardening.
+            print(f"  - mode: {body['mode']}")
     print()
 
 

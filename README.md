@@ -14,7 +14,9 @@ Hybrid-ranking-then-re-ranking pipeline, deterministic structured
 explanations for why a book was recommended (via a `RecommendationExplainer`),
 offline evaluation, production observability (health/readiness endpoints,
 structured recommendation execution logging, in-process operational metrics),
-and a FastAPI recommendation service backed by PostgreSQL and pgvector.
+fail-fast operational configuration validation with a redacted runtime
+summary, and a FastAPI recommendation service backed by PostgreSQL and
+pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -262,13 +264,20 @@ python scripts/run_demo.py --limit 5 --k 5   # show/evaluate top 5 instead of to
 ### Run the API server
 
 ```bash
+# optional pre-flight: validate configuration without starting anything
+python scripts/validate_runtime.py
+
 uvicorn readmatch_ai.api.main:app --reload
 # or:
 docker compose up --build
 ```
 
 Then visit `http://localhost:8000/docs` for interactive OpenAPI documentation,
-or `http://localhost:8000/openapi.json` for the raw schema.
+or `http://localhost:8000/openapi.json` for the raw schema. For a real
+deployment, set `APPLICATION_MODE=production` and a persistent
+`BOOK_REPOSITORY_BACKEND=postgresql` (see Operational Configuration and
+Runtime Hardening below) — the application refuses to start with an unsafe
+combination of the two.
 
 ### Import real book data (optional)
 
@@ -502,9 +511,13 @@ curl "http://localhost:8000/readiness"
     {"name": "configuration", "available": true, "detail": null},
     {"name": "book_repository", "available": true, "detail": null},
     {"name": "recommendation_composition", "available": true, "detail": null}
-  ]
+  ],
+  "mode": "development"
 }
 ```
+
+`mode` (Sprint 32) is the active `APPLICATION_MODE` — see Operational
+Configuration and Runtime Hardening below.
 
 A failing check's `detail` is always a safe, non-sensitive summary (e.g.
 `"RuntimeError while checking repository availability"`) — never a raw
@@ -560,6 +573,112 @@ are explicitly out of scope here and remain future enhancements — metrics
 are in-process only (reset on restart, not shared across instances), and
 structured logs go to the standard `logging` module rather than a
 centralized log aggregator.
+
+## Operational Configuration and Runtime Hardening
+
+Introduced in Sprint 32: validates runtime configuration *before* the
+application begins serving, fails fast with safe, aggregated diagnostics
+when configuration is invalid, and exposes a redacted structured summary of
+the active runtime — independent of FastAPI, CLI argument parsing, concrete
+PostgreSQL drivers, and any secret-management vendor SDK.
+
+**Runtime modes** (`APPLICATION_MODE`, default `development`):
+
+| Mode | Meaning |
+|------|---------|
+| `development` | Local/default use; permissive (in-memory/deterministic adapters allowed). |
+| `test` | Automated test runs; equally permissive — no rule distinguishes it from `development` today. |
+| `production` | Real deployments; the one mode with an extra safety rule (see below). |
+
+**Configuration categories validated** — one deterministic
+`ApplicationConfiguration`, aggregated from the existing per-capability
+config classes already documented above (`BookRepositoryConfig`,
+`EmbeddingGeneratorConfig`, `HybridRankingConfig`, `AlsModelConfig`) plus the
+new runtime mode:
+
+- runtime mode (`APPLICATION_MODE`);
+- repository/persistence adapter selection (`BOOK_REPOSITORY_BACKEND`,
+  `DATABASE_URL`);
+- embedding adapter/model selection (`EMBEDDING_GENERATOR_BACKEND`,
+  `EMBEDDING_MODEL_NAME`);
+- hybrid ranking strategy selection (`HYBRID_RANKING_STRATEGY`);
+- ALS model path (`ALS_MODEL_PATH`) — has no invalid values to reject.
+
+**Validation rules**: every unknown backend/strategy/mode value; a missing
+`DATABASE_URL` when `BOOK_REPOSITORY_BACKEND=postgresql`; a `DATABASE_URL`
+that doesn't start with `postgresql://`/`postgres://`; and the one
+cross-field production rule — `APPLICATION_MODE=production` must not use the
+non-persistent `in_memory` repository backend. Every independent violation
+is aggregated into one report (an operator fixing multiple problems doesn't
+need multiple failed startup attempts to discover them all):
+
+```
+Configuration invalid -- 2 violation(s):
+
+  [unknown_runtime_mode] APPLICATION_MODE: Unknown APPLICATION_MODE: 'staging' (expected one of ['development', 'production', 'test'])
+  [unknown_book_repository_backend] BOOK_REPOSITORY_BACKEND: Unknown BOOK_REPOSITORY_BACKEND: 'not-a-backend' (expected one of ['in_memory', 'postgresql'])
+```
+
+**Startup behaviour**: `ApplicationContext.create()` runs this validation
+*before* building any repository/engine — no PostgreSQL connection, ALS
+training, or other Infrastructure I/O is ever attempted when static
+configuration is already invalid. An invalid configuration raises
+`RuntimeBootstrapFailure` (carrying every aggregated violation); a
+`composition_failure`/`startup_succeeded` diagnostic is logged via the same
+stdlib-`logging` boundary Sprint 31 established for structured recommendation
+logging (`readmatch_ai.startup` logger). This never affects Fake/In-memory
+adapter injection in tests — validation is env-driven and every existing
+test's defaults (unset `APPLICATION_MODE`, `in_memory`/`deterministic`
+backends) already pass it trivially.
+
+**Operator validation command** — check configuration before starting the
+API, without building the application or attempting any Infrastructure
+connection:
+
+```bash
+python scripts/validate_runtime.py
+```
+
+```
+Runtime configuration summary:
+
+  mode: development
+  book_repository_backend: in_memory
+  embedding_generator_backend: deterministic
+  embedding_model_name: None
+  hybrid_ranking_strategy: weighted
+  observability_enabled: True
+  application_version: 0.1.0
+
+Configuration valid.
+```
+
+Exits `0` for valid configuration, `1` (with every violation listed) for
+invalid configuration. Uses the exact same `ApplicationConfiguration`/
+`ApplicationConfigurationValidator` the real application startup path uses —
+no duplicated validation rules.
+
+**Secret redaction**: the runtime configuration summary (also reachable via
+this CLI and, as an adapter-category field, `GET /readiness`'s `mode`) never
+includes `DATABASE_URL`, passwords, tokens, or any raw environment value —
+only the resolved *category* each capability selected (e.g.
+`"postgresql"`/`"in_memory"`, never the connection string itself). Violation
+messages follow the same rule; they're safe to log or print directly.
+
+**Readiness interaction**: `GET /readiness`'s existing `configuration`
+check (Sprint 31) is extended, not duplicated, to also apply these same
+production-safety/form rules — so if configuration drifts to something
+unsafe after startup (e.g. an operator edits an env file without
+restarting), the next readiness probe reflects it. Existing healthy and
+repository-failure readiness behaviour is unchanged.
+
+**Limitations**: validation is static — it confirms structural and
+operational prerequisites (well-formed values, safe mode/backend
+combinations) but cannot guarantee every external dependency (the database,
+a model host) remains reachable *after* startup; that's what `GET
+/readiness`'s live probes are for. `test` mode currently has no rules
+distinguishing it from `development` — it exists as a named, forward-looking
+mode identifier, not (yet) a source of additional validation.
 
 ## Testing
 

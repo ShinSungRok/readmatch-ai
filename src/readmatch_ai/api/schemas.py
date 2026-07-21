@@ -148,14 +148,24 @@ class HealthResponse(BaseModel):
 
 
 class ReadinessResponse(BaseModel):
-    """API representation of a ReadinessStatus."""
+    """API representation of a ReadinessStatus.
+
+    `mode` (Sprint 32) is the active APPLICATION_MODE ("development",
+    "test", "production"), or `null` if it could not be resolved -- a
+    minimal, safe addition (never a raw configuration value) sourced from
+    ApplicationContext.runtime_configuration_summary, not from
+    ReadinessStatus itself (which stays transport-independent and
+    unchanged; see runtime_configuration.RuntimeConfigurationSummary).
+    """
 
     ready: bool
     checks: list[ComponentCheckResponse]
+    mode: str | None = None
 
     @classmethod
-    def from_domain(cls, status: ReadinessStatus) -> ReadinessResponse:
+    def from_domain(cls, status: ReadinessStatus, mode: str | None = None) -> ReadinessResponse:
         return cls(
             ready=status.ready,
             checks=[ComponentCheckResponse.from_domain(check) for check in status.checks],
+            mode=mode,
         )

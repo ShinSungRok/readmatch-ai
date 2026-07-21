@@ -30,6 +30,9 @@ from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecom
 from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
     InMemoryBookEmbeddingRepository,
 )
+from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
+    InMemoryBookPopularityRepository,
+)
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
 from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
     InMemoryUserBookInteractionRepository,
@@ -43,6 +46,7 @@ from readmatch_ai.infrastructure.reranked_recommendation_engine import (
 from readmatch_ai.infrastructure.semantic_recommendation_engine import (
     SemanticRecommendationEngine,
 )
+from readmatch_ai.runtime_configuration import RuntimeBootstrapFailure
 
 
 class _FakeRecommendationEngine(RecommendationEngine):
@@ -564,3 +568,120 @@ def test_repeated_recommendation_requests_deterministically_accumulate_metrics()
     assert snapshot.request_count == 3
     assert snapshot.success_count == 3
     assert snapshot.engine_usage_counts == {"popularity": 3}
+
+
+# --- Sprint 32: operational configuration and runtime hardening ---
+
+
+def test_create_exposes_a_valid_runtime_configuration_summary_by_default() -> None:
+    context = ApplicationContext.create()
+
+    summary = context.runtime_configuration_summary
+
+    assert summary.mode == "development"
+    assert summary.book_repository_backend == "in_memory"
+    assert summary.configuration_valid is True
+
+
+def test_create_raises_runtime_bootstrap_failure_for_production_mode_with_in_memory_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APPLICATION_MODE", "production")
+
+    with pytest.raises(RuntimeBootstrapFailure) as exc_info:
+        ApplicationContext.create()
+
+    assert any(
+        v.code == "production_mode_requires_persistent_repository"
+        for v in exc_info.value.result.violations
+    )
+
+
+def test_create_never_attempts_a_database_connection_when_static_configuration_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-fast must happen before any Infrastructure connection --
+    poisons psycopg.connect so this test fails loudly (not just silently
+    passes) if RuntimeBootstrapValidator.require_valid() is ever bypassed
+    or moved after composition begins.
+    """
+    monkeypatch.setenv("APPLICATION_MODE", "production")
+
+    def _poisoned_connect(*args: object, **kwargs: object) -> None:
+        raise AssertionError("psycopg.connect must not be called when configuration is invalid")
+
+    monkeypatch.setattr("psycopg.connect", _poisoned_connect)
+
+    with pytest.raises(RuntimeBootstrapFailure):
+        ApplicationContext.create()
+
+
+def test_create_rejects_an_unknown_runtime_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APPLICATION_MODE", "staging")
+
+    with pytest.raises(RuntimeBootstrapFailure) as exc_info:
+        ApplicationContext.create()
+
+    assert any(v.code == "unknown_runtime_mode" for v in exc_info.value.result.violations)
+
+
+def test_create_supports_a_valid_test_mode_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APPLICATION_MODE", "test")
+
+    context = ApplicationContext.create()
+
+    assert context.runtime_configuration_summary.mode == "test"
+    assert context.runtime_configuration_summary.configuration_valid is True
+
+
+def test_create_supports_a_production_shaped_configuration_using_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A production-mode, persistent-backend-selected environment (so
+    static validation passes exactly as it would for a real deployment)
+    while every actual repository/engine is still overridden with
+    deterministic in-memory Fakes -- no real PostgreSQL connection is ever
+    attempted, since every override parameter that would otherwise trigger
+    one is supplied explicitly.
+    """
+    monkeypatch.setenv("APPLICATION_MODE", "production")
+    monkeypatch.setenv("BOOK_REPOSITORY_BACKEND", "postgresql")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host/db")
+
+    fake_repository = InMemoryBookRepository()
+    context = ApplicationContext.create(
+        book_repository=fake_repository,
+        book_popularity_repository=InMemoryBookPopularityRepository(),
+        book_embedding_repository=InMemoryBookEmbeddingRepository(),
+        user_book_interaction_repository=InMemoryUserBookInteractionRepository(),
+    )
+
+    assert context.book_repository is fake_repository
+    assert context.runtime_configuration_summary.mode == "production"
+    assert context.runtime_configuration_summary.book_repository_backend == "postgresql"
+    assert context.runtime_configuration_summary.configuration_valid is True
+
+
+def test_runtime_configuration_summary_never_exposes_the_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BOOK_REPOSITORY_BACKEND", "postgresql")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://secret-user:secret-pass@host/db")
+
+    context = ApplicationContext.create(
+        book_repository=InMemoryBookRepository(),
+        book_popularity_repository=InMemoryBookPopularityRepository(),
+        book_embedding_repository=InMemoryBookEmbeddingRepository(),
+        user_book_interaction_repository=InMemoryUserBookInteractionRepository(),
+    )
+
+    for value in context.runtime_configuration_summary.__dict__.values():
+        assert "secret-user" not in str(value)
+        assert "secret-pass" not in str(value)
+
+
+def test_create_is_deterministic_across_repeated_calls_with_the_same_environment() -> None:
+    first = ApplicationContext.create()
+    second = ApplicationContext.create()
+
+    assert first.runtime_configuration_summary == second.runtime_configuration_summary

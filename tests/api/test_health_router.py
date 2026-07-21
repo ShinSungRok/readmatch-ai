@@ -48,6 +48,13 @@ def test_readiness_endpoint_reports_ready_for_a_freshly_created_context(
     assert check_names == {"configuration", "book_repository", "recommendation_composition"}
 
 
+def test_readiness_endpoint_reports_the_active_runtime_mode(client: TestClient) -> None:
+    response = client.get("/readiness")
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "development"
+
+
 def test_readiness_endpoint_returns_503_when_a_dependency_is_unavailable(
     application_context: ApplicationContext,
 ) -> None:

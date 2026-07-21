@@ -39,6 +39,7 @@ from readmatch_ai.config import (
     RRF_STRATEGY,
     SENTENCE_TRANSFORMERS_BACKEND,
     AlsModelConfig,
+    ApplicationConfiguration,
     BookRepositoryConfig,
     EmbeddingGeneratorConfig,
     HybridRankingConfig,
@@ -103,6 +104,15 @@ from readmatch_ai.infrastructure.reranked_recommendation_engine import (
 from readmatch_ai.infrastructure.semantic_recommendation_engine import (
     SemanticRecommendationEngine,
 )
+from readmatch_ai.runtime_configuration import (
+    COMPOSITION_FAILURE,
+    STARTUP_SUCCEEDED,
+    ConfigurationValidationResult,
+    RuntimeBootstrapValidator,
+    RuntimeConfigurationSummary,
+    StartupDiagnostic,
+    log_startup_diagnostic,
+)
 
 
 @dataclass(frozen=True)
@@ -135,10 +145,77 @@ class ApplicationContext:
     health_check_service: HealthCheckService
     readiness_check_service: ReadinessCheckService
     recommendation_metrics_collector: RecommendationMetricsCollector
+    runtime_configuration_summary: RuntimeConfigurationSummary
 
     @classmethod
     def create(
         cls,
+        book_repository: BookRepository | None = None,
+        book_popularity_repository: BookPopularityRepository | None = None,
+        recommendation_engine: RecommendationEngine | None = None,
+        book_embedding_repository: BookEmbeddingRepository | None = None,
+        book_embedding_generator: BookEmbeddingGenerator | None = None,
+        semantic_recommendation_engine: RecommendationEngine | None = None,
+        hybrid_recommendation_engine: RecommendationEngine | None = None,
+        user_book_interaction_repository: UserBookInteractionRepository | None = None,
+        als_recommendation_engine: RecommendationEngine | None = None,
+        reranked_recommendation_engine: RecommendationEngine | None = None,
+        recommendation_explainer: RecommendationExplainer | None = None,
+    ) -> ApplicationContext:
+        """Validate runtime configuration, then compose the ApplicationContext.
+
+        RuntimeBootstrapValidator.require_valid() (Sprint 32) is the very
+        first thing this method does -- a static, deterministic check of the
+        current environment's ApplicationConfiguration, independent of which
+        parameters this call overrides (mirroring ReadinessCheckService's
+        existing env-re-parsing convention). It raises RuntimeBootstrapFailure
+        -- carrying every aggregated ConfigurationViolation, not just the
+        first -- before any Infrastructure connection (psycopg.connect, ALS
+        training, ...) is attempted. Only once configuration is valid does
+        `_compose()` (the rest of this method's original body) actually build
+        the repositories/engines/use cases; any unexpected failure during
+        that phase is logged as a composition_failure StartupDiagnostic and
+        re-raised completely unchanged (never swallowed), and a
+        startup_succeeded diagnostic is logged once composition completes.
+        See `_compose()`'s docstring for the composition rules themselves
+        (unchanged from Sprint 31).
+        """
+        configuration = RuntimeBootstrapValidator().require_valid()
+        try:
+            context = cls._compose(
+                configuration,
+                book_repository=book_repository,
+                book_popularity_repository=book_popularity_repository,
+                recommendation_engine=recommendation_engine,
+                book_embedding_repository=book_embedding_repository,
+                book_embedding_generator=book_embedding_generator,
+                semantic_recommendation_engine=semantic_recommendation_engine,
+                hybrid_recommendation_engine=hybrid_recommendation_engine,
+                user_book_interaction_repository=user_book_interaction_repository,
+                als_recommendation_engine=als_recommendation_engine,
+                reranked_recommendation_engine=reranked_recommendation_engine,
+                recommendation_explainer=recommendation_explainer,
+            )
+        except Exception as exc:
+            log_startup_diagnostic(
+                StartupDiagnostic(
+                    category=COMPOSITION_FAILURE,
+                    message=f"{type(exc).__name__} while composing ApplicationContext",
+                )
+            )
+            raise
+        log_startup_diagnostic(
+            StartupDiagnostic(
+                category=STARTUP_SUCCEEDED, message="ApplicationContext composed successfully"
+            )
+        )
+        return context
+
+    @classmethod
+    def _compose(
+        cls,
+        configuration: ApplicationConfiguration,
+        *,
         book_repository: BookRepository | None = None,
         book_popularity_repository: BookPopularityRepository | None = None,
         recommendation_engine: RecommendationEngine | None = None,
@@ -251,6 +328,15 @@ class ApplicationContext:
         evaluate_recommendation_engine_use_case/quality reporting, so
         neither those fields' concrete types nor offline evaluation runs
         are affected by this Sprint's addition.
+
+        runtime_configuration_summary (Sprint 32) is built from the
+        `configuration` this method's caller (`create()`) already validated
+        -- never re-read from the environment here -- paired with a
+        zero-violation ConfigurationValidationResult, since reaching this
+        point already proves validation passed. It is a safe, redacted
+        snapshot (adapter categories and the runtime mode, never
+        DATABASE_URL or any other secret); see
+        runtime_configuration.RuntimeConfigurationSummary's own docstring.
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -371,6 +457,9 @@ class ApplicationContext:
             health_check_service=health_check_service,
             readiness_check_service=readiness_check_service,
             recommendation_metrics_collector=metrics_collector,
+            runtime_configuration_summary=RuntimeConfigurationSummary.build(
+                configuration, ConfigurationValidationResult(violations=())
+            ),
         )
 
 

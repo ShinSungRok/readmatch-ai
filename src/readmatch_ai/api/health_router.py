@@ -46,4 +46,4 @@ def get_readiness(
     status = context.readiness_check_service.check()
     if not status.ready:
         response.status_code = 503
-    return ReadinessResponse.from_domain(status)
+    return ReadinessResponse.from_domain(status, mode=context.runtime_configuration_summary.mode)

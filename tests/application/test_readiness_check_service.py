@@ -87,3 +87,36 @@ def test_check_reports_not_ready_when_configuration_is_invalid(
     assert status.ready is False
     configuration_check = next(check for check in status.checks if check.name == "configuration")
     assert configuration_check.available is False
+
+
+def test_check_reports_not_ready_when_production_mode_uses_an_in_memory_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sprint 32: ReadinessCheckService's configuration check is extended
+    (not duplicated) to also apply ApplicationConfigurationValidator's
+    business rules, not just per-field parsing -- so a live drift into an
+    unsafe production/in_memory combination is caught the same way an
+    unknown backend already was.
+    """
+    monkeypatch.setenv("APPLICATION_MODE", "production")
+    service = ReadinessCheckService(InMemoryBookRepository(), _engines())
+
+    status = service.check()
+
+    assert status.ready is False
+    configuration_check = next(check for check in status.checks if check.name == "configuration")
+    assert configuration_check.available is False
+    assert "production" in (configuration_check.detail or "")
+
+
+def test_check_preserves_healthy_readiness_when_configuration_is_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APPLICATION_MODE", raising=False)
+    monkeypatch.delenv("BOOK_REPOSITORY_BACKEND", raising=False)
+    service = ReadinessCheckService(InMemoryBookRepository(), _engines())
+
+    status = service.check()
+
+    assert status.ready is True
+    assert all(check.available for check in status.checks)

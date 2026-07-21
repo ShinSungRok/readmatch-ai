@@ -17,8 +17,8 @@ structured recommendation execution logging, in-process operational metrics),
 fail-fast operational configuration validation with a redacted runtime
 summary, read-only production persistence/pgvector runtime validation
 integrated with readiness, deterministic deployment/container runtime
-validation, and a FastAPI recommendation service backed by PostgreSQL and
-pgvector.
+validation, an aggregated read-only operations report, and a FastAPI
+recommendation service backed by PostgreSQL and pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -905,6 +905,93 @@ container's own network/port configuration is correct; `docker build` +
 `docker run` (as shown above) remains the way to verify those. It also does
 not validate Kubernetes or other orchestrator-specific deployment manifests
 — none exist in this repository today.
+
+## Production Operations and Runtime Automation
+
+Introduced in Sprint 35: one deterministic, read-only operational status
+report — aggregating health, readiness, runtime configuration, and
+recommendation metrics from a real, already-running `ApplicationContext`
+into a single view, without reimplementing any of the underlying Sprint
+31-34 checks it draws from.
+
+**Runtime operations workflow**:
+
+```bash
+python scripts/operations_report.py
+# also run the full deployment/startup validation (Sprint 34) -- slower:
+python scripts/operations_report.py --include-deployment-check
+```
+
+```
+Operations report:
+
+  mode: development
+  healthy: True
+  ready: True
+  configuration_valid: True
+  recommendation_requests: 0
+  recommendation_failures: 0
+  application_version: 0.1.0
+
+Operational.
+```
+
+When any component is unhealthy, the report additionally lists exactly
+which named checks are failing (reusing each check's own already-redacted
+`detail`, e.g. `book_repository: RuntimeError while checking repository
+availability`), and exits `1` instead of `0`.
+
+**What's aggregated, and how**:
+
+| Inspection | Source | Reused from |
+|---|---|---|
+| Health | `context.health_check_service.check()` | Sprint 31 |
+| Readiness (incl. persistence) | `context.readiness_check_service.check()` | Sprint 31, extended Sprint 33 |
+| Runtime configuration | `context.runtime_configuration_summary` | Sprint 32 |
+| Observability / recommendation metrics | `context.recommendation_metrics_collector.snapshot()` | Sprint 31 |
+| Deployment (optional, `--include-deployment-check`) | `ContainerRuntimeValidator().validate()` | Sprint 34 |
+
+Persistence inspection has no separate field here: `GET /readiness`'s own
+`persistence_runtime` check (Sprint 33) is already part of the readiness
+result this report reads, so it's covered automatically whenever it
+applies. Deployment inspection is opt-in and skipped by default, since it
+builds an entirely fresh `ApplicationContext` (Sprint 34's own startup
+simulation) — redundant and comparatively expensive to re-run from inside
+an already-running instance that is, by definition, already proof its own
+startup succeeded.
+
+**Operational summary**: `RuntimeOperationsSummary` is the flat,
+at-a-glance view of one report (`operational`, `mode`, `healthy`, `ready`,
+`configuration_valid`, `deployment_valid` — `None` unless checked —
+`recommendation_request_count`, `recommendation_failure_count`,
+`application_version`) — the same "rich result + flat safe summary" pattern
+Sprints 32-34 already established (`RuntimeConfigurationSummary`,
+`PersistenceRuntimeSummary`, `RuntimeEnvironmentSummary`).
+
+**Troubleshooting**: if the command itself prints `Could not build
+ApplicationContext: ...` and exits `1` before any report is generated, the
+application cannot start at all — the report generator gracefully
+short-circuits rather than crashing, and points to
+`scripts/validate_deployment.py`/`scripts/validate_runtime.py` for the full
+startup diagnostics that produced the failure. Otherwise, an `Operational:
+False` result always comes with the specific failing check(s) listed, not
+just a bare boolean.
+
+**Secret redaction**: this capability introduces no new redaction rules —
+it only ever surfaces already-safe values from its constituent
+capabilities (health/readiness `ComponentCheck.detail`, the redacted
+`RuntimeConfigurationSummary`, recommendation counts/latency, and, when
+checked, `DeploymentValidationViolation` messages) — never `DATABASE_URL`,
+credentials, embedding vectors, or user data.
+
+**Limitations**: this is a read-only inspection tool, not a maintenance
+tool — it performs no destructive action, and cannot repair, restart, or
+reconfigure anything itself; a degraded report tells an operator *what* is
+wrong (by delegating to the specific Sprint 31-34 capability that already
+diagnoses that category), not how to fix it beyond what that capability
+already documents. The default (fast) report does not re-verify that the
+application can start from scratch — pass `--include-deployment-check` for
+that, understanding it is comparatively expensive.
 
 ## Testing
 

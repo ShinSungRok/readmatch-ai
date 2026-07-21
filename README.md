@@ -31,22 +31,114 @@ PostgreSQL and pgvector.
 > model-agnostic; swapping in a real model is a drop-in `BookEmbeddingGenerator`
 > implementation.
 
+## Contents
+
+- [Architecture](#architecture)
+- [Repository Structure](#repository-structure)
+- [Quick Start](#quick-start)
+  - [Re-ranking](#re-ranking)
+  - [Explainable Recommendations](#explainable-recommendations)
+  - [Recommendation Quality Reports](#recommendation-quality-reports)
+  - [Run the demo](#run-the-demo)
+  - [Run the API server](#run-the-api-server)
+  - [Import real book data (optional)](#import-real-book-data-optional)
+- [API Reference](#api-reference)
+- [Observability](#observability)
+- [Operational Configuration and Runtime Hardening](#operational-configuration-and-runtime-hardening)
+- [Persistence and Vector Runtime Validation](#persistence-and-vector-runtime-validation)
+- [Deployment and Container Runtime Readiness](#deployment-and-container-runtime-readiness)
+- [Production Operations and Runtime Automation](#production-operations-and-runtime-automation)
+- [CI/CD and Release Automation](#cicd-and-release-automation)
+- [Operational Scripts Reference](#operational-scripts-reference)
+- [Testing](#testing)
+
 ## Architecture
 
-- `src/readmatch_ai/domain/` — entities, value objects, and ports (interfaces).
-  No dependency on any other layer.
-- `src/readmatch_ai/application/` — use cases. Depends only on Domain ports.
-- `src/readmatch_ai/infrastructure/` — driven adapters: PostgreSQL/pgvector
-  repositories, in-memory repositories, recommendation engines.
-- `src/readmatch_ai/api/` — driving adapter: the FastAPI REST layer.
-- `src/readmatch_ai/application_context.py` — the composition root wiring
-  ports to concrete adapters (`ApplicationContext.create()`).
+Hexagonal Architecture (ports and adapters): Domain and Application depend on
+nothing outward-facing; Infrastructure and API depend inward on Domain
+ports, never the reverse.
 
-For the full architecture decision record and system diagram, see
-[`docs/agent/architecture/ADR.md`](docs/agent/architecture/ADR.md) and
-[`docs/agent/architecture/SYSTEM_ARCHITECTURE.md`](docs/agent/architecture/SYSTEM_ARCHITECTURE.md).
-Sprint-by-sprint implementation history is in
+- `src/readmatch_ai/domain/` — entities, value objects, and ports
+  (interfaces: `BookRepository`, `RecommendationEngine`,
+  `RecommendationReranker`, `RecommendationExplainer`,
+  `PersistenceRuntimeValidator`, ...). No dependency on any other layer, and
+  no raw environment-variable access (see `config.py` below).
+- `src/readmatch_ai/application/` — use cases (one class per capability,
+  e.g. `GetRecommendationsUseCase`, `HealthCheckService`,
+  `ReadinessCheckService`). Depends only on Domain ports — never on
+  `ApplicationContext` itself, which is what constructs these use cases.
+- `src/readmatch_ai/infrastructure/` — driven adapters: PostgreSQL/pgvector
+  repositories, in-memory repositories, recommendation engines
+  (Popularity/Semantic/ALS/Hybrid/Reranked), and the structured-logging
+  observability adapter.
+- `src/readmatch_ai/api/` — driving adapter: the FastAPI REST layer. Route
+  handlers perform translation only (request → Application call → response
+  model); no business logic lives in `api/`.
+
+Four top-level, composition-root-adjacent modules sit outside these four
+layers by design — each legitimately needs to touch something a Domain or
+Application module deliberately can't (raw environment variables, the
+composition root itself, or process-level I/O like subprocesses/HTTP test
+clients), so each is kept as a thin, separately-reasoned-about orchestration
+layer rather than blurring that boundary:
+
+- `src/readmatch_ai/config.py` — env-variable parsing into typed
+  configuration objects (`BookRepositoryConfig`, `EmbeddingGeneratorConfig`,
+  `HybridRankingConfig`, `AlsModelConfig`, `ApplicationConfiguration`) and
+  their validation errors. The one place in this codebase allowed to call
+  `os.environ` directly.
+- `src/readmatch_ai/application_context.py` — the composition root
+  (`ApplicationContext.create()`) wiring Domain ports to concrete
+  Infrastructure adapters, chosen by `config.py`'s resolved configuration.
+- `src/readmatch_ai/runtime_configuration.py` — static configuration
+  business-rule validation (`ApplicationConfigurationValidator`), a
+  redacted runtime summary (`RuntimeConfigurationSummary`), and fail-fast
+  startup orchestration (`RuntimeBootstrapValidator`), called from
+  `ApplicationContext.create()` before any adapter is built.
+  See [Operational Configuration and Runtime Hardening](#operational-configuration-and-runtime-hardening).
+- `src/readmatch_ai/deployment_validation.py` — end-to-end,
+  in-process validation that the real application actually starts and
+  serves (`ContainerRuntimeValidator`).
+  See [Deployment and Container Runtime Readiness](#deployment-and-container-runtime-readiness).
+- `src/readmatch_ai/operations.py` — read-only aggregation of
+  health/readiness/configuration/metrics into one operator-facing report
+  (`OperationsService`).
+  See [Production Operations and Runtime Automation](#production-operations-and-runtime-automation).
+- `src/readmatch_ai/release_automation.py` — orchestrates all of the
+  above into one release validation pipeline (`ReleaseAutomationService`).
+  See [CI/CD and Release Automation](#cicd-and-release-automation).
+
+For the architecture decision record and system diagram, see
+[`docs/architecture/ADR.md`](docs/architecture/ADR.md) and
+[`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md).
+Sprint-by-sprint implementation history (what was built, why, and how it was
+validated, for all 36 completed sprints) is in
 [`docs/progress/PROJECT_PROGRESS.md`](docs/progress/PROJECT_PROGRESS.md).
+
+## Repository Structure
+
+```text
+readmatch-ai/
+├── src/readmatch_ai/
+│   ├── domain/            # entities, value objects, ports (no outward dependencies)
+│   ├── application/       # use cases (depend only on Domain ports)
+│   ├── infrastructure/    # adapters: PostgreSQL/pgvector, in-memory, recommendation engines
+│   ├── api/                # FastAPI routes, Pydantic schemas (translation only)
+│   ├── config.py                 # env parsing
+│   ├── application_context.py    # composition root
+│   ├── runtime_configuration.py  # config validation, fail-fast startup
+│   ├── deployment_validation.py  # end-to-end startup/serving validation
+│   ├── operations.py             # aggregated operator report
+│   └── release_automation.py     # release validation pipeline
+├── tests/                  # mirrors src/ layout; one test module per production module
+├── scripts/                 # operator CLIs — see Operational Scripts Reference
+├── migrations/              # numbered, ordered PostgreSQL/pgvector SQL migrations (0001-0006)
+├── docs/
+│   ├── architecture/        # ADR.md, SYSTEM_ARCHITECTURE.md
+│   └── progress/            # PROJECT_PROGRESS.md — sprint-by-sprint build log
+├── Dockerfile / docker-compose.yml
+└── pyproject.toml
+```
 
 ## Quick Start
 
@@ -1076,6 +1168,26 @@ and this pipeline is a local, on-demand equivalent an operator can run
 before pushing or tagging a release. It validates, but does not itself
 perform, a release — no artifact is built, tagged, or published by this
 capability.
+
+## Operational Scripts Reference
+
+Every script below is read-only and safe to run repeatedly against a local
+or non-production environment; each is documented in full, with example
+output, in its own section linked from the table.
+
+| Script | Purpose | Documented in |
+|---|---|---|
+| `scripts/run_demo.py` | End-to-end walkthrough: seeds data, calls every recommendation endpoint, prints health/readiness/metrics and an evaluation report. | [Run the demo](#run-the-demo) |
+| `scripts/generate_quality_report.py` | Structured Markdown/CSV engine-comparison report with CI-suitable regression checks. | [Recommendation Quality Reports](#recommendation-quality-reports) |
+| `scripts/import_books.py` | Imports real book data from a public API into the configured repository. | [Import real book data](#import-real-book-data-optional) |
+| `scripts/validate_runtime.py` | Validates static configuration and, for PostgreSQL, the live persistence/pgvector runtime. No connection attempted if configuration is already invalid. | [Operational Configuration and Runtime Hardening](#operational-configuration-and-runtime-hardening), [Persistence and Vector Runtime Validation](#persistence-and-vector-runtime-validation) |
+| `scripts/validate_deployment.py` | Confirms the real application starts and `GET /health`/`GET /readiness`/a recommendation endpoint all respond, in-process. | [Deployment and Container Runtime Readiness](#deployment-and-container-runtime-readiness) |
+| `scripts/operations_report.py` | One aggregated, read-only operational status report from a real, running `ApplicationContext`. | [Production Operations and Runtime Automation](#production-operations-and-runtime-automation) |
+| `scripts/validate_release.py` | Orchestrates all of the above (plus, optionally, `ruff`/`mypy`/`pytest`) into one pre-release check. | [CI/CD and Release Automation](#cicd-and-release-automation) |
+
+All seven exit `0` on success and non-zero on failure, so any can be used
+directly as a CI or pre-commit gate. None require a network connection or
+production credentials unless a PostgreSQL backend is explicitly configured.
 
 ## Testing
 

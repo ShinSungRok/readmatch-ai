@@ -28,6 +28,11 @@ from readmatch_ai.application.generate_semantic_recommendation_use_case import (
 from readmatch_ai.application.get_book_by_id_use_case import GetBookByIdUseCase
 from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
+from readmatch_ai.application.health_check_service import HealthCheckService
+from readmatch_ai.application.readiness_check_service import ReadinessCheckService
+from readmatch_ai.application.recommendation_metrics_collector import (
+    RecommendationMetricsCollector,
+)
 from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
 from readmatch_ai.config import (
     POSTGRESQL_BACKEND,
@@ -50,6 +55,7 @@ from readmatch_ai.domain.ranking_strategies import (
 from readmatch_ai.domain.ranking_strategy import RankingStrategy
 from readmatch_ai.domain.recommendation import ALS_SOURCE, POPULARITY_SOURCE, SEMANTIC_SOURCE
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.domain.recommendation_execution import CompositeRecommendationExecutionObserver
 from readmatch_ai.domain.reranker import DefaultRecommendationReranker, RecommendationReranker
 from readmatch_ai.domain.reranking_policies import (
     MMRDiversityPolicy,
@@ -74,6 +80,10 @@ from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRe
 from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
     InMemoryUserBookInteractionRepository,
 )
+from readmatch_ai.infrastructure.logging_recommendation_execution_observer import (
+    LoggingRecommendationExecutionObserver,
+)
+from readmatch_ai.infrastructure.observed_recommendation_engine import ObservedRecommendationEngine
 from readmatch_ai.infrastructure.popularity_recommendation_engine import (
     PopularityRecommendationEngine,
 )
@@ -122,6 +132,9 @@ class ApplicationContext:
         GenerateExplainedPersonalizedRecommendationUseCase
     )
     evaluate_recommendation_engine_use_case: EvaluateRecommendationEngineUseCase
+    health_check_service: HealthCheckService
+    readiness_check_service: ReadinessCheckService
+    recommendation_metrics_collector: RecommendationMetricsCollector
 
     @classmethod
     def create(
@@ -211,6 +224,33 @@ class ApplicationContext:
         already-resolved engine (identical ranked output to
         generate_reranked_recommendation_use_case) and then explains the
         result -- never a second ranking pass.
+
+        health_check_service/readiness_check_service are always built fresh
+        (no override params, matching evaluate_recommendation_engine_use_case's
+        stateless pattern): HealthCheckService takes no dependencies at all
+        (see its own docstring), and ReadinessCheckService is given
+        `repository` plus the resolved recommendation engines (by name) so
+        it can probe them without depending on ApplicationContext itself
+        (which would invert the dependency direction and create a circular
+        import, since this method is what constructs it).
+
+        recommendation_metrics_collector aggregates
+        RecommendationExecutionRecords emitted by every use case that
+        actually serves a request -- get_recommendations_use_case,
+        generate_semantic_recommendation_use_case,
+        generate_hybrid_recommendation_use_case,
+        generate_als_recommendation_use_case,
+        generate_reranked_recommendation_use_case, and
+        generate_explained_personalized_recommendation_use_case are each
+        wired to an ObservedRecommendationEngine wrapping their underlying
+        engine, reporting to one CompositeRecommendationExecutionObserver
+        (this collector, plus a LoggingRecommendationExecutionObserver).
+        The `recommendation_engine`/`semantic_recommendation_engine`/etc.
+        fields above stay the raw, unwrapped engines -- observability
+        wraps only the request-serving path, not the engines used by
+        evaluate_recommendation_engine_use_case/quality reporting, so
+        neither those fields' concrete types nor offline evaluation runs
+        are affected by this Sprint's addition.
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -267,6 +307,29 @@ class ApplicationContext:
             if recommendation_explainer is not None
             else DefaultRecommendationExplainer(interaction_repository)
         )
+        metrics_collector = RecommendationMetricsCollector()
+        execution_observer = CompositeRecommendationExecutionObserver(
+            [metrics_collector, LoggingRecommendationExecutionObserver()]
+        )
+        health_check_service = HealthCheckService()
+        readiness_check_service = ReadinessCheckService(
+            repository,
+            {
+                "popularity": engine,
+                "semantic": semantic_engine,
+                "als": als_engine,
+                "hybrid": hybrid_engine,
+                "reranked": reranked_engine,
+            },
+        )
+
+        def _observed(
+            inner_engine: RecommendationEngine, engine_name: str, recommendation_type: str
+        ) -> RecommendationEngine:
+            return ObservedRecommendationEngine(
+                inner_engine, execution_observer, engine_name, recommendation_type
+            )
+
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
@@ -281,24 +344,33 @@ class ApplicationContext:
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
-            get_recommendations_use_case=GetRecommendationsUseCase(engine),
+            get_recommendations_use_case=GetRecommendationsUseCase(
+                _observed(engine, "popularity", "popularity")
+            ),
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository
             ),
             generate_semantic_recommendation_use_case=GenerateSemanticRecommendationUseCase(
-                semantic_engine
+                _observed(semantic_engine, "semantic", "semantic")
             ),
             generate_hybrid_recommendation_use_case=GenerateHybridRecommendationUseCase(
-                hybrid_engine
+                _observed(hybrid_engine, "hybrid", "hybrid")
             ),
-            generate_als_recommendation_use_case=GenerateAlsRecommendationUseCase(als_engine),
+            generate_als_recommendation_use_case=GenerateAlsRecommendationUseCase(
+                _observed(als_engine, "als", "als")
+            ),
             generate_reranked_recommendation_use_case=GenerateRerankedRecommendationUseCase(
-                reranked_engine
+                _observed(reranked_engine, "reranked", "personalized")
             ),
             generate_explained_personalized_recommendation_use_case=(
-                GenerateExplainedPersonalizedRecommendationUseCase(reranked_engine, explainer)
+                GenerateExplainedPersonalizedRecommendationUseCase(
+                    _observed(reranked_engine, "reranked", "personalized_explained"), explainer
+                )
             ),
             evaluate_recommendation_engine_use_case=EvaluateRecommendationEngineUseCase(),
+            health_check_service=health_check_service,
+            readiness_check_service=readiness_check_service,
+            recommendation_metrics_collector=metrics_collector,
         )
 
 

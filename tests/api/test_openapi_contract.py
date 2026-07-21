@@ -94,3 +94,32 @@ def test_docs_ui_is_served(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
+
+
+def test_openapi_schema_documents_the_health_and_readiness_endpoints(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+
+    paths = schema["paths"]
+    assert "/health" in paths
+    assert "/readiness" in paths
+    assert "get" in paths["/health"]
+    assert "get" in paths["/readiness"]
+
+
+def test_openapi_schema_declares_the_health_and_readiness_response_models(
+    client: TestClient,
+) -> None:
+    schema = client.get("/openapi.json").json()
+
+    health_response_ref = schema["paths"]["/health"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert "HealthResponse" in health_response_ref["$ref"]
+    readiness_response_ref = schema["paths"]["/readiness"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert "ReadinessResponse" in readiness_response_ref["$ref"]
+    component_schemas = schema["components"]["schemas"]
+    assert "HealthResponse" in component_schemas
+    assert "ReadinessResponse" in component_schemas
+    assert "ComponentCheckResponse" in component_schemas

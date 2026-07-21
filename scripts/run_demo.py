@@ -167,6 +167,48 @@ def _print_hybrid_strategy_comparison(
         print()
 
 
+def _print_health_and_readiness(client: TestClient) -> None:
+    """GET /health and GET /readiness, via the real REST API.
+
+    Demonstrates this Sprint's operational-observability endpoints exactly
+    as an operator or orchestrator (e.g. a Kubernetes liveness/readiness
+    probe) would call them -- Health is a lightweight, dependency-free
+    self-check; Readiness actually probes configuration, the book
+    repository, and recommendation engine composition (see README's
+    Observability section).
+    """
+    print("Health and readiness (GET /health, GET /readiness):\n")
+    for name, path in (("Health", "/health"), ("Readiness", "/readiness")):
+        response = client.get(path)
+        body = response.json()
+        ready_or_healthy = body.get("healthy", body.get("ready"))
+        print(f"[{name}] HTTP {response.status_code} -- {ready_or_healthy}")
+        for check in body["checks"]:
+            detail = f" ({check['detail']})" if check["detail"] else ""
+            print(f"  - {check['name']}: {check['available']}{detail}")
+    print()
+
+
+def _print_recommendation_metrics(context: ApplicationContext) -> None:
+    """Structured recommendation execution metrics accumulated during this
+    demo run (see README's Observability section).
+
+    Reflects only the requests this demo actually made through the
+    observed, request-serving use cases above -- not offline evaluation
+    (evaluate_recommendation_engine_use_case is intentionally unobserved;
+    see ApplicationContext.create()'s docstring).
+    """
+    snapshot = context.recommendation_metrics_collector.snapshot()
+    print("Recommendation execution metrics (this demo run):\n")
+    print(f"  requests: {snapshot.request_count}")
+    print(f"  successes: {snapshot.success_count}")
+    print(f"  failures: {snapshot.failure_count}")
+    print(f"  fallback (no book_id/user_id) uses: {snapshot.fallback_count}")
+    print(f"  average duration: {snapshot.average_duration_seconds * 1000:.3f} ms")
+    print(f"  engine usage: {dict(snapshot.engine_usage_counts)}")
+    print()
+
+
 def _print_evaluation_report(
     context: ApplicationContext,
     books: list[Book],
@@ -227,11 +269,13 @@ def main(
     client = TestClient(app)
 
     spotlight = books[0]
+    _print_health_and_readiness(client)
     _print_recommendation_comparison(client, spotlight, demo_user_id, args.limit)
     _print_explained_recommendations(client, spotlight, demo_user_id, args.limit)
     _print_hybrid_strategy_comparison(
         hybrid_weighted_engine, hybrid_rrf_engine, spotlight, demo_user_id, args.limit
     )
+    _print_recommendation_metrics(context)
     _print_evaluation_report(
         context,
         books,

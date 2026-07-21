@@ -12,8 +12,9 @@ policies, composable via a `RecommendationReranker`), a personalized
 recommendation REST endpoint routing a user through the full
 Hybrid-ranking-then-re-ranking pipeline, deterministic structured
 explanations for why a book was recommended (via a `RecommendationExplainer`),
-offline evaluation, and a FastAPI recommendation service backed by
-PostgreSQL and pgvector.
+offline evaluation, production observability (health/readiness endpoints,
+structured recommendation execution logging, in-process operational metrics),
+and a FastAPI recommendation service backed by PostgreSQL and pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -243,13 +244,15 @@ embeddings are the deterministic placeholder generator unless
 ### Run the demo
 
 A self-contained, deterministic, end-to-end walkthrough: seeds a small book
-dataset (plus synthetic user interactions for ALS), calls the real
+dataset (plus synthetic user interactions for ALS), prints `GET /health` and
+`GET /readiness` status, calls the real
 Popularity/Semantic/Hybrid/Personalized/Explained REST endpoints in-process,
 prints structured explanation reasons for one personalized request, prints
 both Hybrid ranking strategies (Weighted Score Fusion vs. Reciprocal Rank
-Fusion) side by side, and prints an offline evaluation report comparing
-Popularity, Semantic, ALS, Hybrid (Weighted), Hybrid (RRF), and Hybrid +
-Re-ranking.
+Fusion) side by side, prints the recommendation execution metrics
+accumulated over the run (see Observability below), and prints an offline
+evaluation report comparing Popularity, Semantic, ALS, Hybrid (Weighted),
+Hybrid (RRF), and Hybrid + Re-ranking.
 
 ```bash
 python scripts/run_demo.py
@@ -466,6 +469,97 @@ history, `novelty` never fires; without a `book_id`, `semantic_similarity`
 never fires; without recorded popularity data or ALS candidacy for a given
 book, `popularity`/`collaborative_behavior` don't either. A cold-start item
 can legitimately have an empty `reasons` list.
+
+### `GET /health`
+
+Is this process itself operating normally? A lightweight, dependency-free
+self-check — distinct from `GET /readiness` below, which probes external
+dependencies. Returns HTTP 200 when healthy, HTTP 503 when unhealthy.
+
+```bash
+curl "http://localhost:8000/health"
+```
+
+```json
+{"healthy": true, "checks": [{"name": "process", "available": true, "detail": null}]}
+```
+
+### `GET /readiness`
+
+Are this instance's required runtime dependencies currently available to
+serve requests — runtime configuration, the book repository, and
+recommendation engine composition? Returns HTTP 200 when ready, HTTP 503
+when not ready (e.g. the database connection has dropped).
+
+```bash
+curl "http://localhost:8000/readiness"
+```
+
+```json
+{
+  "ready": true,
+  "checks": [
+    {"name": "configuration", "available": true, "detail": null},
+    {"name": "book_repository", "available": true, "detail": null},
+    {"name": "recommendation_composition", "available": true, "detail": null}
+  ]
+}
+```
+
+A failing check's `detail` is always a safe, non-sensitive summary (e.g.
+`"RuntimeError while checking repository availability"`) — never a raw
+exception message, which could embed a database connection string.
+
+## Observability
+
+Introduced in Sprint 31: **application-level** observability only —
+answering "is the application healthy", "is it ready to receive requests",
+"which engine served a request", "how long did it take", "did fallback
+behaviour occur", and "what operational failures occurred". All of it is
+independent of FastAPI, Pydantic, PostgreSQL/pgvector, and any concrete
+logging or monitoring library — the Domain/Application layers define plain,
+transport-independent shapes (`HealthStatus`, `ReadinessStatus`,
+`RecommendationExecutionRecord`, `RecommendationExecutionMetrics`); only the
+Infrastructure/API layers know about `logging` or HTTP status codes.
+
+**Health vs. Readiness** are deliberately distinct, mirroring the standard
+Kubernetes liveness/readiness probe split: Health asks "is this process
+alive and internally intact" (answering an HTTP request at all already
+proves this); Readiness asks "can this instance currently reach what it
+needs" by actually probing configuration, the book repository, and
+recommendation engine composition. A process can be healthy while not
+ready (e.g. its database connection just dropped).
+
+**Structured recommendation execution logging.** Every request served
+through `GET /recommendations/*` is wrapped by an `ObservedRecommendationEngine`
+(Infrastructure), which times the call and emits one
+`RecommendationExecutionRecord` — request id, engine name, recommendation
+type, duration, recommendation count, whether a fallback (no `book_id` and
+no `user_id`) was used, success/failure, and a coarse error classification
+(`validation_failure` for a `ValueError`, `unexpected_failure` otherwise).
+`LoggingRecommendationExecutionObserver` logs each record as one structured
+message via the Python standard library's `logging` module (INFO on
+success, WARNING on failure) under the `readmatch_ai.recommendation_execution`
+logger — no external logging framework. **This record never includes**
+user secrets, API keys, embedding vectors, ALS latent factors, raw
+interaction history, or database connection information — only
+identifiers, counts, and timing, by construction.
+
+**Recommendation metrics.** `RecommendationMetricsCollector` (Application)
+is the other observer fed by the same execution records, aggregating
+request/success/failure/fallback counts, total and average latency, and a
+per-engine usage count — a deterministic, in-process snapshot
+(`RecommendationExecutionMetrics`), suitable for assertions in tests and for
+the one operator-facing summary printed by `scripts/run_demo.py`. It has no
+external metrics-platform integration.
+
+**Limitations.** This Sprint introduces application-level observability
+only. Distributed tracing, a Prometheus/OpenTelemetry exporter, and
+integration with an external monitoring platform (Grafana, Datadog, etc.)
+are explicitly out of scope here and remain future enhancements — metrics
+are in-process only (reset on restart, not shared across instances), and
+structured logs go to the standard `logging` module rather than a
+centralized log aggregator.
 
 ## Testing
 

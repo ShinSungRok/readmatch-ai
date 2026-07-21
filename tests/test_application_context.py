@@ -489,3 +489,78 @@ def test_create_uses_sentence_transformer_generator_when_configured(
     assert embedding is not None
     assert embedding.vector == (0.1, 0.2, 0.3)
     assert embedding.model_name == "sentence-transformers/all-MiniLM-L6-v2"
+
+
+# --- Sprint 31: production observability ---
+
+
+def test_create_wires_a_healthy_health_check_service() -> None:
+    context = ApplicationContext.create()
+
+    status = context.health_check_service.check()
+
+    assert status.healthy is True
+
+
+def test_create_wires_a_ready_readiness_check_service_for_a_fresh_in_memory_context() -> None:
+    context = ApplicationContext.create()
+
+    status = context.readiness_check_service.check()
+
+    assert status.ready is True
+
+
+def test_recommendation_metrics_collector_starts_empty() -> None:
+    context = ApplicationContext.create()
+
+    snapshot = context.recommendation_metrics_collector.snapshot()
+
+    assert snapshot.request_count == 0
+
+
+def test_get_recommendations_use_case_reports_execution_to_the_metrics_collector() -> None:
+    context = ApplicationContext.create()
+    context.register_book_use_case.execute(_valid_input())
+
+    context.get_recommendations_use_case.execute(limit=5)
+
+    snapshot = context.recommendation_metrics_collector.snapshot()
+    assert snapshot.request_count == 1
+    assert snapshot.success_count == 1
+    assert snapshot.engine_usage_counts == {"popularity": 1}
+
+
+def test_multiple_use_cases_are_each_tracked_under_their_own_engine_name() -> None:
+    context = ApplicationContext.create()
+
+    context.get_recommendations_use_case.execute(limit=5)
+    context.generate_hybrid_recommendation_use_case.execute(limit=5)
+
+    snapshot = context.recommendation_metrics_collector.snapshot()
+    assert snapshot.request_count == 2
+    assert snapshot.engine_usage_counts == {"popularity": 1, "hybrid": 1}
+
+
+def test_the_raw_recommendation_engine_field_remains_unwrapped() -> None:
+    """Observability wraps only the engines injected into the request-serving
+    use cases (see ApplicationContext.create()'s docstring) -- the exposed
+    `recommendation_engine`/etc. fields, used by
+    evaluate_recommendation_engine_use_case, must keep their original
+    concrete type so quality-report/evaluation behaviour is unaffected.
+    """
+    context = ApplicationContext.create()
+
+    assert isinstance(context.recommendation_engine, PopularityRecommendationEngine)
+    assert isinstance(context.hybrid_recommendation_engine, HybridRecommendationEngine)
+
+
+def test_repeated_recommendation_requests_deterministically_accumulate_metrics() -> None:
+    context = ApplicationContext.create()
+
+    for _ in range(3):
+        context.get_recommendations_use_case.execute(limit=5)
+
+    snapshot = context.recommendation_metrics_collector.snapshot()
+    assert snapshot.request_count == 3
+    assert snapshot.success_count == 3
+    assert snapshot.engine_usage_counts == {"popularity": 3}

@@ -8,6 +8,7 @@ from readmatch_ai.domain.explainer import (
     ExplainedRecommendationResult,
     ExplanationReason,
 )
+from readmatch_ai.domain.health import ComponentCheck, HealthStatus, ReadinessStatus
 from readmatch_ai.domain.recommendation import RecommendationResult
 
 
@@ -117,4 +118,44 @@ class ExplainedRecommendationResponse(BaseModel):
                 ExplainedRecommendationItemResponse.from_domain(explained_item)
                 for explained_item in result.items
             ]
+        )
+
+
+class ComponentCheckResponse(BaseModel):
+    """API representation of one ComponentCheck."""
+
+    name: str
+    available: bool
+    detail: str | None = None
+
+    @classmethod
+    def from_domain(cls, check: ComponentCheck) -> ComponentCheckResponse:
+        return cls(name=check.name, available=check.available, detail=check.detail)
+
+
+class HealthResponse(BaseModel):
+    """API representation of a HealthStatus."""
+
+    healthy: bool
+    checks: list[ComponentCheckResponse]
+
+    @classmethod
+    def from_domain(cls, status: HealthStatus) -> HealthResponse:
+        return cls(
+            healthy=status.healthy,
+            checks=[ComponentCheckResponse.from_domain(check) for check in status.checks],
+        )
+
+
+class ReadinessResponse(BaseModel):
+    """API representation of a ReadinessStatus."""
+
+    ready: bool
+    checks: list[ComponentCheckResponse]
+
+    @classmethod
+    def from_domain(cls, status: ReadinessStatus) -> ReadinessResponse:
+        return cls(
+            ready=status.ready,
+            checks=[ComponentCheckResponse.from_domain(check) for check in status.checks],
         )

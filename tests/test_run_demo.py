@@ -42,10 +42,9 @@ def test_demo_seeds_and_serves_all_three_recommendation_strategies(
     assert "[Popularity]" in output
     assert "[Semantic]" in output
     assert "[Hybrid]" in output
+    assert "[Personalized (Hybrid + Re-ranking)]" in output
     assert "[Hybrid (Weighted Score Fusion)]" in output
     assert "[Hybrid (Reciprocal Rank Fusion)]" in output
-    assert "[Hybrid (Weighted, no re-ranking)]" in output
-    assert "[Hybrid (Weighted) + Re-ranking]" in output
     assert "Offline evaluation" in output
     for engine_name in (
         "popularity",
@@ -79,6 +78,27 @@ def test_demo_recommendation_endpoints_return_valid_json_via_the_real_api() -> N
 
     spotlight = books[0]
     response = client.get(f"/recommendations/semantic/{spotlight.id.value}", params={"limit": 3})
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) <= 3
+    assert all(item["book"]["id"] != str(spotlight.id.value) for item in items)
+
+
+def test_demo_personalized_endpoint_returns_valid_json_via_the_real_api() -> None:
+    context = ApplicationContext.create()
+
+    books = _run_demo.seed_demo_dataset(context)
+    app = _run_demo.create_app()
+    app.dependency_overrides[_run_demo.get_application_context] = lambda: context
+    client = _run_demo.TestClient(app)
+
+    spotlight = books[0]
+    alice = _run_demo._user_id("alice")
+    response = client.get(
+        f"/recommendations/personalized/{alice.value}",
+        params={"book_id": str(spotlight.id.value), "limit": 3},
+    )
 
     assert response.status_code == 200
     items = response.json()["items"]

@@ -15,6 +15,13 @@ _LimitQuery = Annotated[int, Query(gt=0, le=100, description="Maximum recommenda
 _BookIdQuery = Annotated[
     str | None, Query(description="Optional source book to blend semantic similarity with.")
 ]
+_UserIdQuery = Annotated[
+    str | None,
+    Query(
+        description="Optional user to personalize with (adds the ALS collaborative-filtering "
+        "signal)."
+    ),
+]
 
 
 @router.get(
@@ -54,16 +61,45 @@ def get_semantic_recommendations(
 @router.get(
     "/hybrid",
     response_model=RecommendationResponse,
-    summary="Hybrid (popularity + semantic) recommendations",
+    summary="Hybrid (popularity + semantic + ALS) recommendations",
     description=(
-        "Combines popularity and semantic signals. book_id is optional: omitting it "
-        "degrades gracefully to the popularity signal (no source book to blend with)."
+        "Combines popularity, semantic, and ALS collaborative-filtering signals. book_id and "
+        "user_id are both optional: omitting either degrades gracefully to whichever signals "
+        "remain active (at minimum, popularity)."
     ),
 )
 def get_hybrid_recommendations(
     context: _ApplicationContextDependency,
     limit: _LimitQuery = 10,
     book_id: _BookIdQuery = None,
+    user_id: _UserIdQuery = None,
 ) -> RecommendationResponse:
-    result = context.generate_hybrid_recommendation_use_case.execute(limit=limit, book_id=book_id)
+    result = context.generate_hybrid_recommendation_use_case.execute(
+        limit=limit, book_id=book_id, user_id=user_id
+    )
+    return RecommendationResponse.from_domain(result)
+
+
+@router.get(
+    "/personalized/{user_id}",
+    response_model=RecommendationResponse,
+    summary="Personalized recommendations (Hybrid ranking + re-ranking) for a user",
+    description=(
+        "Routes the given user through RecommendationEngine -> Hybrid ranking -> "
+        "RecommendationReranker (popularity-penalty, novelty-boost, and MMR-diversity "
+        "policies). book_id is optional: providing it also blends semantic similarity to that "
+        "book. An unknown-but-well-formed user_id, a user with no interactions, or missing ALS "
+        "training data all degrade gracefully to whichever signals remain active -- the "
+        "existing engine/reranker fallback behaviour, unchanged here -- rather than a 404."
+    ),
+)
+def get_personalized_recommendations(
+    user_id: str,
+    context: _ApplicationContextDependency,
+    limit: _LimitQuery = 10,
+    book_id: _BookIdQuery = None,
+) -> RecommendationResponse:
+    result = context.generate_reranked_recommendation_use_case.execute(
+        limit=limit, book_id=book_id, user_id=user_id
+    )
     return RecommendationResponse.from_domain(result)

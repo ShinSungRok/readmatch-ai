@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """End-to-end recommendation demo: seeds a deterministic dataset, exercises the
-Popularity, Semantic, and Hybrid recommendation REST endpoints, and reports
-offline evaluation metrics comparing Popularity, Semantic, ALS, both Hybrid
-ranking strategies (Weighted Score Fusion and Reciprocal Rank Fusion), and
-Hybrid with the re-ranking stage (diversity, novelty, popularity-penalty
-policies) applied on top.
+Popularity, Semantic, Hybrid, and Personalized (Hybrid + re-ranking)
+recommendation REST endpoints, and reports offline evaluation metrics
+comparing Popularity, Semantic, ALS, both Hybrid ranking strategies (Weighted
+Score Fusion and Reciprocal Rank Fusion), and Hybrid with the re-ranking
+stage (diversity, novelty, popularity-penalty policies) applied on top.
 
 Runs entirely in-process against the real FastAPI app (readmatch_ai.api.main)
 via FastAPI's TestClient — real HTTP routing, Pydantic validation, and JSON
@@ -252,10 +252,23 @@ def _build_evaluation_dataset(books: list[Book], user_id: UserId) -> EvaluationD
     return EvaluationDataset(cases=tuple(case for case in cases if case.relevant_book_ids))
 
 
-def _print_recommendation_comparison(client: TestClient, spotlight: Book, limit: int) -> None:
+def _print_recommendation_comparison(
+    client: TestClient, spotlight: Book, user_id: UserId, limit: int
+) -> None:
+    """Popularity/Semantic/Hybrid/Personalized, all via the real REST API.
+
+    Personalized (GET /recommendations/personalized/{user_id}) routes
+    through RecommendationEngine -> Hybrid ranking -> RecommendationReranker
+    exactly as the API layer does for a real client -- this Sprint's
+    "invoke the personalized REST endpoint rather than calling the
+    personalized engine directly where practical". Hybrid is also called
+    with user_id here so its ALS signal is active for the comparison, same
+    as Personalized.
+    """
     print(
         f'Recommendations similar to: "{spotlight.title.value}" by '
-        f"{spotlight.author.value} ({spotlight.category.value})\n"
+        f"{spotlight.author.value} ({spotlight.category.value}), "
+        f"personalized for demo user '{DEMO_USER_LABEL}'\n"
     )
     responses = {
         "Popularity": client.get("/recommendations/popularity", params={"limit": limit}),
@@ -264,6 +277,14 @@ def _print_recommendation_comparison(client: TestClient, spotlight: Book, limit:
         ),
         "Hybrid": client.get(
             "/recommendations/hybrid",
+            params={
+                "book_id": str(spotlight.id.value),
+                "user_id": str(user_id.value),
+                "limit": limit,
+            },
+        ),
+        "Personalized (Hybrid + Re-ranking)": client.get(
+            f"/recommendations/personalized/{user_id.value}",
             params={"book_id": str(spotlight.id.value), "limit": limit},
         ),
     }
@@ -306,35 +327,6 @@ def _print_hybrid_strategy_comparison(
     for name, engine in (
         ("Hybrid (Weighted Score Fusion)", weighted_engine),
         ("Hybrid (Reciprocal Rank Fusion)", rrf_engine),
-    ):
-        items = engine.recommend(query).recommendation.items
-        print(f"[{name}]")
-        if not items:
-            print("  (no recommendations)")
-        for item in items:
-            print(
-                f"  {item.book.title.value} by {item.book.author.value} "
-                f"(category={item.book.category.value}) — score={item.score:.3f}"
-            )
-        print()
-
-
-def _print_reranking_comparison(
-    hybrid_engine: RecommendationEngine,
-    reranked_engine: RecommendationEngine,
-    spotlight: Book,
-    user_id: UserId,
-    limit: int,
-) -> None:
-    """Show Hybrid (Weighted) before and after the re-ranking stage, side by side."""
-    query = RecommendationQuery(limit=limit, book_id=spotlight.id, user_id=user_id)
-    print(
-        f'Hybrid vs. Hybrid + Re-ranking for: "{spotlight.title.value}" '
-        f"(also personalized for demo user '{DEMO_USER_LABEL}')\n"
-    )
-    for name, engine in (
-        ("Hybrid (Weighted, no re-ranking)", hybrid_engine),
-        ("Hybrid (Weighted) + Re-ranking", reranked_engine),
     ):
         items = engine.recommend(query).recommendation.items
         print(f"[{name}]")
@@ -408,12 +400,9 @@ def main(
     client = TestClient(app)
 
     spotlight = books[0]
-    _print_recommendation_comparison(client, spotlight, args.limit)
+    _print_recommendation_comparison(client, spotlight, demo_user_id, args.limit)
     _print_hybrid_strategy_comparison(
         hybrid_weighted_engine, hybrid_rrf_engine, spotlight, demo_user_id, args.limit
-    )
-    _print_reranking_comparison(
-        hybrid_weighted_engine, reranked_engine, spotlight, demo_user_id, args.limit
     )
     _print_evaluation_report(
         context,

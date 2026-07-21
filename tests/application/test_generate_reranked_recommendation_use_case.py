@@ -9,6 +9,7 @@ from readmatch_ai.domain.recommendation import (
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.domain.user import UserId
 
 
 class FakeRecommendationEngine(RecommendationEngine):
@@ -50,6 +51,28 @@ def test_execute_passes_none_book_id_when_omitted() -> None:
     use_case.execute(limit=5)
 
     assert engine.received_query == RecommendationQuery(limit=5, book_id=None)
+
+
+def test_execute_passes_user_id_to_engine_as_recommendation_query() -> None:
+    engine = FakeRecommendationEngine(RecommendationResult(Recommendation(items=[])))
+    use_case = GenerateRerankedRecommendationUseCase(engine)
+    user_id = UserId.generate()
+
+    use_case.execute(limit=5, user_id=str(user_id.value))
+
+    assert engine.received_query == RecommendationQuery(limit=5, user_id=user_id)
+
+
+def test_execute_passes_both_book_id_and_user_id_together() -> None:
+    engine = FakeRecommendationEngine(RecommendationResult(Recommendation(items=[])))
+    use_case = GenerateRerankedRecommendationUseCase(engine)
+    book_id, user_id = BookId.generate(), UserId.generate()
+
+    use_case.execute(limit=5, book_id=str(book_id.value), user_id=str(user_id.value))
+
+    assert engine.received_query == RecommendationQuery(
+        limit=5, book_id=book_id, user_id=user_id
+    )
 
 
 def test_execute_returns_engine_result() -> None:

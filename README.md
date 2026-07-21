@@ -8,8 +8,10 @@ semantic (embedding) recommendation, implicit-ALS collaborative filtering,
 hybrid ranking (fuses Popularity + Semantic + ALS via a pluggable
 `RankingStrategy` — Weighted Score Fusion or Reciprocal Rank Fusion), an
 independent re-ranking stage (diversity, novelty, popularity-penalty
-policies, composable via a `RecommendationReranker`), offline evaluation, and
-a FastAPI recommendation service backed by PostgreSQL and pgvector.
+policies, composable via a `RecommendationReranker`), a personalized
+recommendation REST endpoint routing a user through the full
+Hybrid-ranking-then-re-ranking pipeline, offline evaluation, and a FastAPI
+recommendation service backed by PostgreSQL and pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -92,17 +94,18 @@ the Application layer:
 
 The default composition applied to `ApplicationContext`'s
 `reranked_recommendation_engine` is Popularity Penalty → Novelty Boost → MMR
-Diversity, always truncated back down to the originally requested count.
+Diversity, always truncated back down to the originally requested count. It's
+exposed over REST as `GET /recommendations/personalized/{user_id}` — see the
+API Reference below.
 
 ### Run the demo
 
 A self-contained, deterministic, end-to-end walkthrough: seeds a small book
 dataset (plus synthetic user interactions for ALS), calls the real
-Popularity/Semantic/Hybrid REST endpoints in-process, prints both Hybrid
-ranking strategies (Weighted Score Fusion vs. Reciprocal Rank Fusion) side by
-side, prints Hybrid before/after the re-ranking stage, and prints an offline
-evaluation report comparing Popularity, Semantic, ALS, Hybrid (Weighted),
-Hybrid (RRF), and Hybrid + Re-ranking.
+Popularity/Semantic/Hybrid/Personalized REST endpoints in-process, prints both
+Hybrid ranking strategies (Weighted Score Fusion vs. Reciprocal Rank Fusion)
+side by side, and prints an offline evaluation report comparing Popularity,
+Semantic, ALS, Hybrid (Weighted), Hybrid (RRF), and Hybrid + Re-ranking.
 
 ```bash
 python scripts/run_demo.py
@@ -190,31 +193,85 @@ curl "http://localhost:8000/recommendations/semantic/a2f1e6d4-2b9a-4b1e-9a3f-6b7
 ### `GET /recommendations/hybrid`
 
 Combines Popularity, Semantic, and ALS signals via the configured
-`RankingStrategy` (`HYBRID_RANKING_STRATEGY`; see Quick Start). `book_id` is
-optional — omitting it degrades gracefully to whatever sources remain active
-(at minimum, Popularity). Every source's contribution is renormalized across
-whichever sources actually produced candidates for a given call, so an
-inactive source never silently deflates the combined score.
+`RankingStrategy` (`HYBRID_RANKING_STRATEGY`; see Quick Start). `book_id` and
+`user_id` are both optional — omitting either degrades gracefully to whatever
+sources remain active (at minimum, Popularity). Every source's contribution
+is renormalized across whichever sources actually produced candidates for a
+given call, so an inactive source never silently deflates the combined score.
 
 | Param     | Type          | Default | Constraints |
 |-----------|---------------|---------|-------------|
 | `limit`   | int           | 10      | `1 <= limit <= 100` |
 | `book_id` | string (UUID) | none    | optional |
+| `user_id` | string (UUID) | none    | optional; activates the ALS signal |
 
 ```bash
 curl "http://localhost:8000/recommendations/hybrid?book_id=a2f1e6d4-2b9a-4b1e-9a3f-6b7c8d9e0f11&limit=2"
 ```
 
-> This endpoint currently only accepts `book_id` (no `user_id`), so the ALS
-> signal never activates through the REST API today — it does activate
-> through `HybridRecommendationEngine` directly whenever a query carries a
-> `user_id` (e.g. the evaluation framework and `scripts/run_demo.py`, which
-> exercise all three signals together). Exposing `user_id` on this endpoint
-> is a natural follow-up, not yet implemented. The re-ranking stage
-> (`ApplicationContext.reranked_recommendation_engine` /
-> `generate_reranked_recommendation_use_case`) is likewise not yet exposed as
-> its own REST endpoint — it's reachable today through the Application/Domain
-> layers directly, the evaluation framework, and the demo.
+### `GET /recommendations/personalized/{user_id}`
+
+Routes `user_id` through `RecommendationEngine` → Hybrid ranking →
+`RecommendationReranker` (popularity-penalty, novelty-boost, then
+MMR-diversity, in that order — see Re-ranking above). `book_id` is optional:
+providing it also blends semantic similarity to that book, exactly like the
+Hybrid endpoint. `user_id` is a required path parameter (this endpoint's
+whole purpose is a personalized result); a malformed one returns
+`400 {"detail": "..."}`, same convention as a malformed `book_id` elsewhere.
+
+| Param     | Type          | Default | Constraints |
+|-----------|---------------|---------|-------------|
+| `user_id` | string (UUID) | —       | required (path parameter) |
+| `limit`   | int           | 10      | `1 <= limit <= 100` |
+| `book_id` | string (UUID) | none    | optional |
+
+```bash
+curl "http://localhost:8000/recommendations/personalized/3fa85f64-5717-4562-b3fc-2c963f66afa6?limit=2"
+```
+
+```json
+{
+  "items": [
+    {
+      "book": {
+        "id": "b3f2e7d5-3c0b-4c2f-8b4a-7c8d9e0f1122",
+        "isbn": "9780441013593",
+        "title": "Dune",
+        "author": "Frank Herbert",
+        "category": "Science Fiction"
+      },
+      "score": 0.772,
+      "source": "hybrid"
+    }
+  ]
+}
+```
+
+**Cold-start behaviour:** an unknown-but-well-formed `user_id`, a user with
+no recorded interactions, or a deployment with no trained ALS model data at
+all, all degrade gracefully — never a 404/500. Concretely: `NoveltyBoostPolicy`
+and ALS candidate generation both treat "no interaction history for this
+user" as "nothing to boost/personalize from", so the result falls back to
+whatever Popularity/Semantic/`PopularityPenaltyPolicy`/`MMRDiversityPolicy`
+alone would produce — the same fallback path already used when `book_id`
+is omitted from the Hybrid endpoint. This is existing engine/reranker
+behaviour, unchanged for this endpoint; the API layer adds no additional
+existence check for `user_id`.
+
+**Current personalization limitations:**
+
+- ALS trains once, eagerly, when the process starts (`ApplicationContext.create()`);
+  interactions recorded afterwards do not retroactively change a running
+  process's personalized results until it's restarted (or `ALS_MODEL_PATH`
+  is retrained/reloaded — see `AlsModelConfig`). `NoveltyBoostPolicy` and
+  `PopularityPenaltyPolicy`, by contrast, read their repositories live on
+  every request.
+- The ranking strategy (`HYBRID_RANKING_STRATEGY`) and the re-ranking policy
+  composition are both process-wide configuration, not per-request — there
+  is no query parameter to pick a different strategy/policy set per call.
+- Embeddings are `DeterministicFakeBookEmbeddingGenerator` by default (see
+  the Status note above), so the Semantic contribution to a personalized
+  result is not representative of a real model's quality.
 
 ## Testing
 

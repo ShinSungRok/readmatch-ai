@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 
-def test_openapi_schema_documents_all_four_recommendation_endpoints(client: TestClient) -> None:
+def test_openapi_schema_documents_all_five_recommendation_endpoints(client: TestClient) -> None:
     response = client.get("/openapi.json")
 
     assert response.status_code == 200
@@ -10,7 +10,58 @@ def test_openapi_schema_documents_all_four_recommendation_endpoints(client: Test
     assert "/recommendations/semantic/{book_id}" in paths
     assert "/recommendations/hybrid" in paths
     assert "/recommendations/personalized/{user_id}" in paths
+    assert "/recommendations/personalized/{user_id}/explained" in paths
     assert "get" in paths["/recommendations/popularity"]
+
+
+def test_openapi_schema_documents_explanation_reason_types_and_limitations(
+    client: TestClient,
+) -> None:
+    schema = client.get("/openapi.json").json()
+
+    explained_get = schema["paths"]["/recommendations/personalized/{user_id}/explained"]["get"]
+    description = explained_get["description"]
+    for reason_type in (
+        "popularity",
+        "semantic_similarity",
+        "collaborative_behavior",
+        "novelty",
+        "diversity",
+    ):
+        assert reason_type in description
+    # Limitations: explanations are not proof of causation, and may be
+    # partial/absent when evidence is limited.
+    assert "not" in description.lower() and "proof" in description.lower()
+    assert "no reasons" in description.lower() or "limited" in description.lower()
+
+
+def test_openapi_schema_declares_user_id_as_a_required_path_parameter_for_explained(
+    client: TestClient,
+) -> None:
+    schema = client.get("/openapi.json").json()
+
+    explained_get = schema["paths"]["/recommendations/personalized/{user_id}/explained"]["get"]
+    parameters_by_name = {param["name"]: param for param in explained_get["parameters"]}
+    assert parameters_by_name["user_id"]["in"] == "path"
+    assert parameters_by_name["user_id"]["required"] is True
+    assert parameters_by_name["book_id"]["required"] is False
+    assert parameters_by_name["limit"]["required"] is False
+
+
+def test_openapi_schema_declares_the_explained_recommendation_response_model(
+    client: TestClient,
+) -> None:
+    schema = client.get("/openapi.json").json()
+
+    explained_get = schema["paths"]["/recommendations/personalized/{user_id}/explained"]["get"]
+    response_schema_ref = explained_get["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert "ExplainedRecommendationResponse" in response_schema_ref["$ref"]
+    schemas = schema["components"]["schemas"]
+    assert "ExplainedRecommendationResponse" in schemas
+    assert "ExplainedRecommendationItemResponse" in schemas
+    assert "ExplanationReasonResponse" in schemas
 
 
 def test_openapi_schema_declares_user_id_as_a_required_path_parameter_for_personalized(

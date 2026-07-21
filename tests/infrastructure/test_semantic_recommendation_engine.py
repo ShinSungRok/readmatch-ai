@@ -53,6 +53,10 @@ def test_recommend_ranks_by_similarity_and_excludes_source_book() -> None:
     titles = [item.book.title.value for item in result.recommendation.items]
     assert titles == ["Close", "Far"]
     assert all(item.source == "semantic" for item in result.recommendation.items)
+    assert all(
+        item.contributing_sources == frozenset({"semantic"})
+        for item in result.recommendation.items
+    )
     assert result.recommendation.items[0].score > result.recommendation.items[1].score
 
 

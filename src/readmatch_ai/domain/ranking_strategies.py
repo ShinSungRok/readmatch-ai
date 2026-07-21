@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from readmatch_ai.domain.book import Book, BookId
 from readmatch_ai.domain.ranking_strategy import RankingCandidateList, RankingStrategy
-from readmatch_ai.domain.recommendation import RecommendationItem
+from readmatch_ai.domain.recommendation import HYBRID_SOURCE, RecommendationItem
 
-_HYBRID_SOURCE = "hybrid"
 _DEFAULT_RRF_K = 60
 
 
@@ -39,6 +38,7 @@ class WeightedScoreFusionStrategy(RankingStrategy):
         effective_weights = self._effective_weights(active_lists)
         books: dict[BookId, Book] = {}
         combined_scores: dict[BookId, float] = {}
+        contributing_sources: dict[BookId, set[str]] = {}
         for candidate_list in active_lists:
             weight = effective_weights[candidate_list.source]
             normalized = _min_max_normalize(candidate_list.items)
@@ -47,8 +47,9 @@ class WeightedScoreFusionStrategy(RankingStrategy):
                 combined_scores[item.book.id] = (
                     combined_scores.get(item.book.id, 0.0) + weight * normalized[item.book.id]
                 )
+                contributing_sources.setdefault(item.book.id, set()).add(candidate_list.source)
 
-        return _rank_and_truncate(books, combined_scores, limit)
+        return _rank_and_truncate(books, combined_scores, contributing_sources, limit)
 
     def _effective_weights(self, active_lists: list[RankingCandidateList]) -> dict[str, float]:
         total_weight = sum(self._weights.get(cl.source, 0.0) for cl in active_lists)
@@ -79,14 +80,16 @@ class ReciprocalRankFusionStrategy(RankingStrategy):
     ) -> list[RecommendationItem]:
         books: dict[BookId, Book] = {}
         combined_scores: dict[BookId, float] = {}
+        contributing_sources: dict[BookId, set[str]] = {}
         for candidate_list in candidate_lists:
             for rank, item in enumerate(candidate_list.items, start=1):
                 books[item.book.id] = item.book
                 combined_scores[item.book.id] = combined_scores.get(item.book.id, 0.0) + 1.0 / (
                     self._k + rank
                 )
+                contributing_sources.setdefault(item.book.id, set()).add(candidate_list.source)
 
-        return _rank_and_truncate(books, combined_scores, limit)
+        return _rank_and_truncate(books, combined_scores, contributing_sources, limit)
 
 
 def _min_max_normalize(items: list[RecommendationItem]) -> dict[BookId, float]:
@@ -98,7 +101,10 @@ def _min_max_normalize(items: list[RecommendationItem]) -> dict[BookId, float]:
 
 
 def _rank_and_truncate(
-    books: dict[BookId, Book], scores: dict[BookId, float], limit: int
+    books: dict[BookId, Book],
+    scores: dict[BookId, float],
+    contributing_sources: dict[BookId, set[str]],
+    limit: int,
 ) -> list[RecommendationItem]:
     # Deterministic tiebreak (by id) so equal-score books always sort the
     # same way, regardless of dict/insertion order.
@@ -106,6 +112,11 @@ def _rank_and_truncate(
         :limit
     ]
     return [
-        RecommendationItem(book=books[book_id], score=scores[book_id], source=_HYBRID_SOURCE)
+        RecommendationItem(
+            book=books[book_id],
+            score=scores[book_id],
+            source=HYBRID_SOURCE,
+            contributing_sources=frozenset(contributing_sources[book_id]),
+        )
         for book_id in ranked_book_ids
     ]

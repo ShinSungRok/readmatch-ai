@@ -10,8 +10,10 @@ hybrid ranking (fuses Popularity + Semantic + ALS via a pluggable
 independent re-ranking stage (diversity, novelty, popularity-penalty
 policies, composable via a `RecommendationReranker`), a personalized
 recommendation REST endpoint routing a user through the full
-Hybrid-ranking-then-re-ranking pipeline, offline evaluation, and a FastAPI
-recommendation service backed by PostgreSQL and pgvector.
+Hybrid-ranking-then-re-ranking pipeline, deterministic structured
+explanations for why a book was recommended (via a `RecommendationExplainer`),
+offline evaluation, and a FastAPI recommendation service backed by
+PostgreSQL and pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -98,14 +100,58 @@ Diversity, always truncated back down to the originally requested count. It's
 exposed over REST as `GET /recommendations/personalized/{user_id}` — see the
 API Reference below.
 
+### Explainable Recommendations
+
+Structured, deterministic reasons for *why* a book was recommended, exposed
+via `GET /recommendations/personalized/{user_id}/explained` (see API
+Reference below). Implemented independently of any concrete
+`RecommendationEngine`, FastAPI, Pydantic, PostgreSQL, pgvector, ALS
+internals, or Sentence Transformers internals — a `RecommendationExplainer`
+(Domain port) only inspects an already-produced ranked result; it never runs
+a second, independent ranking pass.
+
+`DefaultRecommendationExplainer` supports five reason types, each gated on
+actual evidence — never fabricated, and never claimed unless the available
+context supports it:
+
+| Type | Message | Evidence |
+|------|---------|----------|
+| `popularity` | "Popular with many readers." | The book's own `RecommendationItem.contributing_sources` includes the Popularity signal — i.e. `PopularityRecommendationEngine` actually produced it as a candidate, not merely that it was queried. |
+| `semantic_similarity` | "Similar in topic to the selected book." | `contributing_sources` includes the Semantic signal (requires a `book_id`). |
+| `collaborative_behavior` | "Readers with similar interests also engaged with this book." | `contributing_sources` includes the ALS signal (requires a `user_id`). |
+| `novelty` | "You have not interacted with this book before." | The user (`user_id`) has no recorded interaction with this book. Absent without a `user_id`. |
+| `diversity` | "Adds variety to your recommendation list." | This is the first book in the returned list whose category hasn't appeared yet (never claimed for the very first item — nothing precedes it to be diverse relative to). |
+
+`RecommendationItem` carries a `contributing_sources` field (distinct from
+`source`, which collapses to `"hybrid"` once `HybridRecommendationEngine`
+fuses multiple signals) recording which underlying signals actually produced
+each book as a candidate — the smallest addition needed to make
+`popularity`/`semantic_similarity`/`collaborative_behavior` truthful once
+fusion has happened, without rewriting the Hybrid or Re-ranking pipeline.
+
+An item's `reasons` list may be empty, or shorter than five, whenever
+evidence is limited — e.g. a popularity-only fallback for a cold-start user
+with no `book_id` and no interaction history. Reasons are returned in a
+fixed canonical order (`popularity`, `semantic_similarity`,
+`collaborative_behavior`, `novelty`, `diversity`) regardless of computation
+order, and carry no confidence/probability value.
+
+> **Explanation, not proof:** these reasons communicate observable signals
+> and system rationale — they are not mathematical proof that any single
+> signal alone caused a book's exact ranking position. Multiple policies and
+> signals combine into one final score; a reason confirms a signal
+> contributed, not how much it weighed relative to the others.
+
 ### Run the demo
 
 A self-contained, deterministic, end-to-end walkthrough: seeds a small book
 dataset (plus synthetic user interactions for ALS), calls the real
-Popularity/Semantic/Hybrid/Personalized REST endpoints in-process, prints both
-Hybrid ranking strategies (Weighted Score Fusion vs. Reciprocal Rank Fusion)
-side by side, and prints an offline evaluation report comparing Popularity,
-Semantic, ALS, Hybrid (Weighted), Hybrid (RRF), and Hybrid + Re-ranking.
+Popularity/Semantic/Hybrid/Personalized/Explained REST endpoints in-process,
+prints structured explanation reasons for one personalized request, prints
+both Hybrid ranking strategies (Weighted Score Fusion vs. Reciprocal Rank
+Fusion) side by side, and prints an offline evaluation report comparing
+Popularity, Semantic, ALS, Hybrid (Weighted), Hybrid (RRF), and Hybrid +
+Re-ranking.
 
 ```bash
 python scripts/run_demo.py
@@ -272,6 +318,56 @@ existence check for `user_id`.
 - Embeddings are `DeterministicFakeBookEmbeddingGenerator` by default (see
   the Status note above), so the Semantic contribution to a personalized
   result is not representative of a real model's quality.
+
+### `GET /recommendations/personalized/{user_id}/explained`
+
+Same pipeline and parameters as `GET /recommendations/personalized/{user_id}`
+above, but each item is additionally annotated with a `reasons` array of zero
+or more structured, evidence-based explanations (see Explainable
+Recommendations above). The plain personalized endpoint's response shape is
+completely unaffected — this is a separate, additive route, not a query
+parameter on the existing one, so existing clients/responses never change.
+
+| Param     | Type          | Default | Constraints |
+|-----------|---------------|---------|-------------|
+| `user_id` | string (UUID) | —       | required (path parameter) |
+| `limit`   | int           | 10      | `1 <= limit <= 100` |
+| `book_id` | string (UUID) | none    | optional |
+
+```bash
+curl "http://localhost:8000/recommendations/personalized/3fa85f64-5717-4562-b3fc-2c963f66afa6/explained?book_id=a2f1e6d4-2b9a-4b1e-9a3f-6b7c8d9e0f11&limit=2"
+```
+
+```json
+{
+  "items": [
+    {
+      "book": {
+        "id": "b3f2e7d5-3c0b-4c2f-8b4a-7c8d9e0f1122",
+        "isbn": "9780441013593",
+        "title": "Dune",
+        "author": "Frank Herbert",
+        "category": "Science Fiction"
+      },
+      "score": 0.772,
+      "source": "hybrid",
+      "reasons": [
+        {"type": "popularity", "message": "Popular with many readers."},
+        {"type": "semantic_similarity", "message": "Similar in topic to the selected book."},
+        {"type": "novelty", "message": "You have not interacted with this book before."}
+      ]
+    }
+  ]
+}
+```
+
+**Cold-start behaviour:** identical to the plain personalized endpoint — an
+unknown/new user or a request with no `book_id` never errors. The difference
+is only in which reasons can appear: without a `user_id`'s interaction
+history, `novelty` never fires; without a `book_id`, `semantic_similarity`
+never fires; without recorded popularity data or ALS candidacy for a given
+book, `popularity`/`collaborative_behavior` don't either. A cold-start item
+can legitimately have an empty `reasons` list.
 
 ## Testing
 

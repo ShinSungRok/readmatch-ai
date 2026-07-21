@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from readmatch_ai.api.dependencies import get_application_context
-from readmatch_ai.api.schemas import RecommendationResponse
+from readmatch_ai.api.schemas import ExplainedRecommendationResponse, RecommendationResponse
 from readmatch_ai.application_context import ApplicationContext
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -103,3 +103,31 @@ def get_personalized_recommendations(
         limit=limit, book_id=book_id, user_id=user_id
     )
     return RecommendationResponse.from_domain(result)
+
+
+@router.get(
+    "/personalized/{user_id}/explained",
+    response_model=ExplainedRecommendationResponse,
+    summary="Personalized recommendations with structured explanations",
+    description=(
+        "Same pipeline as GET /recommendations/personalized/{user_id} "
+        "(RecommendationEngine -> Hybrid ranking -> RecommendationReranker), with each item "
+        "additionally annotated with zero or more deterministic, evidence-based reasons: "
+        "'popularity', 'semantic_similarity', 'collaborative_behavior', 'novelty', 'diversity'. "
+        "Reasons communicate observable signals and system rationale -- they are not "
+        "mathematical proof that a single signal alone caused a ranking position -- and no "
+        "confidence value is included. An item may have no reasons at all when evidence is "
+        "limited, e.g. a popularity-only fallback recommended to a cold-start user with no "
+        "interaction history and no source book_id."
+    ),
+)
+def get_explained_personalized_recommendations(
+    user_id: str,
+    context: _ApplicationContextDependency,
+    limit: _LimitQuery = 10,
+    book_id: _BookIdQuery = None,
+) -> ExplainedRecommendationResponse:
+    result = context.generate_explained_personalized_recommendation_use_case.execute(
+        limit=limit, book_id=book_id, user_id=user_id
+    )
+    return ExplainedRecommendationResponse.from_domain(result)

@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from readmatch_ai.domain.ranking_strategy import RankingCandidateList, RankingStrategy
 from readmatch_ai.domain.recommendation import (
+    ALS_SOURCE,
+    POPULARITY_SOURCE,
+    SEMANTIC_SOURCE,
     Recommendation,
     RecommendationQuery,
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
-
-POPULARITY_SOURCE = "popularity"
-SEMANTIC_SOURCE = "semantic"
-ALS_SOURCE = "als"
 
 
 class HybridRecommendationEngine(RecommendationEngine):

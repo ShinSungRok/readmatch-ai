@@ -4,6 +4,7 @@ import numpy as np
 
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.recommendation import (
+    ALS_SOURCE,
     Recommendation,
     RecommendationItem,
     RecommendationQuery,
@@ -12,8 +13,6 @@ from readmatch_ai.domain.recommendation import (
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.domain.user_book_interaction_repository import UserBookInteractionRepository
 from readmatch_ai.infrastructure.als_model import AlsModel
-
-_SOURCE = "als"
 
 
 class ALSRecommendationEngine(RecommendationEngine):
@@ -64,7 +63,12 @@ class ALSRecommendationEngine(RecommendationEngine):
             if book is None:
                 continue
             items.append(
-                RecommendationItem(book=book, score=float(scores[item_index]), source=_SOURCE)
+                RecommendationItem(
+                    book=book,
+                    score=float(scores[item_index]),
+                    source=ALS_SOURCE,
+                    contributing_sources=frozenset({ALS_SOURCE}),
+                )
             )
 
         return RecommendationResult(recommendation=Recommendation(items=items))

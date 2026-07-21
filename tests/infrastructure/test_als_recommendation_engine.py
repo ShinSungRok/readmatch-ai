@@ -94,6 +94,9 @@ def test_recommend_ranks_by_score_and_excludes_already_interacted_books() -> Non
     titles = [item.book.title.value for item in result.recommendation.items]
     assert titles == ["BestNew", "WorseNew"]
     assert all(item.source == "als" for item in result.recommendation.items)
+    assert all(
+        item.contributing_sources == frozenset({"als"}) for item in result.recommendation.items
+    )
 
 
 def test_recommend_respects_limit() -> None:

@@ -38,7 +38,12 @@ from readmatch_ai.domain.ranking_strategies import (
     ReciprocalRankFusionStrategy,
     WeightedScoreFusionStrategy,
 )
-from readmatch_ai.domain.recommendation import RecommendationQuery
+from readmatch_ai.domain.recommendation import (
+    ALS_SOURCE,
+    POPULARITY_SOURCE,
+    SEMANTIC_SOURCE,
+    RecommendationQuery,
+)
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.domain.reranker import DefaultRecommendationReranker
 from readmatch_ai.domain.reranking_policies import (
@@ -50,12 +55,7 @@ from readmatch_ai.domain.user import UserId
 from readmatch_ai.domain.user_book_interaction import UserBookInteraction
 from readmatch_ai.infrastructure.als_model import train_als_model
 from readmatch_ai.infrastructure.als_recommendation_engine import ALSRecommendationEngine
-from readmatch_ai.infrastructure.hybrid_recommendation_engine import (
-    ALS_SOURCE,
-    POPULARITY_SOURCE,
-    SEMANTIC_SOURCE,
-    HybridRecommendationEngine,
-)
+from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
 from readmatch_ai.infrastructure.reranked_recommendation_engine import (
     RerankedRecommendationEngine,
 )
@@ -303,6 +303,42 @@ def _print_recommendation_comparison(
         print()
 
 
+def _print_explained_recommendations(
+    client: TestClient, spotlight: Book, user_id: UserId, limit: int
+) -> None:
+    """Personalized recommendations plus structured explanation reasons, via
+    the real REST API (GET /recommendations/personalized/{user_id}/explained).
+
+    Reasons communicate observable signals and system rationale -- they are
+    not mathematical proof that a single signal alone caused a ranking
+    position (see README's Explainable Recommendations section). An item
+    may print with no reasons at all when evidence is limited.
+    """
+    print(
+        f"Explained personalized recommendations for demo user '{DEMO_USER_LABEL}', similar to: "
+        f'"{spotlight.title.value}"\n'
+    )
+    response = client.get(
+        f"/recommendations/personalized/{user_id.value}/explained",
+        params={"book_id": str(spotlight.id.value), "limit": limit},
+    )
+    response.raise_for_status()
+    items = response.json()["items"]
+    if not items:
+        print("  (no recommendations)")
+    for item in items:
+        book = item["book"]
+        print(
+            f"  {book['title']} by {book['author']} "
+            f"(category={book['category']}) — score={item['score']:.3f}"
+        )
+        if not item["reasons"]:
+            print("    (no supporting reasons)")
+        for reason in item["reasons"]:
+            print(f"    - [{reason['type']}] {reason['message']}")
+    print()
+
+
 def _print_hybrid_strategy_comparison(
     weighted_engine: RecommendationEngine,
     rrf_engine: RecommendationEngine,
@@ -401,6 +437,7 @@ def main(
 
     spotlight = books[0]
     _print_recommendation_comparison(client, spotlight, demo_user_id, args.limit)
+    _print_explained_recommendations(client, spotlight, demo_user_id, args.limit)
     _print_hybrid_strategy_comparison(
         hybrid_weighted_engine, hybrid_rrf_engine, spotlight, demo_user_id, args.limit
     )

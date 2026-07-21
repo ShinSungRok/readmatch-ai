@@ -44,6 +44,7 @@ def test_recommend_ranks_by_loan_count_descending() -> None:
     assert titles == ["High", "Low"]
     assert result.recommendation.items[0].score == 999.0
     assert result.recommendation.items[0].source == "popularity"
+    assert result.recommendation.items[0].contributing_sources == frozenset({"popularity"})
 
 
 def test_recommend_respects_limit() -> None:

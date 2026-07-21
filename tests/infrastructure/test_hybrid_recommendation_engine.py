@@ -1,6 +1,9 @@
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
 from readmatch_ai.domain.ranking_strategy import RankingCandidateList, RankingStrategy
 from readmatch_ai.domain.recommendation import (
+    ALS_SOURCE,
+    POPULARITY_SOURCE,
+    SEMANTIC_SOURCE,
     Recommendation,
     RecommendationItem,
     RecommendationQuery,
@@ -8,12 +11,7 @@ from readmatch_ai.domain.recommendation import (
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.domain.user import UserId
-from readmatch_ai.infrastructure.hybrid_recommendation_engine import (
-    ALS_SOURCE,
-    POPULARITY_SOURCE,
-    SEMANTIC_SOURCE,
-    HybridRecommendationEngine,
-)
+from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
 
 
 class _FakeRecommendationEngine(RecommendationEngine):

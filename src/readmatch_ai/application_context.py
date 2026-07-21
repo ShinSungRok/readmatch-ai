@@ -13,6 +13,9 @@ from readmatch_ai.application.generate_als_recommendation_use_case import (
 from readmatch_ai.application.generate_book_embedding_use_case import (
     GenerateBookEmbeddingUseCase,
 )
+from readmatch_ai.application.generate_explained_personalized_recommendation_use_case import (
+    GenerateExplainedPersonalizedRecommendationUseCase,
+)
 from readmatch_ai.application.generate_hybrid_recommendation_use_case import (
     GenerateHybridRecommendationUseCase,
 )
@@ -39,11 +42,13 @@ from readmatch_ai.domain.book_embedding_generator import BookEmbeddingGenerator
 from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepository
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
+from readmatch_ai.domain.explainer import DefaultRecommendationExplainer, RecommendationExplainer
 from readmatch_ai.domain.ranking_strategies import (
     ReciprocalRankFusionStrategy,
     WeightedScoreFusionStrategy,
 )
 from readmatch_ai.domain.ranking_strategy import RankingStrategy
+from readmatch_ai.domain.recommendation import ALS_SOURCE, POPULARITY_SOURCE, SEMANTIC_SOURCE
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.domain.reranker import DefaultRecommendationReranker, RecommendationReranker
 from readmatch_ai.domain.reranking_policies import (
@@ -58,12 +63,7 @@ from readmatch_ai.infrastructure.als_recommendation_engine import ALSRecommendat
 from readmatch_ai.infrastructure.deterministic_fake_book_embedding_generator import (
     DeterministicFakeBookEmbeddingGenerator,
 )
-from readmatch_ai.infrastructure.hybrid_recommendation_engine import (
-    ALS_SOURCE,
-    POPULARITY_SOURCE,
-    SEMANTIC_SOURCE,
-    HybridRecommendationEngine,
-)
+from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
 from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
     InMemoryBookEmbeddingRepository,
 )
@@ -108,6 +108,7 @@ class ApplicationContext:
     hybrid_recommendation_engine: RecommendationEngine
     als_recommendation_engine: RecommendationEngine
     reranked_recommendation_engine: RecommendationEngine
+    recommendation_explainer: RecommendationExplainer
     register_book_use_case: RegisterBookUseCase
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
@@ -117,6 +118,9 @@ class ApplicationContext:
     generate_hybrid_recommendation_use_case: GenerateHybridRecommendationUseCase
     generate_als_recommendation_use_case: GenerateAlsRecommendationUseCase
     generate_reranked_recommendation_use_case: GenerateRerankedRecommendationUseCase
+    generate_explained_personalized_recommendation_use_case: (
+        GenerateExplainedPersonalizedRecommendationUseCase
+    )
     evaluate_recommendation_engine_use_case: EvaluateRecommendationEngineUseCase
 
     @classmethod
@@ -132,6 +136,7 @@ class ApplicationContext:
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
         als_recommendation_engine: RecommendationEngine | None = None,
         reranked_recommendation_engine: RecommendationEngine | None = None,
+        recommendation_explainer: RecommendationExplainer | None = None,
     ) -> ApplicationContext:
         """Wire the Book/Recommendation/Embedding use cases to their dependencies.
 
@@ -198,6 +203,14 @@ class ApplicationContext:
         RerankedRecommendationEngine instances directly from these same
         building blocks, to compare strategies/policies (see
         scripts/run_demo.py).
+
+        recommendation_explainer defaults to a DefaultRecommendationExplainer
+        reading from the already-resolved user_book_interaction_repository.
+        generate_explained_personalized_recommendation_use_case pairs it with
+        reranked_recommendation_engine: it generates through that same,
+        already-resolved engine (identical ranked output to
+        generate_reranked_recommendation_use_case) and then explains the
+        result -- never a second ranking pass.
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -249,6 +262,11 @@ class ApplicationContext:
                 hybrid_engine, _build_reranker(popularity_repository, interaction_repository)
             )
         )
+        explainer = (
+            recommendation_explainer
+            if recommendation_explainer is not None
+            else DefaultRecommendationExplainer(interaction_repository)
+        )
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
@@ -259,6 +277,7 @@ class ApplicationContext:
             hybrid_recommendation_engine=hybrid_engine,
             als_recommendation_engine=als_engine,
             reranked_recommendation_engine=reranked_engine,
+            recommendation_explainer=explainer,
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
@@ -275,6 +294,9 @@ class ApplicationContext:
             generate_als_recommendation_use_case=GenerateAlsRecommendationUseCase(als_engine),
             generate_reranked_recommendation_use_case=GenerateRerankedRecommendationUseCase(
                 reranked_engine
+            ),
+            generate_explained_personalized_recommendation_use_case=(
+                GenerateExplainedPersonalizedRecommendationUseCase(reranked_engine, explainer)
             ),
             evaluate_recommendation_engine_use_case=EvaluateRecommendationEngineUseCase(),
         )

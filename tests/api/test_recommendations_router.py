@@ -366,3 +366,287 @@ def test_semantic_recommendations_returns_empty_list_for_a_nonexistent_book_id(
 
     assert response.status_code == 200
     assert response.json() == {"items": []}
+
+
+# --- GET /recommendations/personalized/{user_id}/explained ---
+
+
+def test_explained_recommendations_include_a_popularity_reason(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    book = application_context.register_book_use_case.execute(_valid_input())
+    application_context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=100, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    response = client.get(f"/recommendations/personalized/{uuid.uuid4()}/explained")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    reason_types = [reason["type"] for reason in items[0]["reasons"]]
+    assert "popularity" in reason_types
+    assert items[0]["reasons"][reason_types.index("popularity")]["message"] == (
+        "Popular with many readers."
+    )
+
+
+def test_explained_recommendations_include_a_semantic_similarity_reason_when_book_id_is_present(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    source = application_context.register_book_use_case.execute(_valid_input())
+    other = application_context.register_book_use_case.execute(_other_input())
+    application_context.generate_book_embedding_use_case.execute(str(source.id.value))
+    application_context.generate_book_embedding_use_case.execute(str(other.id.value))
+
+    response = client.get(
+        f"/recommendations/personalized/{uuid.uuid4()}/explained",
+        params={"book_id": str(source.id.value)},
+    )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["book"]["id"] == str(other.id.value)
+    reason_types = [reason["type"] for reason in items[0]["reasons"]]
+    assert "semantic_similarity" in reason_types
+
+
+def test_explained_recommendations_omit_semantic_reason_without_a_source_book(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    book = application_context.register_book_use_case.execute(_valid_input())
+    application_context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=10, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    response = client.get(f"/recommendations/personalized/{uuid.uuid4()}/explained")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    reason_types = [reason["type"] for item in items for reason in item["reasons"]]
+    assert "semantic_similarity" not in reason_types
+
+
+def test_explained_recommendations_include_a_novelty_reason_for_an_unknown_user(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    book = application_context.register_book_use_case.execute(_valid_input())
+    application_context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=10, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    response = client.get(f"/recommendations/personalized/{uuid.uuid4()}/explained")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    reason_types = [reason["type"] for reason in items[0]["reasons"]]
+    assert "novelty" in reason_types
+
+
+def test_explained_recommendations_omit_novelty_reason_for_an_already_interacted_book(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    book = application_context.register_book_use_case.execute(_valid_input())
+    application_context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=10, period_start="2024-01-01", period_end="2024-01-31")
+    )
+    user_id = uuid.uuid4()
+    application_context.user_book_interaction_repository.record(
+        UserBookInteraction(UserId(user_id), book.id, interaction_count=1)
+    )
+
+    response = client.get(f"/recommendations/personalized/{user_id}/explained")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    reason_types = [reason["type"] for reason in items[0]["reasons"]]
+    assert "novelty" not in reason_types
+
+
+def test_explained_recommendations_include_a_diversity_reason_where_evidence_supports_it(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    same_category_a = application_context.register_book_use_case.execute(
+        RegisterBookInput(
+            isbn="978-3-16-148410-0", title="A", author="Author", category="Fiction"
+        )
+    )
+    same_category_b = application_context.register_book_use_case.execute(
+        RegisterBookInput(
+            isbn="0-306-40615-2", title="B", author="Author", category="Fiction"
+        )
+    )
+    different_category = application_context.register_book_use_case.execute(
+        RegisterBookInput(
+            isbn="9780132350884", title="C", author="Author", category="History"
+        )
+    )
+    for book, loan_count in (
+        (same_category_a, 100),
+        (same_category_b, 90),
+        (different_category, 80),
+    ):
+        application_context.book_popularity_repository.record(
+            BookPopularity(book.id, loan_count, "2024-01-01", "2024-01-31")
+        )
+
+    response = client.get(
+        f"/recommendations/personalized/{uuid.uuid4()}/explained", params={"limit": 3}
+    )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 3
+    reason_types_by_book_id = {
+        item["book"]["id"]: [reason["type"] for reason in item["reasons"]] for item in items
+    }
+    # The first item of a batch never gets "diversity" (nothing precedes it
+    # to be diverse relative to); the first item whose category hasn't
+    # appeared yet in the batch does.
+    assert "diversity" not in reason_types_by_book_id[items[0]["book"]["id"]]
+    assert "diversity" in reason_types_by_book_id[str(different_category.id.value)]
+
+
+def test_explained_recommendations_reflect_als_signal_from_seeded_interactions() -> None:
+    """ALS trains once, eagerly, at ApplicationContext.create() time, so
+    interactions must be recorded *before* the context (and this test's own
+    client) is built -- mirrors
+    test_personalized_recommendations_reflect_als_signal_from_seeded_interactions.
+    """
+    book_repository = InMemoryBookRepository()
+    interaction_repository = InMemoryUserBookInteractionRepository()
+    liked = Book(
+        id=BookId.generate(),
+        isbn=ISBN("978-3-16-148410-0"),
+        title=Title("Liked"),
+        author=Author("Author"),
+        category=Category("Category"),
+    )
+    unseen = Book(
+        id=BookId.generate(),
+        isbn=ISBN("0-306-40615-2"),
+        title=Title("Unseen"),
+        author=Author("Author"),
+        category=Category("Category"),
+    )
+    book_repository.add(liked)
+    book_repository.add(unseen)
+
+    user_id = uuid.uuid4()
+    other_user_id = uuid.uuid4()
+    interaction_repository.record(UserBookInteraction(UserId(user_id), liked.id, 5))
+    interaction_repository.record(UserBookInteraction(UserId(other_user_id), liked.id, 4))
+    interaction_repository.record(UserBookInteraction(UserId(other_user_id), unseen.id, 3))
+
+    context = ApplicationContext.create(
+        book_repository=book_repository, user_book_interaction_repository=interaction_repository
+    )
+    app = create_app()
+    app.dependency_overrides[get_application_context] = lambda: context
+    with TestClient(app) as als_client:
+        response = als_client.get(f"/recommendations/personalized/{user_id}/explained")
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["book"]["id"] == str(unseen.id.value)
+    reason_types = [reason["type"] for reason in items[0]["reasons"]]
+    assert "collaborative_behavior" in reason_types
+
+
+def test_explained_recommendations_returns_empty_list_for_an_unknown_user(
+    client: TestClient,
+) -> None:
+    # Cold start: a well-formed but never-seen user_id, no data at all --
+    # graceful fallback (200, empty), not a 404.
+    response = client.get(f"/recommendations/personalized/{uuid.uuid4()}/explained")
+
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+
+
+def test_explained_recommendations_omit_reasons_for_signals_without_evidence(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    """A book recommended only via Semantic (no recorded popularity, and no
+    user_id so ALS/novelty/collaborative can't apply either) must not claim
+    popularity or collaborative-behavior evidence it doesn't have -- an
+    honestly partial reason list, not a fabricated complete one.
+    """
+    source = application_context.register_book_use_case.execute(_valid_input())
+    other = application_context.register_book_use_case.execute(_other_input())
+    application_context.generate_book_embedding_use_case.execute(str(source.id.value))
+    application_context.generate_book_embedding_use_case.execute(str(other.id.value))
+
+    response = client.get(
+        f"/recommendations/personalized/{uuid.uuid4()}/explained",
+        params={"book_id": str(source.id.value)},
+    )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["book"]["id"] == str(other.id.value)
+    reason_types = {reason["type"] for reason in items[0]["reasons"]}
+    assert reason_types == {"semantic_similarity", "novelty"}
+    assert "popularity" not in reason_types
+    assert "collaborative_behavior" not in reason_types
+
+
+def test_explained_recommendations_reasons_have_deterministic_canonical_order(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    source = application_context.register_book_use_case.execute(_valid_input())
+    other = application_context.register_book_use_case.execute(_other_input())
+    application_context.generate_book_embedding_use_case.execute(str(source.id.value))
+    application_context.generate_book_embedding_use_case.execute(str(other.id.value))
+    application_context.book_popularity_repository.record(
+        BookPopularity(other.id, loan_count=100, period_start="2024-01-01", period_end="2024-01-31")
+    )
+    user_id = uuid.uuid4()
+    params = {"book_id": str(source.id.value)}
+
+    first_response = client.get(
+        f"/recommendations/personalized/{user_id}/explained", params=params
+    )
+    second_response = client.get(
+        f"/recommendations/personalized/{user_id}/explained", params=params
+    )
+
+    first_reasons = first_response.json()["items"][0]["reasons"]
+    second_reasons = second_response.json()["items"][0]["reasons"]
+    assert first_reasons == second_reasons
+    reason_types = [reason["type"] for reason in first_reasons]
+    assert reason_types == sorted(
+        reason_types,
+        key=["popularity", "semantic_similarity", "collaborative_behavior", "novelty",
+             "diversity"].index,
+    )
+
+
+def test_explained_recommendations_response_matches_personalized_recommendations_plus_reasons(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    """Backward compatibility: the plain (non-explained) personalized
+    endpoint's response shape is completely unaffected by this capability --
+    the explained endpoint is strictly additive, a separate route.
+    """
+    book = application_context.register_book_use_case.execute(_valid_input())
+    application_context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=10, period_start="2024-01-01", period_end="2024-01-31")
+    )
+    user_id = uuid.uuid4()
+
+    plain_response = client.get(f"/recommendations/personalized/{user_id}")
+    explained_response = client.get(f"/recommendations/personalized/{user_id}/explained")
+
+    assert plain_response.status_code == explained_response.status_code == 200
+    plain_item = plain_response.json()["items"][0]
+    explained_item = explained_response.json()["items"][0]
+    assert "reasons" not in plain_item
+    assert set(plain_item) == {"book", "score", "source"}
+    assert set(explained_item) == {"book", "score", "source", "reasons"}
+    assert {k: v for k, v in explained_item.items() if k != "reasons"} == plain_item

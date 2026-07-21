@@ -20,6 +20,22 @@ def test_default_app_wires_a_working_application_context_via_lifespan() -> None:
     assert response.json() == {"items": []}
 
 
+def test_default_app_serves_explained_personalized_recommendations_via_lifespan() -> None:
+    """Sprint 29: proves GET /recommendations/personalized/{user_id}/explained
+    works through the real, lifespan-built ApplicationContext.create()
+    default composition (RecommendationEngine -> Hybrid ->
+    RecommendationReranker -> RecommendationExplainer), not only against a
+    test-controlled context.
+    """
+    app = create_app()
+
+    with TestClient(app) as client:
+        response = client.get(f"/recommendations/personalized/{uuid.uuid4()}/explained")
+
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+
+
 def test_default_app_serves_personalized_recommendations_via_lifespan() -> None:
     """Sprint 28: proves GET /recommendations/personalized/{user_id} works
     through the real, lifespan-built ApplicationContext.create() default

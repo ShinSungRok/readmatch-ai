@@ -10,8 +10,15 @@ from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
 from readmatch_ai.domain.book_popularity import BookPopularity
 from readmatch_ai.domain.evaluation import EvaluationCase, EvaluationDataset
+from readmatch_ai.domain.explainer import (
+    DefaultRecommendationExplainer,
+    ExplanationContext,
+    RecommendationExplainer,
+    RecommendationExplanation,
+)
 from readmatch_ai.domain.recommendation import (
     Recommendation,
+    RecommendationItem,
     RecommendationQuery,
     RecommendationResult,
 )
@@ -44,6 +51,18 @@ class _FakeRecommendationEngine(RecommendationEngine):
 
     def recommend(self, query: RecommendationQuery) -> RecommendationResult:
         return self._result
+
+
+class _FakeRecommendationExplainer(RecommendationExplainer):
+    def __init__(self, explanations: list[RecommendationExplanation]) -> None:
+        self._explanations = explanations
+        self.received_items: list[RecommendationItem] | None = None
+
+    def explain(
+        self, items: list[RecommendationItem], context: ExplanationContext
+    ) -> list[RecommendationExplanation]:
+        self.received_items = items
+        return self._explanations
 
 
 def _valid_input() -> RegisterBookInput:
@@ -265,6 +284,50 @@ def test_create_exposes_the_resolved_recommendation_engines() -> None:
     assert isinstance(context.hybrid_recommendation_engine, HybridRecommendationEngine)
     assert isinstance(context.als_recommendation_engine, ALSRecommendationEngine)
     assert isinstance(context.reranked_recommendation_engine, RerankedRecommendationEngine)
+    assert isinstance(context.recommendation_explainer, DefaultRecommendationExplainer)
+
+
+def test_create_accepts_an_explicit_recommendation_explainer() -> None:
+    explanation = RecommendationExplanation(book_id=BookId.generate(), reasons=())
+    explainer = _FakeRecommendationExplainer([explanation])
+
+    context = ApplicationContext.create(recommendation_explainer=explainer)
+
+    assert context.recommendation_explainer is explainer
+
+
+def test_explained_personalized_recommendations_use_the_configured_explainer() -> None:
+    sentinel_result = RecommendationResult(Recommendation(items=[]))
+    engine = _FakeRecommendationEngine(sentinel_result)
+    explainer = _FakeRecommendationExplainer([])
+
+    context = ApplicationContext.create(
+        reranked_recommendation_engine=engine, recommendation_explainer=explainer
+    )
+
+    result = context.generate_explained_personalized_recommendation_use_case.execute(
+        limit=1, user_id=str(UserId.generate().value)
+    )
+    assert result.items == []
+    assert explainer.received_items == []
+
+
+def test_explained_personalized_recommendations_include_evidence_based_reasons() -> None:
+    context = ApplicationContext.create()
+    book = context.register_book_use_case.execute(_valid_input())
+    context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=50, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    result = context.generate_explained_personalized_recommendation_use_case.execute(
+        limit=10, user_id=str(UserId.generate().value)
+    )
+
+    assert len(result.items) == 1
+    assert result.items[0].item.book.id == book.id
+    reason_types = [reason.type for reason in result.items[0].explanation.reasons]
+    assert "popularity" in reason_types
+    assert "novelty" in reason_types
 
 
 def test_create_defaults_to_in_memory_user_book_interaction_repository() -> None:

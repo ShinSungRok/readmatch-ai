@@ -5,14 +5,13 @@ import math
 from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepository
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.recommendation import (
+    SEMANTIC_SOURCE,
     Recommendation,
     RecommendationItem,
     RecommendationQuery,
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
-
-_SOURCE = "semantic"
 
 
 class SemanticRecommendationEngine(RecommendationEngine):
@@ -57,7 +56,14 @@ class SemanticRecommendationEngine(RecommendationEngine):
             if book is None:
                 continue
             score = self._cosine_similarity(source_embedding.vector, candidate.vector)
-            items.append(RecommendationItem(book=book, score=score, source=_SOURCE))
+            items.append(
+                RecommendationItem(
+                    book=book,
+                    score=score,
+                    source=SEMANTIC_SOURCE,
+                    contributing_sources=frozenset({SEMANTIC_SOURCE}),
+                )
+            )
 
         return RecommendationResult(recommendation=Recommendation(items=items))
 

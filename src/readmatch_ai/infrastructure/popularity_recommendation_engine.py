@@ -3,14 +3,13 @@ from __future__ import annotations
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.recommendation import (
+    POPULARITY_SOURCE,
     Recommendation,
     RecommendationItem,
     RecommendationQuery,
     RecommendationResult,
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
-
-_SOURCE = "popularity"
 
 
 class PopularityRecommendationEngine(RecommendationEngine):
@@ -40,7 +39,12 @@ class PopularityRecommendationEngine(RecommendationEngine):
             if book is None:
                 continue
             items.append(
-                RecommendationItem(book=book, score=float(popularity.loan_count), source=_SOURCE)
+                RecommendationItem(
+                    book=book,
+                    score=float(popularity.loan_count),
+                    source=POPULARITY_SOURCE,
+                    contributing_sources=frozenset({POPULARITY_SOURCE}),
+                )
             )
 
         return RecommendationResult(recommendation=Recommendation(items=items))

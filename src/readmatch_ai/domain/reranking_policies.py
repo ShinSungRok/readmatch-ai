@@ -169,7 +169,12 @@ class PopularityPenaltyPolicy(RerankingPolicy):
 
 
 def _with_score(item: RecommendationItem, score: float) -> RecommendationItem:
-    return RecommendationItem(book=item.book, score=score, source=item.source)
+    return RecommendationItem(
+        book=item.book,
+        score=score,
+        source=item.source,
+        contributing_sources=item.contributing_sources,
+    )
 
 
 def _sorted_by_score_desc(items: list[RecommendationItem]) -> list[RecommendationItem]:

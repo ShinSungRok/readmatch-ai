@@ -59,6 +59,12 @@ def test_weighted_fusion_merges_a_book_present_in_multiple_sources() -> None:
     assert items_by_title["Shared"].score > items_by_title["PopularityOnly"].score
     assert items_by_title["Shared"].score > items_by_title["SemanticOnly"].score
     assert all(item.source == "hybrid" for item in result)
+    # A merged item's contributing_sources is the union of every source that
+    # actually produced it as a candidate -- distinct from `source`, which
+    # collapses to "hybrid" for everything.
+    assert items_by_title["Shared"].contributing_sources == frozenset({"popularity", "semantic"})
+    assert items_by_title["PopularityOnly"].contributing_sources == frozenset({"popularity"})
+    assert items_by_title["SemanticOnly"].contributing_sources == frozenset({"semantic"})
 
 
 def test_weighted_fusion_renormalizes_weights_to_active_sources_only() -> None:
@@ -167,6 +173,7 @@ def test_rrf_merges_duplicates_by_summing_reciprocal_ranks() -> None:
     assert len(result) == 1
     assert result[0].score == pytest.approx(2 / 61)
     assert result[0].source == "hybrid"
+    assert result[0].contributing_sources == frozenset({"popularity", "semantic"})
 
 
 def test_rrf_respects_limit() -> None:

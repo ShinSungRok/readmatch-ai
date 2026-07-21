@@ -97,6 +97,9 @@ def test_execute_aggregates_metrics_as_the_mean_across_cases() -> None:
     assert result.map_at_k == pytest.approx(0.5)
     assert result.ndcg_at_k == pytest.approx(0.5)
     assert result.hit_rate_at_k == pytest.approx(0.5)
+    # Every case's single recommendation is the only item in its list, so
+    # each case is trivially "fully diverse" (1 distinct category / 1 item).
+    assert result.diversity_at_k == pytest.approx(1.0)
 
 
 def test_execute_returns_zero_scores_when_no_recommendation_is_relevant() -> None:
@@ -113,3 +116,40 @@ def test_execute_returns_zero_scores_when_no_recommendation_is_relevant() -> Non
     assert result.map_at_k == 0.0
     assert result.ndcg_at_k == 0.0
     assert result.hit_rate_at_k == 0.0
+
+
+def test_execute_computes_diversity_from_the_engines_actual_recommended_categories() -> None:
+    """Two of three recommended items share a category -- diversity_at_k must
+    reflect that repeat, proving it's computed from real item categories
+    rather than always trivially 1.0 (as it is when each case has only one
+    recommendation, the case covered above).
+    """
+    case = EvaluationCase(
+        book_id=BookId.generate(), relevant_book_ids=frozenset({BookId.generate()})
+    )
+    dataset = EvaluationDataset(cases=(case,))
+
+    class _RepeatedCategoryEngine(RecommendationEngine):
+        def recommend(self, query: RecommendationQuery) -> RecommendationResult:
+            categories = ["Fiction", "Fiction", "History"]
+            items = [
+                RecommendationItem(
+                    book=Book(
+                        id=BookId.generate(),
+                        isbn=ISBN("978-3-16-148410-0"),
+                        title=Title("Title"),
+                        author=Author("Author"),
+                        category=Category(category),
+                    ),
+                    score=1.0,
+                    source="fake",
+                )
+                for category in categories[: query.limit]
+            ]
+            return RecommendationResult(recommendation=Recommendation(items=items))
+
+    result = EvaluateRecommendationEngineUseCase().execute(
+        _RepeatedCategoryEngine(), "fake", dataset, k=3
+    )
+
+    assert result.diversity_at_k == pytest.approx(2 / 3)

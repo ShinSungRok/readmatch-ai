@@ -16,6 +16,9 @@ from readmatch_ai.application.generate_book_embedding_use_case import (
 from readmatch_ai.application.generate_hybrid_recommendation_use_case import (
     GenerateHybridRecommendationUseCase,
 )
+from readmatch_ai.application.generate_reranked_recommendation_use_case import (
+    GenerateRerankedRecommendationUseCase,
+)
 from readmatch_ai.application.generate_semantic_recommendation_use_case import (
     GenerateSemanticRecommendationUseCase,
 )
@@ -42,6 +45,12 @@ from readmatch_ai.domain.ranking_strategies import (
 )
 from readmatch_ai.domain.ranking_strategy import RankingStrategy
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.domain.reranker import DefaultRecommendationReranker, RecommendationReranker
+from readmatch_ai.domain.reranking_policies import (
+    MMRDiversityPolicy,
+    NoveltyBoostPolicy,
+    PopularityPenaltyPolicy,
+)
 from readmatch_ai.domain.user_book_interaction_repository import UserBookInteractionRepository
 from readmatch_ai.infrastructure.als_model import train_als_model
 from readmatch_ai.infrastructure.als_model_store import AlsModelFileStore
@@ -78,6 +87,9 @@ from readmatch_ai.infrastructure.postgresql_book_repository import PostgreSQLBoo
 from readmatch_ai.infrastructure.postgresql_user_book_interaction_repository import (
     PostgreSQLUserBookInteractionRepository,
 )
+from readmatch_ai.infrastructure.reranked_recommendation_engine import (
+    RerankedRecommendationEngine,
+)
 from readmatch_ai.infrastructure.semantic_recommendation_engine import (
     SemanticRecommendationEngine,
 )
@@ -95,6 +107,7 @@ class ApplicationContext:
     semantic_recommendation_engine: RecommendationEngine
     hybrid_recommendation_engine: RecommendationEngine
     als_recommendation_engine: RecommendationEngine
+    reranked_recommendation_engine: RecommendationEngine
     register_book_use_case: RegisterBookUseCase
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
@@ -103,6 +116,7 @@ class ApplicationContext:
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
     generate_hybrid_recommendation_use_case: GenerateHybridRecommendationUseCase
     generate_als_recommendation_use_case: GenerateAlsRecommendationUseCase
+    generate_reranked_recommendation_use_case: GenerateRerankedRecommendationUseCase
     evaluate_recommendation_engine_use_case: EvaluateRecommendationEngineUseCase
 
     @classmethod
@@ -117,6 +131,7 @@ class ApplicationContext:
         hybrid_recommendation_engine: RecommendationEngine | None = None,
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
         als_recommendation_engine: RecommendationEngine | None = None,
+        reranked_recommendation_engine: RecommendationEngine | None = None,
     ) -> ApplicationContext:
         """Wire the Book/Recommendation/Embedding use cases to their dependencies.
 
@@ -161,14 +176,28 @@ class ApplicationContext:
         Root concern only; neither HybridRecommendationEngine nor the
         Application layer changes either way.
 
+        reranked_recommendation_engine defaults to a
+        RerankedRecommendationEngine wrapping the same (already-resolved)
+        hybrid_recommendation_engine with a DefaultRecommendationReranker
+        composed of PopularityPenaltyPolicy, NoveltyBoostPolicy (both
+        reading from the already-resolved book_popularity_repository/
+        user_book_interaction_repository), and MMRDiversityPolicy, in that
+        order — score-adjusting policies run first, MMR's selection (which
+        performs the final, diversity-aware limit-truncation) runs last.
+        Re-ranking is implemented as this independent stage precisely so
+        HybridRecommendationEngine and every other RecommendationEngine
+        stay responsible for candidate generation/fusion only.
+
         The resolved engines are also exposed directly as fields
         (recommendation_engine, semantic_recommendation_engine,
-        hybrid_recommendation_engine, als_recommendation_engine) so
+        hybrid_recommendation_engine, als_recommendation_engine,
+        reranked_recommendation_engine) so
         evaluate_recommendation_engine_use_case (stateless; parametrized per
         call, not bound to one engine) can be run against any of them —
-        including constructing additional HybridRecommendationEngine
-        instances with a different RankingStrategy directly from these same
-        building blocks, to compare strategies (see scripts/run_demo.py).
+        including constructing additional HybridRecommendationEngine or
+        RerankedRecommendationEngine instances directly from these same
+        building blocks, to compare strategies/policies (see
+        scripts/run_demo.py).
         """
         repository = book_repository if book_repository is not None else _build_book_repository()
         popularity_repository = (
@@ -213,6 +242,13 @@ class ApplicationContext:
                 engine, semantic_engine, als_engine, _build_ranking_strategy()
             )
         )
+        reranked_engine = (
+            reranked_recommendation_engine
+            if reranked_recommendation_engine is not None
+            else RerankedRecommendationEngine(
+                hybrid_engine, _build_reranker(popularity_repository, interaction_repository)
+            )
+        )
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
@@ -222,6 +258,7 @@ class ApplicationContext:
             semantic_recommendation_engine=semantic_engine,
             hybrid_recommendation_engine=hybrid_engine,
             als_recommendation_engine=als_engine,
+            reranked_recommendation_engine=reranked_engine,
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
@@ -236,6 +273,9 @@ class ApplicationContext:
                 hybrid_engine
             ),
             generate_als_recommendation_use_case=GenerateAlsRecommendationUseCase(als_engine),
+            generate_reranked_recommendation_use_case=GenerateRerankedRecommendationUseCase(
+                reranked_engine
+            ),
             evaluate_recommendation_engine_use_case=EvaluateRecommendationEngineUseCase(),
         )
 
@@ -314,3 +354,16 @@ def _build_ranking_strategy() -> RankingStrategy:
     if config.strategy == RRF_STRATEGY:
         return ReciprocalRankFusionStrategy()
     return WeightedScoreFusionStrategy(dict(_DEFAULT_HYBRID_WEIGHTS))
+
+
+def _build_reranker(
+    popularity_repository: BookPopularityRepository,
+    interaction_repository: UserBookInteractionRepository,
+) -> RecommendationReranker:
+    return DefaultRecommendationReranker(
+        [
+            PopularityPenaltyPolicy(popularity_repository),
+            NoveltyBoostPolicy(interaction_repository),
+            MMRDiversityPolicy(),
+        ]
+    )

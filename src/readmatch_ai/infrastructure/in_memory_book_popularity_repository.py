@@ -18,3 +18,6 @@ class InMemoryBookPopularityRepository(BookPopularityRepository):
             self._popularity.values(), key=lambda p: p.loan_count, reverse=True
         )
         return ranked[:limit]
+
+    def get_by_book_id(self, book_id: BookId) -> BookPopularity | None:
+        return self._popularity.get(book_id)

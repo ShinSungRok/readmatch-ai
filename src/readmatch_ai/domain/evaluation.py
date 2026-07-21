@@ -56,4 +56,5 @@ class EvaluationResult:
     map_at_k: float
     ndcg_at_k: float
     hit_rate_at_k: float
+    diversity_at_k: float
     case_count: int

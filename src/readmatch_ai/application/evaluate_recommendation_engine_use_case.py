@@ -3,6 +3,7 @@ from __future__ import annotations
 from readmatch_ai.domain.evaluation import EvaluationDataset, EvaluationResult
 from readmatch_ai.domain.evaluation_metrics import (
     average_precision_at_k,
+    diversity_at_k,
     hit_rate_at_k,
     ndcg_at_k,
     precision_at_k,
@@ -32,11 +33,13 @@ class EvaluateRecommendationEngineUseCase:
         average_precision_scores: list[float] = []
         ndcg_scores: list[float] = []
         hit_rate_scores: list[float] = []
+        diversity_scores: list[float] = []
 
         for case in dataset.cases:
             query = RecommendationQuery(limit=k, book_id=case.book_id, user_id=case.user_id)
             result = recommendation_engine.recommend(query)
             recommended = [item.book.id for item in result.recommendation.items]
+            categories = [item.book.category.value for item in result.recommendation.items]
 
             precision_scores.append(precision_at_k(recommended, case.relevant_book_ids, k))
             recall_scores.append(recall_at_k(recommended, case.relevant_book_ids, k))
@@ -45,6 +48,7 @@ class EvaluateRecommendationEngineUseCase:
             )
             ndcg_scores.append(ndcg_at_k(recommended, case.relevant_book_ids, k))
             hit_rate_scores.append(hit_rate_at_k(recommended, case.relevant_book_ids, k))
+            diversity_scores.append(diversity_at_k(categories, k))
 
         return EvaluationResult(
             engine_name=engine_name,
@@ -54,6 +58,7 @@ class EvaluateRecommendationEngineUseCase:
             map_at_k=_mean(average_precision_scores),
             ndcg_at_k=_mean(ndcg_scores),
             hit_rate_at_k=_mean(hit_rate_scores),
+            diversity_at_k=_mean(diversity_scores),
             case_count=len(dataset.cases),
         )
 

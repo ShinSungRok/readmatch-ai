@@ -46,3 +46,17 @@ def test_record_upserts_existing_book_id() -> None:
 
     top = repository.top_by_loan_count(1)
     assert top == [BookPopularity(book_id, 999, "2024-02-01", "2024-02-28")]
+
+
+def test_get_by_book_id_returns_the_recorded_popularity() -> None:
+    repository = InMemoryBookPopularityRepository()
+    book_id = BookId.generate()
+    repository.record(_popularity(book_id, 42))
+
+    assert repository.get_by_book_id(book_id) == _popularity(book_id, 42)
+
+
+def test_get_by_book_id_returns_none_when_never_recorded() -> None:
+    repository = InMemoryBookPopularityRepository()
+
+    assert repository.get_by_book_id(BookId.generate()) is None

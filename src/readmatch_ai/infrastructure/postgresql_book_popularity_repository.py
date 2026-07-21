@@ -60,6 +60,15 @@ class PostgreSQLBookPopularityRepository(BookPopularityRepository):
             rows = cursor.fetchall()
         return [self._row_to_popularity(row) for row in rows]
 
+    def get_by_book_id(self, book_id: BookId) -> BookPopularity | None:
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_SELECT_COLUMNS} FROM book_popularity WHERE book_id = %s",
+                (book_id.value,),
+            )
+            row = cursor.fetchone()
+        return self._row_to_popularity(row) if row is not None else None
+
     @staticmethod
     def _row_to_popularity(row: tuple[Any, ...]) -> BookPopularity:
         book_id_value, loan_count, period_start, period_end = row

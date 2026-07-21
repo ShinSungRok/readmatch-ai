@@ -6,6 +6,7 @@ import pytest
 from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.evaluation_metrics import (
     average_precision_at_k,
+    diversity_at_k,
     hit_rate_at_k,
     ndcg_at_k,
     precision_at_k,
@@ -139,3 +140,24 @@ def test_hit_rate_at_k_ignores_hits_beyond_k() -> None:
     recommended = [X, Y, A]
 
     assert hit_rate_at_k(recommended, relevant, k=2) == 0.0
+
+
+def test_diversity_at_k_rejects_non_positive_k() -> None:
+    with pytest.raises(ValueError, match="k must be positive"):
+        diversity_at_k(["Fiction"], 0)
+
+
+def test_diversity_at_k_is_one_when_every_category_is_distinct() -> None:
+    assert diversity_at_k(["Fiction", "History", "Science"], k=3) == pytest.approx(1.0)
+
+
+def test_diversity_at_k_is_low_when_categories_repeat() -> None:
+    assert diversity_at_k(["Fiction", "Fiction", "Fiction"], k=3) == pytest.approx(1 / 3)
+
+
+def test_diversity_at_k_truncates_to_k() -> None:
+    assert diversity_at_k(["Fiction", "History", "Science"], k=2) == pytest.approx(1.0)
+
+
+def test_diversity_at_k_returns_zero_for_an_empty_list() -> None:
+    assert diversity_at_k([], k=3) == 0.0

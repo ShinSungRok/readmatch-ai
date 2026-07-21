@@ -31,3 +31,7 @@ class BookPopularityRepository(ABC):
     @abstractmethod
     def top_by_loan_count(self, limit: int) -> list[BookPopularity]:
         """Return up to `limit` books ordered by loan_count descending."""
+
+    @abstractmethod
+    def get_by_book_id(self, book_id: BookId) -> BookPopularity | None:
+        """Return the recorded popularity signal for a book, or None if never recorded."""

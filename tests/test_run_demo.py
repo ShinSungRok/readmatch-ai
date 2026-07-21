@@ -6,7 +6,7 @@ from types import ModuleType
 import pytest
 
 from readmatch_ai.application_context import ApplicationContext
-from readmatch_ai.domain.recommendation import RecommendationQuery
+from readmatch_ai.domain.recommendation import RecommendationItem, RecommendationQuery
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,8 +44,17 @@ def test_demo_seeds_and_serves_all_three_recommendation_strategies(
     assert "[Hybrid]" in output
     assert "[Hybrid (Weighted Score Fusion)]" in output
     assert "[Hybrid (Reciprocal Rank Fusion)]" in output
+    assert "[Hybrid (Weighted, no re-ranking)]" in output
+    assert "[Hybrid (Weighted) + Re-ranking]" in output
     assert "Offline evaluation" in output
-    for engine_name in ("popularity", "semantic", "als", "hybrid_weighted", "hybrid_rrf"):
+    for engine_name in (
+        "popularity",
+        "semantic",
+        "als",
+        "hybrid_weighted",
+        "hybrid_rrf",
+        "hybrid_reranked",
+    ):
         assert engine_name in output
 
 
@@ -109,3 +118,32 @@ def test_als_engine_recommends_effective_java_for_alice_via_shared_reader_correl
     effective_java = next(book for book in books if book.title.value == "Effective Java")
     recommended_ids = {item.book.id for item in result.recommendation.items}
     assert effective_java.id in recommended_ids
+
+
+def test_reranked_engine_preserves_count_and_boosts_a_novel_book() -> None:
+    """Sanity-checks _build_reranked_engine's composition against the demo's
+    own seeded data: re-ranking must return exactly as many items as
+    requested (when enough candidates exist), and NoveltyBoostPolicy must
+    raise "Effective Java"'s score relative to the un-reranked Hybrid list
+    (alice hasn't read it; only bob has). Book ids are random per run, so
+    this compares scores for the same title rather than asserting on list
+    order, which can tie-break differently run to run.
+    """
+    context = ApplicationContext.create()
+    books = _run_demo.seed_demo_dataset(context)
+    als_engine = _run_demo._build_als_engine(context)
+    hybrid_weighted_engine, _ = _run_demo._build_hybrid_engines(context, als_engine)
+    reranked_engine = _run_demo._build_reranked_engine(context, hybrid_weighted_engine)
+    spotlight = next(book for book in books if book.title.value == "Clean Code")
+    alice = _run_demo._user_id("alice")
+    query = RecommendationQuery(limit=len(books), book_id=spotlight.id, user_id=alice)
+
+    plain_items = hybrid_weighted_engine.recommend(query).recommendation.items
+    reranked_items = reranked_engine.recommend(query).recommendation.items
+
+    assert len(reranked_items) == len(plain_items)
+
+    def _score_of(items: list[RecommendationItem], title: str) -> float:
+        return next(item.score for item in items if item.book.title.value == title)
+
+    assert _score_of(reranked_items, "Effective Java") > _score_of(plain_items, "Effective Java")

@@ -86,6 +86,27 @@ def test_record_and_top_by_loan_count(
     assert top == [BookPopularity(book.id, 100, "2024-01-01", "2024-01-31")]
 
 
+def test_get_by_book_id_returns_the_recorded_popularity(
+    book_repository: PostgreSQLBookRepository,
+    popularity_repository: PostgreSQLBookPopularityRepository,
+) -> None:
+    book = _add_book(book_repository, "978-3-16-148410-0")
+    popularity_repository.record(BookPopularity(book.id, 42, "2024-01-01", "2024-01-31"))
+
+    assert popularity_repository.get_by_book_id(book.id) == BookPopularity(
+        book.id, 42, "2024-01-01", "2024-01-31"
+    )
+
+
+def test_get_by_book_id_returns_none_when_never_recorded(
+    book_repository: PostgreSQLBookRepository,
+    popularity_repository: PostgreSQLBookPopularityRepository,
+) -> None:
+    book = _add_book(book_repository, "978-3-16-148410-0")
+
+    assert popularity_repository.get_by_book_id(book.id) is None
+
+
 def test_ranking_orders_by_loan_count_descending(
     book_repository: PostgreSQLBookRepository,
     popularity_repository: PostgreSQLBookPopularityRepository,

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """End-to-end recommendation demo: seeds a deterministic dataset, exercises the
 Popularity, Semantic, and Hybrid recommendation REST endpoints, and reports
-offline evaluation metrics comparing Popularity, Semantic, ALS, and both
-Hybrid ranking strategies (Weighted Score Fusion and Reciprocal Rank Fusion).
+offline evaluation metrics comparing Popularity, Semantic, ALS, both Hybrid
+ranking strategies (Weighted Score Fusion and Reciprocal Rank Fusion), and
+Hybrid with the re-ranking stage (diversity, novelty, popularity-penalty
+policies) applied on top.
 
 Runs entirely in-process against the real FastAPI app (readmatch_ai.api.main)
 via FastAPI's TestClient — real HTTP routing, Pydantic validation, and JSON
@@ -38,6 +40,12 @@ from readmatch_ai.domain.ranking_strategies import (
 )
 from readmatch_ai.domain.recommendation import RecommendationQuery
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
+from readmatch_ai.domain.reranker import DefaultRecommendationReranker
+from readmatch_ai.domain.reranking_policies import (
+    MMRDiversityPolicy,
+    NoveltyBoostPolicy,
+    PopularityPenaltyPolicy,
+)
 from readmatch_ai.domain.user import UserId
 from readmatch_ai.domain.user_book_interaction import UserBookInteraction
 from readmatch_ai.infrastructure.als_model import train_als_model
@@ -47,6 +55,9 @@ from readmatch_ai.infrastructure.hybrid_recommendation_engine import (
     POPULARITY_SOURCE,
     SEMANTIC_SOURCE,
     HybridRecommendationEngine,
+)
+from readmatch_ai.infrastructure.reranked_recommendation_engine import (
+    RerankedRecommendationEngine,
 )
 
 
@@ -189,6 +200,30 @@ def _build_hybrid_engines(
     return weighted, rrf
 
 
+def _build_reranked_engine(
+    context: ApplicationContext, hybrid_engine: RecommendationEngine
+) -> RecommendationEngine:
+    """Wrap Hybrid (Weighted) with the independent re-ranking stage.
+
+    Reuses the same DefaultRecommendationReranker composition
+    ApplicationContext._build_reranker() wires by default (Popularity
+    penalty, then Novelty boost, then MMR diversity, in that order) but
+    built explicitly around the demo's own hybrid_weighted_engine (not
+    context.reranked_recommendation_engine, which wraps
+    context.hybrid_recommendation_engine -- whichever single strategy
+    HYBRID_RANKING_STRATEGY selects) so this comparison is reproducible
+    regardless of that env var.
+    """
+    reranker = DefaultRecommendationReranker(
+        [
+            PopularityPenaltyPolicy(context.book_popularity_repository),
+            NoveltyBoostPolicy(context.user_book_interaction_repository),
+            MMRDiversityPolicy(),
+        ]
+    )
+    return RerankedRecommendationEngine(hybrid_engine, reranker)
+
+
 def _build_evaluation_dataset(books: list[Book], user_id: UserId) -> EvaluationDataset:
     """Ground truth for this demo only: books in the same category are 'relevant'.
 
@@ -284,12 +319,42 @@ def _print_hybrid_strategy_comparison(
         print()
 
 
+def _print_reranking_comparison(
+    hybrid_engine: RecommendationEngine,
+    reranked_engine: RecommendationEngine,
+    spotlight: Book,
+    user_id: UserId,
+    limit: int,
+) -> None:
+    """Show Hybrid (Weighted) before and after the re-ranking stage, side by side."""
+    query = RecommendationQuery(limit=limit, book_id=spotlight.id, user_id=user_id)
+    print(
+        f'Hybrid vs. Hybrid + Re-ranking for: "{spotlight.title.value}" '
+        f"(also personalized for demo user '{DEMO_USER_LABEL}')\n"
+    )
+    for name, engine in (
+        ("Hybrid (Weighted, no re-ranking)", hybrid_engine),
+        ("Hybrid (Weighted) + Re-ranking", reranked_engine),
+    ):
+        items = engine.recommend(query).recommendation.items
+        print(f"[{name}]")
+        if not items:
+            print("  (no recommendations)")
+        for item in items:
+            print(
+                f"  {item.book.title.value} by {item.book.author.value} "
+                f"(category={item.book.category.value}) — score={item.score:.3f}"
+            )
+        print()
+
+
 def _print_evaluation_report(
     context: ApplicationContext,
     books: list[Book],
     als_engine: RecommendationEngine,
     hybrid_weighted_engine: RecommendationEngine,
     hybrid_rrf_engine: RecommendationEngine,
+    reranked_engine: RecommendationEngine,
     k: int,
 ) -> None:
     dataset = _build_evaluation_dataset(books, _user_id(DEMO_USER_LABEL))
@@ -299,22 +364,25 @@ def _print_evaluation_report(
         ("als", als_engine),
         ("hybrid_weighted", hybrid_weighted_engine),
         ("hybrid_rrf", hybrid_rrf_engine),
+        ("hybrid_reranked", reranked_engine),
     )
     print(
         f"Offline evaluation (k={k}; ground truth = same-category books relative to each "
         "case's book, personalized for demo user 'alice'; a demo-only heuristic; embeddings "
         "are DeterministicFakeBookEmbeddingGenerator, a placeholder — not a real ML model, so "
-        "semantic/hybrid quality here is not representative of a real model):\n"
+        "semantic/hybrid quality here is not representative of a real model; diversity@k is "
+        "relevance-independent and measures the recommended list's own category spread):\n"
     )
     print(
         f"{'engine':<18}{'precision@k':>14}{'recall@k':>12}{'map@k':>10}"
-        f"{'ndcg@k':>10}{'hit_rate@k':>12}"
+        f"{'ndcg@k':>10}{'hit_rate@k':>12}{'diversity@k':>14}"
     )
     for name, engine in engines:
         result = context.evaluate_recommendation_engine_use_case.execute(engine, name, dataset, k)
         print(
             f"{result.engine_name:<18}{result.precision_at_k:>14.3f}{result.recall_at_k:>12.3f}"
             f"{result.map_at_k:>10.3f}{result.ndcg_at_k:>10.3f}{result.hit_rate_at_k:>12.3f}"
+            f"{result.diversity_at_k:>14.3f}"
         )
 
 
@@ -332,6 +400,7 @@ def main(
 
     als_engine = _build_als_engine(context)
     hybrid_weighted_engine, hybrid_rrf_engine = _build_hybrid_engines(context, als_engine)
+    reranked_engine = _build_reranked_engine(context, hybrid_weighted_engine)
     demo_user_id = _user_id(DEMO_USER_LABEL)
 
     app = create_app()
@@ -343,8 +412,17 @@ def main(
     _print_hybrid_strategy_comparison(
         hybrid_weighted_engine, hybrid_rrf_engine, spotlight, demo_user_id, args.limit
     )
+    _print_reranking_comparison(
+        hybrid_weighted_engine, reranked_engine, spotlight, demo_user_id, args.limit
+    )
     _print_evaluation_report(
-        context, books, als_engine, hybrid_weighted_engine, hybrid_rrf_engine, args.k
+        context,
+        books,
+        als_engine,
+        hybrid_weighted_engine,
+        hybrid_rrf_engine,
+        reranked_engine,
+        args.k,
     )
     return 0
 

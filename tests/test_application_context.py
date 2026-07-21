@@ -30,6 +30,9 @@ from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository impo
 from readmatch_ai.infrastructure.popularity_recommendation_engine import (
     PopularityRecommendationEngine,
 )
+from readmatch_ai.infrastructure.reranked_recommendation_engine import (
+    RerankedRecommendationEngine,
+)
 from readmatch_ai.infrastructure.semantic_recommendation_engine import (
     SemanticRecommendationEngine,
 )
@@ -214,6 +217,46 @@ def test_create_accepts_an_explicit_hybrid_recommendation_engine() -> None:
     assert result is sentinel_result
 
 
+def test_create_accepts_an_explicit_reranked_recommendation_engine() -> None:
+    sentinel_result = RecommendationResult(Recommendation(items=[]))
+    engine = _FakeRecommendationEngine(sentinel_result)
+
+    context = ApplicationContext.create(reranked_recommendation_engine=engine)
+
+    result = context.generate_reranked_recommendation_use_case.execute(limit=1)
+    assert result is sentinel_result
+
+
+def test_reranked_recommendations_preserve_the_requested_count_and_exclude_the_source_book() -> (
+    None
+):
+    context = ApplicationContext.create()
+    isbns = [
+        "978-3-16-148410-0",
+        "0-306-40615-2",
+        "9780132350884",
+        "978-0-13-468599-1",
+        "978-0-596-00712-6",
+        "9791165341909",
+    ]
+    books = [
+        context.register_book_use_case.execute(
+            RegisterBookInput(isbn=isbn, title=f"Title {i}", author="Author", category="Category")
+        )
+        for i, isbn in enumerate(isbns)
+    ]
+    for book in books:
+        context.generate_book_embedding_use_case.execute(str(book.id.value))
+    source = books[0]
+
+    result = context.generate_reranked_recommendation_use_case.execute(
+        limit=3, book_id=str(source.id.value)
+    )
+
+    assert len(result.recommendation.items) == 3
+    assert all(item.book.id != source.id for item in result.recommendation.items)
+
+
 def test_create_exposes_the_resolved_recommendation_engines() -> None:
     context = ApplicationContext.create()
 
@@ -221,6 +264,7 @@ def test_create_exposes_the_resolved_recommendation_engines() -> None:
     assert isinstance(context.semantic_recommendation_engine, SemanticRecommendationEngine)
     assert isinstance(context.hybrid_recommendation_engine, HybridRecommendationEngine)
     assert isinstance(context.als_recommendation_engine, ALSRecommendationEngine)
+    assert isinstance(context.reranked_recommendation_engine, RerankedRecommendationEngine)
 
 
 def test_create_defaults_to_in_memory_user_book_interaction_repository() -> None:
@@ -282,7 +326,7 @@ def test_als_recommendations_exclude_already_interacted_books() -> None:
     assert all(item.source == "als" for item in result.recommendation.items)
 
 
-def test_evaluate_recommendation_engine_use_case_scores_the_four_wired_engines() -> None:
+def test_evaluate_recommendation_engine_use_case_scores_the_five_wired_engines() -> None:
     book_repository = InMemoryBookRepository()
     interaction_repository = InMemoryUserBookInteractionRepository()
     source = _book("978-3-16-148410-0", "Source")
@@ -308,8 +352,9 @@ def test_evaluate_recommendation_engine_use_case_scores_the_four_wired_engines()
         cases=(EvaluationCase(book_id=source.id, relevant_book_ids=frozenset({other.id})),)
     )
     # A single eligible candidate (`other`; `source` is excluded as already
-    # interacted) makes ALS's ranking unambiguous too, so the same precise
-    # assertions below hold for all four engines.
+    # interacted) makes ALS's ranking unambiguous too, and leaves the
+    # reranked engine nothing to reorder among, so the same precise
+    # assertions below hold for all five engines.
     user_based_dataset = EvaluationDataset(
         cases=(EvaluationCase(user_id=user, relevant_book_ids=frozenset({other.id})),)
     )
@@ -318,6 +363,7 @@ def test_evaluate_recommendation_engine_use_case_scores_the_four_wired_engines()
         "semantic": (context.semantic_recommendation_engine, book_based_dataset),
         "hybrid": (context.hybrid_recommendation_engine, book_based_dataset),
         "als": (context.als_recommendation_engine, user_based_dataset),
+        "reranked": (context.reranked_recommendation_engine, book_based_dataset),
     }
 
     for name, (engine, dataset) in engines_and_datasets.items():
@@ -333,6 +379,7 @@ def test_evaluate_recommendation_engine_use_case_scores_the_four_wired_engines()
         assert result.map_at_k == pytest.approx(1.0)
         assert result.ndcg_at_k == pytest.approx(1.0)
         assert result.hit_rate_at_k == pytest.approx(1.0)
+        assert result.diversity_at_k == pytest.approx(1.0)
 
 
 def test_create_defaults_to_deterministic_fake_embedding_generator(

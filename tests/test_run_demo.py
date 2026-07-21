@@ -9,12 +9,19 @@ from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.recommendation import RecommendationItem, RecommendationQuery
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS_DIR = _REPO_ROOT / "scripts"
 
 
 def _load_run_demo_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "run_demo_script", _REPO_ROOT / "scripts" / "run_demo.py"
-    )
+    # run_demo.py imports its shared fixtures via a bare `from demo_fixtures
+    # import ...` (resolves automatically when run directly, since Python
+    # puts the script's own directory on sys.path[0]) -- loading it here via
+    # importlib instead needs scripts/ on sys.path explicitly for that
+    # import to resolve the same way.
+    if str(_SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPTS_DIR))
+
+    spec = importlib.util.spec_from_file_location("run_demo_script", _SCRIPTS_DIR / "run_demo.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     # run_demo.py defines a @dataclass at module scope; dataclasses resolves
@@ -135,7 +142,7 @@ def test_evaluation_dataset_groups_books_by_category() -> None:
     books = _run_demo.seed_demo_dataset(context)
     user_id = _run_demo._user_id(_run_demo.DEMO_USER_LABEL)
 
-    dataset = _run_demo._build_evaluation_dataset(books, user_id)
+    dataset = _run_demo.build_evaluation_dataset(books, user_id)
 
     assert len(dataset.cases) == len(books)
     software_engineering_case = next(
@@ -154,7 +161,7 @@ def test_als_engine_recommends_effective_java_for_alice_via_shared_reader_correl
     """
     context = ApplicationContext.create()
     books = _run_demo.seed_demo_dataset(context)
-    als_engine = _run_demo._build_als_engine(context)
+    als_engine = _run_demo.build_als_engine(context)
     alice = _run_demo._user_id("alice")
 
     result = als_engine.recommend(RecommendationQuery(limit=len(books), user_id=alice))
@@ -175,9 +182,9 @@ def test_reranked_engine_preserves_count_and_boosts_a_novel_book() -> None:
     """
     context = ApplicationContext.create()
     books = _run_demo.seed_demo_dataset(context)
-    als_engine = _run_demo._build_als_engine(context)
-    hybrid_weighted_engine, _ = _run_demo._build_hybrid_engines(context, als_engine)
-    reranked_engine = _run_demo._build_reranked_engine(context, hybrid_weighted_engine)
+    als_engine = _run_demo.build_als_engine(context)
+    hybrid_weighted_engine, _ = _run_demo.build_hybrid_engines(context, als_engine)
+    reranked_engine = _run_demo.build_reranked_engine(context, hybrid_weighted_engine)
     spotlight = next(book for book in books if book.title.value == "Clean Code")
     alice = _run_demo._user_id("alice")
     query = RecommendationQuery(limit=len(books), book_id=spotlight.id, user_id=alice)

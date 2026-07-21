@@ -6,9 +6,11 @@ import pytest
 from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.evaluation_metrics import (
     average_precision_at_k,
+    catalog_coverage,
     diversity_at_k,
     hit_rate_at_k,
     ndcg_at_k,
+    novelty_at_k,
     precision_at_k,
     recall_at_k,
 )
@@ -161,3 +163,74 @@ def test_diversity_at_k_truncates_to_k() -> None:
 
 def test_diversity_at_k_returns_zero_for_an_empty_list() -> None:
     assert diversity_at_k([], k=3) == 0.0
+
+
+# --- catalog_coverage ---
+
+
+def test_catalog_coverage_rejects_non_positive_catalog_size() -> None:
+    with pytest.raises(ValueError, match="catalog_size"):
+        catalog_coverage([A], 0)
+
+
+def test_catalog_coverage_is_the_fraction_of_distinct_books_recommended() -> None:
+    assert catalog_coverage([A, B], catalog_size=4) == pytest.approx(0.5)
+
+
+def test_catalog_coverage_deduplicates_repeated_book_ids() -> None:
+    # The same book recommended across multiple cases must not inflate coverage.
+    assert catalog_coverage([A, A, A, B], catalog_size=4) == pytest.approx(0.5)
+
+
+def test_catalog_coverage_returns_zero_for_no_recommendations() -> None:
+    assert catalog_coverage([], catalog_size=10) == 0.0
+
+
+def test_catalog_coverage_is_one_when_the_entire_catalog_is_covered() -> None:
+    assert catalog_coverage([A, B], catalog_size=2) == pytest.approx(1.0)
+
+
+# --- novelty_at_k ---
+
+
+def test_novelty_at_k_rejects_non_positive_k() -> None:
+    with pytest.raises(ValueError, match="k must be positive"):
+        novelty_at_k([10], catalog_total_popularity=100, k=0)
+
+
+def test_novelty_at_k_returns_none_when_catalog_has_no_popularity_evidence() -> None:
+    assert novelty_at_k([10, 20], catalog_total_popularity=0, k=2) is None
+
+
+def test_novelty_at_k_returns_none_for_an_empty_recommendation_list() -> None:
+    assert novelty_at_k([], catalog_total_popularity=100, k=3) is None
+
+
+def test_novelty_at_k_returns_none_when_no_recommended_item_has_popularity_evidence() -> None:
+    assert novelty_at_k([0, 0, 0], catalog_total_popularity=100, k=3) is None
+
+
+def test_novelty_at_k_excludes_zero_count_items_from_the_average() -> None:
+    # 0-count items (no recorded popularity) are skipped rather than
+    # fabricating a value via the undefined log2(0).
+    with_zero = novelty_at_k([10, 0], catalog_total_popularity=100, k=2)
+    without_zero = novelty_at_k([10], catalog_total_popularity=100, k=1)
+    assert with_zero == pytest.approx(without_zero)
+
+
+def test_novelty_at_k_scores_rarer_items_higher() -> None:
+    rare = novelty_at_k([1], catalog_total_popularity=1000, k=1)
+    common = novelty_at_k([500], catalog_total_popularity=1000, k=1)
+    assert rare is not None and common is not None
+    assert rare > common
+
+
+def test_novelty_at_k_matches_hand_computed_self_information() -> None:
+    expected = (-math.log2(10 / 100) + -math.log2(20 / 100)) / 2
+    assert novelty_at_k([10, 20], catalog_total_popularity=100, k=2) == pytest.approx(expected)
+
+
+def test_novelty_at_k_truncates_to_k() -> None:
+    assert novelty_at_k([10, 20, 30], catalog_total_popularity=100, k=1) == pytest.approx(
+        novelty_at_k([10], catalog_total_popularity=100, k=1)
+    )

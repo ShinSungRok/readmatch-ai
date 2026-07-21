@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from readmatch_ai.domain.book import BookId
 
@@ -96,6 +96,53 @@ def diversity_at_k(categories: Sequence[str], k: int) -> float:
     if not top_k:
         return 0.0
     return len(set(top_k)) / len(top_k)
+
+
+def catalog_coverage(recommended_book_ids: Iterable[BookId], catalog_size: int) -> float:
+    """Fraction of the catalog reached by the union of recommendations across a whole run.
+
+    Unlike the per-case *_at_k metrics above, coverage is a run-level
+    aggregate: the caller passes every book_id recommended across every
+    evaluation case (duplicates -- the same book recommended for multiple
+    cases -- collapse naturally via `set()`, so covering the same book
+    repeatedly doesn't inflate the score). `catalog_size` must be positive
+    (the total number of books an engine could possibly recommend); an
+    empty `recommended_book_ids` yields 0.0, never a division error.
+    """
+    if catalog_size <= 0:
+        raise ValueError(f"catalog_size must be positive, got {catalog_size!r}")
+    distinct_book_ids = set(recommended_book_ids)
+    return len(distinct_book_ids) / catalog_size
+
+
+def novelty_at_k(
+    popularity_counts: Sequence[int], catalog_total_popularity: int, k: int
+) -> float | None:
+    """Mean self-information novelty of the top-k recommendations.
+
+    For each recommended book with a recorded popularity count `c`, its
+    novelty is `-log2(c / catalog_total_popularity)` (Zhou et al.'s
+    self-information novelty: rarer/less-popular books score higher,
+    popular books score near zero). Averaged across the top-k books that
+    *have* popularity evidence; books with no recorded popularity (count of
+    0, e.g. never loaned) are excluded from the average rather than
+    fabricating a value for them via an undefined log(0).
+
+    Returns None -- not 0.0 -- when there is no popularity evidence to
+    compute from at all (an empty/all-zero top-k, or a catalog with no
+    recorded popularity), distinguishing "not novel" from "cannot be
+    measured", per this Sprint's "Novelty where sufficient popularity ...
+    evidence exists".
+    """
+    _require_positive_k(k)
+    if catalog_total_popularity <= 0:
+        return None
+    top_k_with_evidence = [count for count in popularity_counts[:k] if count > 0]
+    if not top_k_with_evidence:
+        return None
+    return sum(
+        -math.log2(count / catalog_total_popularity) for count in top_k_with_evidence
+    ) / len(top_k_with_evidence)
 
 
 def _require_positive_k(k: int) -> None:

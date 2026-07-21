@@ -5,3 +5,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+
+# scripts/generate_quality_report.py's default output directory --
+# generated runtime reports, not committed sample output.
+/reports/

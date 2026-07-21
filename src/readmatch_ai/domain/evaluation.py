@@ -46,7 +46,9 @@ class EvaluationResult:
 
     Each *_at_k field is the mean of that metric across all cases in the
     dataset, so results from different engines (or different k) are directly
-    comparable.
+    comparable. `coverage` and `novelty_at_k` are None when the caller didn't
+    supply the extra evidence they need (catalog_size / popularity data,
+    respectively) -- distinguishing "not computed" from a fabricated 0.0.
     """
 
     engine_name: str
@@ -58,3 +60,5 @@ class EvaluationResult:
     hit_rate_at_k: float
     diversity_at_k: float
     case_count: int
+    coverage: float | None = None
+    novelty_at_k: float | None = None

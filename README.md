@@ -142,6 +142,104 @@ order, and carry no confidence/probability value.
 > signals combine into one final score; a reason confirms a signal
 > contributed, not how much it weighed relative to the others.
 
+### Recommendation Quality Reports
+
+Compares all current recommendation engines — Popularity, Semantic, ALS,
+Hybrid (Weighted), Hybrid (RRF), Hybrid + Re-ranking — against the same
+deterministic evaluation dataset, and produces a structured, exportable
+report:
+
+```bash
+python scripts/generate_quality_report.py
+python scripts/generate_quality_report.py --k 10 --output-dir reports --baseline semantic
+```
+
+Writes `quality_report.md` and `quality_report.csv` to `--output-dir`
+(default: `reports/`, not committed — see `.gitignore`), prints a concise
+summary, and exits non-zero if a regression check fails (see below) — this
+is the offline analytics counterpart to `scripts/run_demo.py`'s REST
+walkthrough, built entirely on the same, already-existing Evaluation
+Framework (`EvaluateRecommendationEngineUseCase`) rather than a second,
+parallel one.
+
+**Supported metrics** (all higher-is-better; see
+`src/readmatch_ai/domain/evaluation_metrics.py` for the exact formulas):
+
+| Metric | Meaning |
+|---|---|
+| `precision_at_k` | Fraction of the top-K recommendations that are relevant. |
+| `recall_at_k` | Fraction of all relevant books surfaced in the top-K. |
+| `map_at_k` | Mean Average Precision@K — rewards relevant books appearing earlier in the ranking. |
+| `ndcg_at_k` | Normalized Discounted Cumulative Gain@K — rank-sensitive relevance. |
+| `hit_rate_at_k` | Fraction of cases with at least one relevant book in the top-K. |
+| `diversity_at_k` | Fraction of distinct categories within the top-K list itself (not ground-truth-based). |
+| `coverage` | Fraction of the whole catalog reached by an engine's recommendations across the entire run. |
+| `novelty_at_k` | Mean self-information novelty of the top-K (`-log2(popularity / catalog total)`, so rarer books score higher); `N/A` when no recommended book has recorded popularity evidence. |
+
+**Best engine and baseline:** for each metric, the report names the
+best-performing engine (ties broken deterministically — the first-listed
+engine among a tie always wins, run to run) and, for every engine, a delta
+from a configured **baseline engine** (`--baseline`, default: `popularity`,
+matching the existing `HybridRankingConfig`/`ApplicationContext` convention
+of Popularity as the cold-start/comparison baseline throughout this
+project). A delta is a plain numeric difference (`engine value − baseline
+value`) — the report never claims statistical significance.
+
+**Example Markdown output** (excerpt):
+
+```markdown
+## Engine Comparison
+
+| Engine | precision_at_k | recall_at_k | ... |
+|---|---|---|---|
+| popularity | 0.2250 | 0.6250 | ... |
+| hybrid_reranked | 0.2500 | 0.7500 | ... |
+
+## Best-Performing Engine by Metric
+
+| Metric | Best Engine | Higher is Better |
+|---|---|---|
+| hit_rate_at_k | semantic | True |
+```
+
+**Example CSV output** (excerpt): one row per engine, one column per metric,
+plus a `<metric>_delta_from_baseline` column per metric —
+
+```csv
+engine,precision_at_k,recall_at_k,...,precision_at_k_delta_from_baseline,...
+popularity,0.225,0.625,...,0.0,...
+hybrid_reranked,0.25,0.75,...,0.025,...
+```
+
+**Regression checks:** `scripts/generate_quality_report.py` runs a small,
+committed set of default thresholds (`DEFAULT_REGRESSION_THRESHOLDS` in that
+script) against `hybrid_reranked` — the full personalized pipeline — after
+generating the report, calibrated against this repo's own deterministic
+demo dataset (not a guess at production quality). Each threshold is either
+an absolute floor (`minimum_value`) or a maximum allowed drop below the
+report's baseline engine (`max_regression_from_baseline`), or both; a
+violated or unverifiable (e.g. referencing an engine/metric with no value)
+threshold produces a clear, per-engine-and-metric failure message, and the
+script exits `1`. This is intended to run in CI exactly like `pytest` — no
+network access, model downloads, or production infrastructure required.
+
+**Deterministic dataset limitations:** the report always evaluates the same
+small, hand-picked, in-memory demo dataset (`scripts/demo_fixtures.py`,
+shared with `run_demo.py`) — reproducible and CI-suitable, but not a
+substitute for evaluating against real usage data. Category-based "relevant
+books" ground truth is a demo-only heuristic (see Status note above), and
+embeddings are the deterministic placeholder generator unless
+`EMBEDDING_GENERATOR_BACKEND=sentence_transformers` is set.
+
+> **Offline metrics are not the same as real user satisfaction.** These
+> numbers measure agreement with a fixed, synthetic ground truth on a fixed,
+> tiny catalog — not what real users would actually click, read, or enjoy.
+> Higher diversity can trade off against relevance (see `diversity_at_k` vs.
+> `precision_at_k` above). A higher offline metric does not guarantee a
+> better online experience. This report does not replace online experiments
+> or A/B testing — it's a regression/sanity signal for development and CI,
+> not a production quality benchmark.
+
 ### Run the demo
 
 A self-contained, deterministic, end-to-end walkthrough: seeds a small book
@@ -372,9 +470,10 @@ can legitimately have an empty `reasons` list.
 ## Testing
 
 ```bash
-pytest -q                       # full suite (unit, application, integration, API)
-pytest tests/api -q             # API layer only
-pytest tests/test_run_demo.py   # demo smoke test
+pytest -q                                 # full suite (unit, application, integration, API)
+pytest tests/api -q                       # API layer only
+pytest tests/test_run_demo.py             # demo smoke test
+pytest tests/test_generate_quality_report.py   # quality-report CLI (success, regression pass/fail, determinism)
 ```
 
 Integration tests that need PostgreSQL/pgvector spin up a disposable

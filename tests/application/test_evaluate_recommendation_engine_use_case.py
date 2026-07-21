@@ -118,6 +118,78 @@ def test_execute_returns_zero_scores_when_no_recommendation_is_relevant() -> Non
     assert result.hit_rate_at_k == 0.0
 
 
+def test_execute_leaves_coverage_and_novelty_none_when_not_requested() -> None:
+    """Backward compatibility: every pre-Sprint-30 call site omits
+    catalog_size/popularity_by_book_id and must keep getting None for both.
+    """
+    case = EvaluationCase(
+        book_id=BookId.generate(), relevant_book_ids=frozenset({BookId.generate()})
+    )
+    dataset = EvaluationDataset(cases=(case,))
+    engine = _FakeRecommendationEngine([BookId.generate()])
+
+    result = EvaluateRecommendationEngineUseCase().execute(engine, "fake", dataset, k=1)
+
+    assert result.coverage is None
+    assert result.novelty_at_k is None
+
+
+def test_execute_computes_coverage_across_the_whole_run_when_catalog_size_given() -> None:
+    a, b = BookId.generate(), BookId.generate()
+    case_1 = EvaluationCase(book_id=BookId.generate(), relevant_book_ids=frozenset({a}))
+    case_2 = EvaluationCase(book_id=BookId.generate(), relevant_book_ids=frozenset({b}))
+    dataset = EvaluationDataset(cases=(case_1, case_2))
+
+    class _PerCaseEngine(RecommendationEngine):
+        def recommend(self, query: RecommendationQuery) -> RecommendationResult:
+            book_id = a if query.book_id == case_1.book_id else b
+            return RecommendationResult(
+                recommendation=Recommendation(items=[RecommendationItem(_book(book_id), 1.0, "f")])
+            )
+
+    result = EvaluateRecommendationEngineUseCase().execute(
+        _PerCaseEngine(), "fake", dataset, k=1, catalog_size=4
+    )
+
+    # Two distinct books recommended across the run, out of a catalog of 4.
+    assert result.coverage == pytest.approx(0.5)
+
+
+def test_execute_computes_novelty_from_popularity_by_book_id_when_given() -> None:
+    rare, common = BookId.generate(), BookId.generate()
+    case = EvaluationCase(
+        book_id=BookId.generate(), relevant_book_ids=frozenset({BookId.generate()})
+    )
+    dataset = EvaluationDataset(cases=(case,))
+    engine = _FakeRecommendationEngine([rare])
+
+    result = EvaluateRecommendationEngineUseCase().execute(
+        engine,
+        "fake",
+        dataset,
+        k=1,
+        popularity_by_book_id={rare: 1, common: 999},
+    )
+
+    assert result.novelty_at_k is not None
+    assert result.novelty_at_k > 0.0
+
+
+def test_execute_leaves_novelty_none_when_no_recommendation_has_popularity_evidence() -> None:
+    unrecorded_book = BookId.generate()
+    case = EvaluationCase(
+        book_id=BookId.generate(), relevant_book_ids=frozenset({BookId.generate()})
+    )
+    dataset = EvaluationDataset(cases=(case,))
+    engine = _FakeRecommendationEngine([unrecorded_book])
+
+    result = EvaluateRecommendationEngineUseCase().execute(
+        engine, "fake", dataset, k=1, popularity_by_book_id={BookId.generate(): 100}
+    )
+
+    assert result.novelty_at_k is None
+
+
 def test_execute_computes_diversity_from_the_engines_actual_recommended_categories() -> None:
     """Two of three recommended items share a category -- diversity_at_k must
     reflect that repeat, proving it's computed from real item categories

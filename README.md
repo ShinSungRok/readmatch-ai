@@ -112,8 +112,11 @@ For the architecture decision record and system diagram, see
 [`docs/architecture/ADR.md`](docs/architecture/ADR.md) and
 [`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md).
 Sprint-by-sprint implementation history (what was built, why, and how it was
-validated, for all 36 completed sprints) is in
-[`docs/progress/PROJECT_PROGRESS.md`](docs/progress/PROJECT_PROGRESS.md).
+validated, for all 38 completed sprints) is in
+[`docs/progress/PROJECT_PROGRESS.md`](docs/progress/PROJECT_PROGRESS.md). For
+a release-readiness summary (implemented capabilities, prerequisites,
+validation workflow, known limitations), see
+[`docs/release/RELEASE_CANDIDATE.md`](docs/release/RELEASE_CANDIDATE.md).
 
 ## Repository Structure
 

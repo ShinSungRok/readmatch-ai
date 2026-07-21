@@ -95,6 +95,9 @@ from readmatch_ai.infrastructure.postgresql_book_popularity_repository import (
     PostgreSQLBookPopularityRepository,
 )
 from readmatch_ai.infrastructure.postgresql_book_repository import PostgreSQLBookRepository
+from readmatch_ai.infrastructure.postgresql_persistence_runtime_validator import (
+    PostgreSQLPersistenceRuntimeValidator,
+)
 from readmatch_ai.infrastructure.postgresql_user_book_interaction_repository import (
     PostgreSQLUserBookInteractionRepository,
 )
@@ -311,6 +314,18 @@ class ApplicationContext:
         (which would invert the dependency direction and create a circular
         import, since this method is what constructs it).
 
+        persistence_runtime_validator (Sprint 33) is a
+        PostgreSQLPersistenceRuntimeValidator reusing `repository`'s own
+        already-open connection (no second connection is opened) whenever
+        `repository` actually is a PostgreSQLBookRepository -- determined by
+        `isinstance()` on the already-resolved instance, not the env-derived
+        backend name, so an explicit Fake/In-memory override (even with
+        BOOK_REPOSITORY_BACKEND=postgresql set in the environment, as in a
+        production-shaped-configuration-using-Fakes test) correctly leaves
+        it `None`. Passed into ReadinessCheckService, which simply omits its
+        persistence_runtime check entirely when `None` -- see that
+        service's own docstring.
+
         recommendation_metrics_collector aggregates
         RecommendationExecutionRecords emitted by every use case that
         actually serves a request -- get_recommendations_use_case,
@@ -398,6 +413,11 @@ class ApplicationContext:
             [metrics_collector, LoggingRecommendationExecutionObserver()]
         )
         health_check_service = HealthCheckService()
+        persistence_runtime_validator = (
+            PostgreSQLPersistenceRuntimeValidator(repository.connection)
+            if isinstance(repository, PostgreSQLBookRepository)
+            else None
+        )
         readiness_check_service = ReadinessCheckService(
             repository,
             {
@@ -407,6 +427,7 @@ class ApplicationContext:
                 "hybrid": hybrid_engine,
                 "reranked": reranked_engine,
             },
+            persistence_runtime_validator,
         )
 
         def _observed(

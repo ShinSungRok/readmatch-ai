@@ -3,6 +3,11 @@ import pytest
 from readmatch_ai.application.readiness_check_service import ReadinessCheckService
 from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.book_repository import BookRepository
+from readmatch_ai.domain.persistence_validation import (
+    PersistenceRuntimeValidator,
+    PersistenceValidationResult,
+    PersistenceValidationViolation,
+)
 from readmatch_ai.domain.recommendation import (
     Recommendation,
     RecommendationQuery,
@@ -15,6 +20,16 @@ from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRe
 class _FakeRecommendationEngine(RecommendationEngine):
     def recommend(self, query: RecommendationQuery) -> RecommendationResult:
         return RecommendationResult(recommendation=Recommendation(items=[]))
+
+
+class _StubPersistenceRuntimeValidator(PersistenceRuntimeValidator):
+    def __init__(self, result: PersistenceValidationResult) -> None:
+        self._result = result
+        self.call_count = 0
+
+    def validate(self) -> PersistenceValidationResult:
+        self.call_count += 1
+        return self._result
 
 
 class _FailingBookRepository(BookRepository):
@@ -120,3 +135,81 @@ def test_check_preserves_healthy_readiness_when_configuration_is_valid(
 
     assert status.ready is True
     assert all(check.available for check in status.checks)
+
+
+# --- Sprint 33: persistence runtime integration ---
+
+
+def test_check_omits_the_persistence_runtime_check_when_no_validator_is_provided() -> None:
+    service = ReadinessCheckService(InMemoryBookRepository(), _engines())
+
+    status = service.check()
+
+    check_names = {check.name for check in status.checks}
+    assert "persistence_runtime" not in check_names
+    assert check_names == {"configuration", "book_repository", "recommendation_composition"}
+
+
+def test_check_reports_ready_when_persistence_runtime_is_valid() -> None:
+    validator = _StubPersistenceRuntimeValidator(
+        PersistenceValidationResult(violations=(), checked_components=("connectivity",))
+    )
+    service = ReadinessCheckService(InMemoryBookRepository(), _engines(), validator)
+
+    status = service.check()
+
+    assert status.ready is True
+    persistence_check = next(
+        check for check in status.checks if check.name == "persistence_runtime"
+    )
+    assert persistence_check.available is True
+    assert persistence_check.detail is None
+
+
+def test_check_reports_not_ready_when_persistence_runtime_is_invalid() -> None:
+    validator = _StubPersistenceRuntimeValidator(
+        PersistenceValidationResult(
+            violations=(
+                PersistenceValidationViolation(
+                    code="pgvector_extension_missing",
+                    component="pgvector_extension",
+                    message="The pgvector 'vector' extension is not installed",
+                ),
+            ),
+            checked_components=("connectivity", "required_tables", "pgvector_extension"),
+        )
+    )
+    service = ReadinessCheckService(InMemoryBookRepository(), _engines(), validator)
+
+    status = service.check()
+
+    assert status.ready is False
+    persistence_check = next(
+        check for check in status.checks if check.name == "persistence_runtime"
+    )
+    assert persistence_check.available is False
+    assert "pgvector_extension" in (persistence_check.detail or "")
+
+
+def test_check_calls_the_persistence_validator_fresh_on_every_call() -> None:
+    validator = _StubPersistenceRuntimeValidator(
+        PersistenceValidationResult(violations=(), checked_components=("connectivity",))
+    )
+    service = ReadinessCheckService(InMemoryBookRepository(), _engines(), validator)
+
+    service.check()
+    service.check()
+
+    assert validator.call_count == 2
+
+
+def test_check_is_deterministic_with_a_persistence_validator() -> None:
+    validator = _StubPersistenceRuntimeValidator(
+        PersistenceValidationResult(violations=(), checked_components=("connectivity",))
+    )
+    service = ReadinessCheckService(InMemoryBookRepository(), _engines(), validator)
+
+    first = service.check()
+    second = service.check()
+
+    assert first == second

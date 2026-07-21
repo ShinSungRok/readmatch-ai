@@ -685,3 +685,40 @@ def test_create_is_deterministic_across_repeated_calls_with_the_same_environment
     second = ApplicationContext.create()
 
     assert first.runtime_configuration_summary == second.runtime_configuration_summary
+
+
+# --- Sprint 33: production persistence and vector runtime integration validation ---
+
+
+def test_default_in_memory_composition_has_no_persistence_runtime_check() -> None:
+    context = ApplicationContext.create()
+
+    status = context.readiness_check_service.check()
+
+    check_names = {check.name for check in status.checks}
+    assert "persistence_runtime" not in check_names
+
+
+def test_a_fake_repository_override_never_wires_a_persistence_validator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mirrors Sprint 32's production-shaped-configuration-using-Fakes
+    precedent: even with BOOK_REPOSITORY_BACKEND=postgresql set in the
+    environment, an explicit non-PostgreSQL override must never trigger
+    persistence runtime validation -- there is nothing real to validate,
+    and no PostgreSQL connection should ever be attempted for a Fake.
+    """
+    monkeypatch.setenv("BOOK_REPOSITORY_BACKEND", "postgresql")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@host/db")
+
+    context = ApplicationContext.create(
+        book_repository=InMemoryBookRepository(),
+        book_popularity_repository=InMemoryBookPopularityRepository(),
+        book_embedding_repository=InMemoryBookEmbeddingRepository(),
+        user_book_interaction_repository=InMemoryUserBookInteractionRepository(),
+    )
+
+    status = context.readiness_check_service.check()
+
+    check_names = {check.name for check in status.checks}
+    assert "persistence_runtime" not in check_names

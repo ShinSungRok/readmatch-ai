@@ -27,6 +27,15 @@ class PostgreSQLBookRepository(BookRepository):
     def __init__(self, connection: psycopg.Connection) -> None:
         self._connection = connection
 
+    @property
+    def connection(self) -> psycopg.Connection:
+        """The underlying connection -- read-only access for callers that need
+        to reuse it (e.g. PostgreSQLPersistenceRuntimeValidator), rather than
+        opening a second, redundant one. Never exposes credentials: a
+        psycopg.Connection object itself carries no printable secret.
+        """
+        return self._connection
+
     def add(self, book: Book) -> None:
         try:
             with self._connection.cursor() as cursor:

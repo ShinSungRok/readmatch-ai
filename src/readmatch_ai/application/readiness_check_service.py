@@ -4,6 +4,7 @@ from readmatch_ai.config import ApplicationConfiguration
 from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.health import ComponentCheck, ReadinessStatus
+from readmatch_ai.domain.persistence_validation import PersistenceRuntimeValidator
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.runtime_configuration import ApplicationConfigurationValidator
 
@@ -21,23 +22,38 @@ class ReadinessCheckService:
     depending on ApplicationContext here would invert that dependency
     direction and create a circular import (ApplicationContext.create()
     is what constructs this service).
+
+    `persistence_runtime_validator` (Sprint 33) is optional and defaults to
+    `None` -- every existing caller (and every Fake/In-memory-backed test)
+    keeps working unchanged. When provided (ApplicationContext wires one
+    only for a genuinely PostgreSQL-backed repository), `check()` adds one
+    additional `persistence_runtime` ComponentCheck; when `None`, that
+    check is omitted entirely (never reported as trivially available),
+    since there is nothing to validate for an in-memory repository.
     """
 
     def __init__(
         self,
         book_repository: BookRepository,
         recommendation_engines: dict[str, RecommendationEngine],
+        persistence_runtime_validator: PersistenceRuntimeValidator | None = None,
     ) -> None:
         self._book_repository = book_repository
         self._recommendation_engines = recommendation_engines
+        self._persistence_runtime_validator = persistence_runtime_validator
 
     def check(self) -> ReadinessStatus:
-        checks = (
+        checks = [
             self._check_configuration(),
             self._check_book_repository(),
             self._check_recommendation_composition(),
+        ]
+        validator = self._persistence_runtime_validator
+        if validator is not None:
+            checks.append(self._check_persistence_runtime(validator))
+        return ReadinessStatus(
+            ready=all(check.available for check in checks), checks=tuple(checks)
         )
-        return ReadinessStatus(ready=all(check.available for check in checks), checks=checks)
 
     def _check_configuration(self) -> ComponentCheck:
         # Re-parses the same env-derived configuration
@@ -91,3 +107,18 @@ class ReadinessCheckService:
             available=not missing,
             detail=f"missing engines: {', '.join(missing)}" if missing else None,
         )
+
+    def _check_persistence_runtime(
+        self, validator: PersistenceRuntimeValidator
+    ) -> ComponentCheck:
+        # Delegates entirely to the injected validator (Sprint 33) --
+        # PostgreSQL connectivity, required schema/pgvector
+        # extension/dimension/index -- this service never touches psycopg
+        # itself. Violation messages are already safe (see
+        # PersistenceValidationViolation's own docstring), so joining them
+        # into `detail` carries no secret.
+        result = validator.validate()
+        if result.valid:
+            return ComponentCheck(name="persistence_runtime", available=True)
+        detail = "; ".join(f"{v.component}: {v.message}" for v in result.violations)
+        return ComponentCheck(name="persistence_runtime", available=False, detail=detail)

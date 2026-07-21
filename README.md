@@ -15,8 +15,9 @@ explanations for why a book was recommended (via a `RecommendationExplainer`),
 offline evaluation, production observability (health/readiness endpoints,
 structured recommendation execution logging, in-process operational metrics),
 fail-fast operational configuration validation with a redacted runtime
-summary, and a FastAPI recommendation service backed by PostgreSQL and
-pgvector.
+summary, read-only production persistence/pgvector runtime validation
+integrated with readiness, and a FastAPI recommendation service backed by
+PostgreSQL and pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -264,7 +265,8 @@ python scripts/run_demo.py --limit 5 --k 5   # show/evaluate top 5 instead of to
 ### Run the API server
 
 ```bash
-# optional pre-flight: validate configuration without starting anything
+# optional pre-flight: validate configuration (and, for a PostgreSQL
+# backend, the live persistence/pgvector runtime) without starting anything
 python scripts/validate_runtime.py
 
 uvicorn readmatch_ai.api.main:app --reload
@@ -496,8 +498,9 @@ curl "http://localhost:8000/health"
 ### `GET /readiness`
 
 Are this instance's required runtime dependencies currently available to
-serve requests — runtime configuration, the book repository, and
-recommendation engine composition? Returns HTTP 200 when ready, HTTP 503
+serve requests — runtime configuration, the book repository, recommendation
+engine composition, and (when the repository is genuinely PostgreSQL-backed)
+the live persistence/pgvector runtime? Returns HTTP 200 when ready, HTTP 503
 when not ready (e.g. the database connection has dropped).
 
 ```bash
@@ -679,6 +682,118 @@ a model host) remains reachable *after* startup; that's what `GET
 /readiness`'s live probes are for. `test` mode currently has no rules
 distinguishing it from `development` — it exists as a named, forward-looking
 mode identifier, not (yet) a source of additional validation.
+
+## Persistence and Vector Runtime Validation
+
+Introduced in Sprint 33: read-only validation of the *live* PostgreSQL +
+pgvector runtime, distinct from Sprint 32's static environment-variable
+validation — confirming the actual database the application is about to
+serve from has the schema, extension, and index this codebase requires,
+before requests are routed to it.
+
+**PostgreSQL runtime prerequisites** — only checked when
+`BOOK_REPOSITORY_BACKEND=postgresql`; never applicable (and never attempted)
+for the default `in_memory` backend:
+
+- PostgreSQL connectivity (a plain `SELECT 1`);
+- the four required tables: `books`, `book_popularity`, `book_embeddings`,
+  `user_book_interactions`;
+- the `pgvector` extension is installed (`CREATE EXTENSION vector`, see
+  `migrations/0004_...sql`);
+- `book_embeddings.vector`'s declared width matches the dimension every
+  currently-wired `BookEmbeddingGenerator` actually produces (384 —
+  `DeterministicFakeBookEmbeddingGenerator`'s default and
+  `sentence-transformers/all-MiniLM-L6-v2`'s output size; see
+  `migrations/0005_...sql`);
+- the `idx_book_embeddings_vector_cosine` HNSW index required for vector
+  similarity search to perform acceptably.
+
+Every check is a read-only `SELECT` against `pg_catalog`/
+`information_schema` — this capability never creates, alters, or migrates
+anything; schema setup remains the job of `migrations/*.sql`, applied
+separately.
+
+**Readiness interaction**: `ApplicationContext` wires a
+`PostgreSQLPersistenceRuntimeValidator` (reusing the same already-open
+connection as the real repository — no second connection is opened) into
+`GET /readiness` only when the composed repository is genuinely
+PostgreSQL-backed; an explicit Fake/In-memory override (even with
+`BOOK_REPOSITORY_BACKEND=postgresql` set in the environment) correctly
+leaves persistence validation inapplicable, preserving deterministic
+Fake/In-memory test composition. When applicable, an unhealthy persistence
+runtime (an unreachable database, a missing table/extension/index, an
+incompatible vector width) surfaces as an additional `persistence_runtime`
+check and makes `GET /readiness` report Not Ready — existing `configuration`/
+`book_repository`/`recommendation_composition` checks and Health semantics
+are unchanged.
+
+```json
+{
+  "ready": false,
+  "checks": [
+    {"name": "configuration", "available": true, "detail": null},
+    {"name": "book_repository", "available": true, "detail": null},
+    {"name": "recommendation_composition", "available": true, "detail": null},
+    {
+      "name": "persistence_runtime",
+      "available": false,
+      "detail": "pgvector_extension: The pgvector 'vector' extension is not installed"
+    }
+  ],
+  "mode": "production"
+}
+```
+
+**Operator validation command** — `scripts/validate_runtime.py` (Sprint 32)
+now also validates the persistence runtime, reusing the exact same
+`PostgreSQLPersistenceRuntimeValidator`/`validate_postgresql_persistence`
+`GET /readiness` uses (no duplicated rules), whenever static configuration
+is valid and the backend is `postgresql`:
+
+```bash
+python scripts/validate_runtime.py
+```
+
+```
+Runtime configuration summary:
+
+  mode: production
+  book_repository_backend: postgresql
+  ...
+
+Configuration valid.
+
+Persistence runtime summary:
+
+  checked: connectivity, required_tables, pgvector_extension, vector_dimension, vector_index
+  valid: True
+
+Note: this confirms structural/operational prerequisites only -- ...
+```
+
+Exits `0` only when both static configuration *and* (when applicable)
+persistence runtime validation pass; `1` otherwise, with every violation
+listed (`[code] component: message`). A statically invalid configuration
+short-circuits before any PostgreSQL connection is attempted — "avoid
+opening production connections when static configuration is already
+invalid" holds exactly as it did in Sprint 32.
+
+**Secret redaction**: violation messages and the persistence runtime
+summary never include `DATABASE_URL`, credentials, embedding vectors, or
+user data — only component names, safe schema facts (e.g. `"vector(8),
+expected vector(384)"`), and exception *type names* (never
+`str(exception)`, which could embed connection details) for connectivity
+failures.
+
+**Limitations**: validation is read-only and point-in-time — it confirms
+the schema/extension/index/connectivity facts true *right now*, not that
+they will remain true, nor that data already stored is well-formed, nor
+that query performance is acceptable at production scale. It checks the one
+HNSW vector index this codebase's migrations create
+(`idx_book_embeddings_vector_cosine`); other, non-vector indexes are out of
+scope. No automatic schema creation, migration, or repair is ever
+performed — a failing check means an operator must run `migrations/*.sql`
+(or the relevant fix) themselves.
 
 ## Testing
 

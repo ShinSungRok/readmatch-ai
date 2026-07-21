@@ -16,8 +16,9 @@ offline evaluation, production observability (health/readiness endpoints,
 structured recommendation execution logging, in-process operational metrics),
 fail-fast operational configuration validation with a redacted runtime
 summary, read-only production persistence/pgvector runtime validation
-integrated with readiness, and a FastAPI recommendation service backed by
-PostgreSQL and pgvector.
+integrated with readiness, deterministic deployment/container runtime
+validation, and a FastAPI recommendation service backed by PostgreSQL and
+pgvector.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -280,6 +281,13 @@ deployment, set `APPLICATION_MODE=production` and a persistent
 `BOOK_REPOSITORY_BACKEND=postgresql` (see Operational Configuration and
 Runtime Hardening below) — the application refuses to start with an unsafe
 combination of the two.
+
+```bash
+# optional: validate that the application actually starts and serves
+# correctly (GET /health, GET /readiness, a real recommendation endpoint) --
+# see Deployment and Container Runtime Readiness below
+python scripts/validate_deployment.py
+```
 
 ### Import real book data (optional)
 
@@ -794,6 +802,109 @@ HNSW vector index this codebase's migrations create
 scope. No automatic schema creation, migration, or repair is ever
 performed — a failing check means an operator must run `migrations/*.sql`
 (or the relevant fix) themselves.
+
+## Deployment and Container Runtime Readiness
+
+Introduced in Sprint 34: end-to-end validation that the application starts
+successfully and serves correctly — deterministic, requiring no real running
+container, network access, or production credentials, and reusing every
+prior Sprint's boundary rather than duplicating any of it: Sprint 32's
+`RuntimeBootstrapValidator` (startup/configuration validation) and Sprint
+31/33's real `GET /health`/`GET /readiness` endpoints (already reflecting
+persistence integration when applicable).
+
+**Deployment prerequisites**: same as documented throughout this README —
+`APPLICATION_MODE`, `BOOK_REPOSITORY_BACKEND`/`DATABASE_URL` for a real
+deployment, and (per the `Dockerfile`) the `libgomp1` system package, which
+`implicit` (the ALS collaborative-filtering library) requires at import
+time. This was a real, previously-undetected container startup failure —
+`readmatch_ai.infrastructure.als_model`'s `import implicit.als` raised
+`ImportError: libgomp.so.1: cannot open shared object file` inside the
+`python:3.12-slim` base image, which does not include it — found and fixed
+while building this Sprint's own capability, and is exactly the class of
+problem "deterministic container startup validation" exists to catch.
+
+**Container startup workflow**: the `Dockerfile` now also declares a
+`HEALTHCHECK` (a plain `python -c ...` one-liner using only the standard
+library — no `curl`, avoiding a new system dependency in the image) that
+polls the real `GET /health` endpoint from inside the running container,
+so `docker ps`/orchestrators can observe container health directly:
+
+```bash
+docker build -t readmatch-ai .
+docker run -d -p 8000:8000 readmatch-ai
+docker inspect --format='{{json .State.Health}}' <container>
+```
+
+**Runtime validation sequence** — `ContainerRuntimeValidator`
+(`readmatch_ai.deployment_validation`) drives the exact same FastAPI app
+object (`api.main.create_app()`) the `Dockerfile`'s own `uvicorn
+readmatch_ai.api.main:app` entrypoint serves, via an in-process
+`TestClient`:
+
+1. **startup** — builds the real `ApplicationContext` (Sprint 32's
+   `RuntimeBootstrapValidator` runs first, exactly as it does in
+   production; a statically invalid configuration is reported here and
+   nothing further is checked);
+2. **health** — `GET /health` must return HTTP 200 with `healthy: true`;
+3. **readiness** — `GET /readiness` must return HTTP 200 with `ready: true`
+   (already reflecting persistence integration via the `persistence_runtime`
+   check, Sprint 33, when applicable — not re-validated separately here);
+4. **api** — `GET /recommendations/popularity` must return HTTP 200, a
+   minimal, real proof of API availability beyond the observability
+   endpoints themselves.
+
+Every exercised endpoint is already read-only; this capability never writes
+to a database, creates data, or performs any destructive initialization.
+
+**Deployment validation command**:
+
+```bash
+python scripts/validate_deployment.py
+```
+
+```
+Deployment validation summary:
+
+  mode: development
+  checked: startup, health, readiness, api
+  valid: True
+
+Deployment valid -- the application starts successfully and GET /health, GET /readiness, and a real recommendation endpoint are all reachable.
+```
+
+Exits `0` for a valid deployment, `1` otherwise, with every violation
+listed (`[code] component: message`) — e.g.
+`[readiness_endpoint_unhealthy] readiness: GET /readiness returned HTTP 503 (failing: book_repository)`.
+Contains no validation logic of its own; reuses `RuntimeBootstrapValidator`
+and the real health/readiness endpoints exclusively.
+
+**Startup troubleshooting**: a `startup_configuration_invalid` violation
+means static configuration is invalid (see Operational Configuration and
+Runtime Hardening above — run `scripts/validate_runtime.py` for the full
+violation list); a `startup_failed` violation means something else failed
+while actually composing the application (a real dependency failure, e.g.
+an unreachable PostgreSQL — see Persistence and Vector Runtime Validation
+above); a `health_endpoint_unhealthy`/`readiness_endpoint_unhealthy`/
+`api_endpoint_unavailable` violation means the application started but a
+specific endpoint is reporting a problem — the message lists which
+underlying check(s) are failing.
+
+**Secret redaction**: violation messages never include `DATABASE_URL`,
+credentials, or any raw environment value — only endpoint names, HTTP
+status codes, and the names of underlying failing checks (already-redacted
+per Sprint 31/32/33's own discipline).
+
+**Limitations**: validation runs in-process (via `TestClient`, the same
+mechanism this project's entire test suite already uses to validate the
+API layer) against the real application code, not against a literal
+running Docker container over the network — it faithfully exercises the
+same production entrypoint and dependency-injection wiring, but does not
+by itself prove the `Dockerfile`/image build succeeds or that the
+container's own network/port configuration is correct; `docker build` +
+`docker run` (as shown above) remains the way to verify those. It also does
+not validate Kubernetes or other orchestrator-specific deployment manifests
+— none exist in this repository today.
 
 ## Testing
 

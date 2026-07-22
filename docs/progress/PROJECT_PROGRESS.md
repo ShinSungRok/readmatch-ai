@@ -2,12 +2,12 @@
 
 ## Current State
 
-- Current Phase: Phase 6 of 8 — Data4Library Import Pipeline (extended: Sprint 58-60, production data refresh flow) — Complete
-- Current Sprint: Sprint 60 of 68 — Popularity Refresh and Orchestration — Complete (Sprint 58-60 complete)
-- Last Completed Task: Sprint 60 / Task 1 — Popularity Refresh and Orchestration
-- Last Commit: 5c4017f
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (239 source files); `pytest -q` (full suite) — 831 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this work); `pytest tests/api/` — 112 passed (REST/recommendation compatibility confirmed); `python scripts/run_demo.py` / `validate_release.py` / `validate_runtime.py` / `validate_deployment.py` — all pass, deterministic; `git diff --stat` confirms zero changes to any recommendation-engine or ranking-strategy file across Sprint 58-60
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-5 are complete. Phase 6 (Data4Library import pipeline), originally completed at Sprint 57, is now fully extended (Sprint 58-60) with the production data-refresh flow: incremental synchronization, selective embedding refresh, and orchestrated (staged, not atomic) popularity refresh, exposed via `scripts/refresh_recommendation_data.py`.
+- Current Phase: Phase 7 of 8 — Recommendation Evaluation (Sprint 61-64) — in progress
+- Current Sprint: Sprint 61 of 68 — Offline Evaluation Dataset — Complete
+- Last Completed Task: Sprint 61 / Task 1 — Offline Evaluation Dataset
+- Last Commit: (recorded after commit; Sprint 61)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (239 source files); `pytest -q` (full suite) — 839 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint)
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-6 are complete. Phase 7 (offline recommendation evaluation) is in progress: an unusually mature pre-existing evaluation framework (Precision/Recall/MAP/NDCG/HitRate@K, multi-engine comparison, Markdown/CSV reports, regression gating) was found already in place; this Phase closes the genuine remaining gaps on top of it, starting with train/validation/test dataset splitting (Sprint 61, done).
 
 ## Task Log
 
@@ -1675,6 +1675,26 @@ Use this format:
   - `git status`/`git diff` reviewed before staging: only this Sprint's four new files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
 - Commit: 5c4017f
 - Notes: No architecture change, public-contract break, or destructive operation was required. No job framework, scheduler, or queue was added -- `scripts/refresh_recommendation_data.py` is a plain, manually-invoked CLI script. **Execution model, stated explicitly per this Sprint's own requirement**: staged and partially recoverable, not atomic -- see `RefreshRecommendationDataUseCase`'s own docstring for the exact per-stage commit/rollback boundaries. This completes Sprint 58-60, extending Phase 6 (Data4Library Import Pipeline) with the full production data-refresh flow: incremental synchronization, selective embedding refresh, and orchestrated popularity refresh, on top of the Sprint 56-57 connector/import foundation.
+
+# Phase 7 — Recommendation Evaluation (Sprint 61-64)
+
+Goal: build an offline recommendation evaluation framework for the existing recommendation engines (no new recommendation algorithms). Before writing anything, reviewed the repository per this Phase's own "review... before implementation" instruction and found an unusually mature, pre-existing evaluation framework already in place (predating this session's 8-phase plan -- docstrings reference Sprint 30-era work): `domain/evaluation.py` (`EvaluationCase`/`EvaluationDataset`), `domain/evaluation_metrics.py` (Precision@K, Recall@K, MAP, NDCG, HitRate@K, plus diversity/coverage/novelty, all as pure functions), `application/evaluate_recommendation_engine_use_case.py` (the reusable per-engine evaluation API), `domain/quality_report.py` + `application/generate_recommendation_quality_report_use_case.py` (multi-engine comparison + report structure), `infrastructure/markdown_recommendation_quality_reporter.py` + `csv_recommendation_quality_reporter.py`, `domain/quality_regression.py` (CI-style threshold gating), and `scripts/generate_quality_report.py` (a full CLI runner: dataset -> 6-engine comparison, including Popularity/Semantic/ALS/Hybrid -- -> metrics -> comparison -> Markdown+CSV report -> regression check). This changed every Sprint's scope from "build" to "find the genuine gap and close it."
+
+## Sprint 61 — Offline Evaluation Dataset
+
+### Task 1 — Offline Evaluation Dataset
+
+- Status: Done
+- Summary: Reviewed `domain/evaluation.py` first and found `EvaluationCase`/`EvaluationDataset` already covering dataset models, evaluation-by-user (`EvaluationCase.user_id`), and Top-K evaluation (the `k` parameter threading through `EvaluateRecommendationEngineUseCase`/every metric function) -- all already-satisfied requirements, confirmed via `tests/domain/test_evaluation.py`'s existing coverage. The one genuine gap: no train/validation/test split concept existed anywhere in the codebase.
+  - **`split_dataset()` + `DatasetSplit`** (new, `domain/evaluation.py`): partitions an `EvaluationDataset` into train/validation/test `EvaluationDataset`s. Ratios (default 70/15/15) must be positive and sum to 1.0, checked explicitly (`ValueError` otherwise, never silently renormalized). Case order is shuffled via a seed-derived `random.Random(seed)` (never Python's global random state) before partitioning -- both to make the split reproducible (same dataset + seed -> byte-identical splits, run to run, satisfying "keep deterministic dataset generation") and to avoid bias from a dataset's own case ordering (e.g. `scripts/demo_fixtures.py`'s cases are grouped by book category; an unshuffled contiguous split would put entire categories in only one split). Raises `ValueError` if a dataset is too small for the requested ratios to produce three non-empty splits (`EvaluationDataset` itself forbids empty `cases`) -- a caller error surfaced immediately, not silently dropped.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (239 source files)
+  - `python3 -m pytest -q tests/domain/test_evaluation.py -v` — 15 passed (7 new: exact partitioning with no overlap/drops, ratio-respecting split sizes, determinism given a fixed seed, different seeds can differ, rejects ratios not summing to 1.0, rejects a non-positive ratio, rejects a dataset too small for a non-empty split; plus a regression check pinning the real 8-case demo dataset's size against the default ratios)
+  - `python3 -m pytest -q` (full suite) — 839 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
+  - `git status`/`git diff` reviewed before staging: only `domain/evaluation.py` and its test file touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. `EvaluationDataset`/`EvaluationCase`/`EvaluateRecommendationEngineUseCase` are all unmodified -- `split_dataset()` is a pure, additive function operating on the existing dataset model, not a rewrite of it. `scripts/generate_quality_report.py`'s default, already-calibrated regression thresholds are deliberately left evaluating the full dataset, unchanged by this Sprint; Sprint 63 demonstrates `split_dataset()` consuming the real demo fixtures in a new, additive test rather than altering that existing, calibrated script.
 
 ## Current Constraints
 

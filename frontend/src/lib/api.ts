@@ -1,21 +1,33 @@
 import { getApiBaseUrl } from "@/lib/config";
 
-export interface Book {
+/** Mirrors readmatch_ai.api.schemas.BookPresentationResponse (Sprint 39/42). */
+export interface BookPresentation {
   id: string;
   isbn: string;
   title: string;
   author: string;
   category: string;
+  publisher: string | null;
+  description: string | null;
+  cover_url: string;
+  published_date: string | null;
 }
 
-export interface RecommendationItem {
-  book: Book;
+export interface HomeFeedItem {
+  book: BookPresentation;
   score: number;
   source: string;
 }
 
-export interface RecommendationResponse {
-  items: RecommendationItem[];
+export interface HomeFeedSection {
+  id: string;
+  title: string;
+  items: HomeFeedItem[];
+}
+
+export interface HomeFeed {
+  hero: HomeFeedItem | null;
+  sections: HomeFeedSection[];
 }
 
 export interface ComponentCheck {
@@ -53,33 +65,14 @@ export function getHealth(): Promise<HealthResponse> {
   return apiFetch<HealthResponse>("/health");
 }
 
-/** GET /recommendations/popularity -- see readmatch_ai.api.recommendations_router. */
-export function getPopularityRecommendations(limit = 10): Promise<RecommendationResponse> {
-  return apiFetch<RecommendationResponse>(`/recommendations/popularity?limit=${limit}`);
-}
-
 /**
- * GET /recommendations/hybrid -- see readmatch_ai.api.recommendations_router.
+ * GET /home-feed -- see readmatch_ai.api.home_feed_router.
  *
- * Called with no book_id/user_id: blends popularity, semantic, and ALS
- * signals without anchoring to a specific book or (out of Phase 2's scope)
- * an authenticated user.
+ * The one consolidated call the recommendation home page needs: a hero plus
+ * zero or more titled sections, already composed and presentation-enriched
+ * by the backend (Sprint 42) -- the frontend does no further recommendation
+ * composition of its own.
  */
-export function getHybridRecommendations(limit = 10): Promise<RecommendationResponse> {
-  return apiFetch<RecommendationResponse>(`/recommendations/hybrid?limit=${limit}`);
-}
-
-/**
- * GET /recommendations/semantic/{book_id} -- see readmatch_ai.api.recommendations_router.
- *
- * Returns an empty item list (not an error) if the source book has no
- * embedding yet -- the caller decides whether to render the section at all.
- */
-export function getSemanticRecommendations(
-  bookId: string,
-  limit = 10,
-): Promise<RecommendationResponse> {
-  return apiFetch<RecommendationResponse>(
-    `/recommendations/semantic/${encodeURIComponent(bookId)}?limit=${limit}`,
-  );
+export function getHomeFeed(limit = 12): Promise<HomeFeed> {
+  return apiFetch<HomeFeed>(`/home-feed?limit=${limit}`);
 }

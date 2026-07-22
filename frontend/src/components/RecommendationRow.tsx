@@ -1,4 +1,4 @@
-import type { RecommendationItem } from "@/lib/api";
+import type { HomeFeedItem } from "@/lib/api";
 import { BookCard } from "@/components/BookCard";
 
 export function RecommendationRow({
@@ -8,7 +8,7 @@ export function RecommendationRow({
 }: {
   title: string;
   description?: string;
-  items: RecommendationItem[];
+  items: HomeFeedItem[];
 }) {
   if (items.length === 0) {
     return null;

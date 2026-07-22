@@ -28,6 +28,7 @@ from readmatch_ai.application.generate_semantic_recommendation_use_case import (
 from readmatch_ai.application.get_book_by_id_use_case import GetBookByIdUseCase
 from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseCase
 from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
+from readmatch_ai.application.get_home_feed_use_case import GetHomeFeedUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
 from readmatch_ai.application.health_check_service import HealthCheckService
 from readmatch_ai.application.readiness_check_service import ReadinessCheckService
@@ -142,6 +143,7 @@ class ApplicationContext:
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
     get_book_presentation_use_case: GetBookPresentationUseCase
+    get_home_feed_use_case: GetHomeFeedUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
@@ -270,6 +272,13 @@ class ApplicationContext:
         Book with its optional presentation metadata (see
         application.book_presentation) -- a UI concern kept out of the
         recommendation engines/use cases entirely.
+
+        get_home_feed_use_case (Sprint 42) composes the already-built
+        popularity_use_case/hybrid_use_case/semantic_use_case (built below,
+        before this method's `return`) and book_presentation_use_case into
+        one consolidated home-feed response -- the same use case instances
+        the individual recommendation endpoints call directly, so a request
+        through either path is metered/logged exactly once.
 
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
@@ -461,6 +470,17 @@ class ApplicationContext:
                 inner_engine, execution_observer, engine_name, recommendation_type
             )
 
+        popularity_use_case = GetRecommendationsUseCase(
+            _observed(engine, "popularity", "popularity")
+        )
+        hybrid_use_case = GenerateHybridRecommendationUseCase(
+            _observed(hybrid_engine, "hybrid", "hybrid")
+        )
+        semantic_use_case = GenerateSemanticRecommendationUseCase(
+            _observed(semantic_engine, "semantic", "semantic")
+        )
+        book_presentation_use_case = GetBookPresentationUseCase(repository, metadata_repository)
+
         return cls(
             book_repository=repository,
             book_popularity_repository=popularity_repository,
@@ -476,21 +496,16 @@ class ApplicationContext:
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
-            get_book_presentation_use_case=GetBookPresentationUseCase(
-                repository, metadata_repository
+            get_book_presentation_use_case=book_presentation_use_case,
+            get_home_feed_use_case=GetHomeFeedUseCase(
+                popularity_use_case, hybrid_use_case, semantic_use_case, book_presentation_use_case
             ),
-            get_recommendations_use_case=GetRecommendationsUseCase(
-                _observed(engine, "popularity", "popularity")
-            ),
+            get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository
             ),
-            generate_semantic_recommendation_use_case=GenerateSemanticRecommendationUseCase(
-                _observed(semantic_engine, "semantic", "semantic")
-            ),
-            generate_hybrid_recommendation_use_case=GenerateHybridRecommendationUseCase(
-                _observed(hybrid_engine, "hybrid", "hybrid")
-            ),
+            generate_semantic_recommendation_use_case=semantic_use_case,
+            generate_hybrid_recommendation_use_case=hybrid_use_case,
             generate_als_recommendation_use_case=GenerateAlsRecommendationUseCase(
                 _observed(als_engine, "als", "als")
             ),

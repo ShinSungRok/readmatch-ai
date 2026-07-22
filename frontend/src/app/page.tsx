@@ -1,31 +1,10 @@
 import { EmptyState } from "@/components/EmptyState";
 import { Hero } from "@/components/Hero";
 import { RecommendationRow } from "@/components/RecommendationRow";
-import {
-  getHealth,
-  getHybridRecommendations,
-  getPopularityRecommendations,
-  getSemanticRecommendations,
-  type RecommendationItem,
-} from "@/lib/api";
-import { buildCategoryRows } from "@/lib/categoryRows";
+import { getHealth, getHomeFeed } from "@/lib/api";
 
 export default async function HomePage() {
-  const [health, popularity] = await Promise.all([
-    getHealth(),
-    getPopularityRecommendations(12),
-  ]);
-
-  const hero: RecommendationItem | undefined = popularity.items[0];
-
-  const [hybrid, similarToHero] = hero
-    ? await Promise.all([
-        getHybridRecommendations(12),
-        getSemanticRecommendations(hero.book.id, 12),
-      ])
-    : [{ items: [] as RecommendationItem[] }, { items: [] as RecommendationItem[] }];
-
-  const categoryRows = buildCategoryRows([popularity.items, hybrid.items, similarToHero.items]);
+  const [health, homeFeed] = await Promise.all([getHealth(), getHomeFeed(12)]);
 
   return (
     <div className="flex flex-col gap-10">
@@ -37,31 +16,13 @@ export default async function HomePage() {
         Backend {health.healthy ? "connected" : "unavailable"}
       </div>
 
-      {!hero ? (
+      {!homeFeed.hero ? (
         <EmptyState message="No books have been registered yet." />
       ) : (
         <>
-          <Hero item={hero} />
-          <RecommendationRow
-            title="Popular books"
-            description="Ranked by reader loan activity."
-            items={popularity.items}
-          />
-          <RecommendationRow
-            title="Recommended picks"
-            description="Blended popularity, semantic similarity, and collaborative signals."
-            items={hybrid.items}
-          />
-          <RecommendationRow
-            title={`Similar to ${hero.book.title}`}
-            items={similarToHero.items}
-          />
-          {categoryRows.map((row) => (
-            <RecommendationRow
-              key={row.category}
-              title={`More in ${row.category}`}
-              items={row.items}
-            />
+          <Hero item={homeFeed.hero} />
+          {homeFeed.sections.map((section) => (
+            <RecommendationRow key={section.id} title={section.title} items={section.items} />
           ))}
         </>
       )}

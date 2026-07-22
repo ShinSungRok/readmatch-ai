@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 of 8 — Frontend Experience MVP (in progress)
-- Current Sprint: Sprint 41 of 68 — Recommendation Home — Complete
-- Last Completed Task: Sprint 41 / Task 1 — Recommendation Home
-- Last Commit: (recorded after commit; Sprint 41)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (no backend source changed this Sprint); frontend `npm run lint` — pass (2 pre-existing `no-img-element` warnings, not errors); `npx tsc --noEmit` — pass; `npm run build` — pass; manual end-to-end check against a live, demo-seeded backend confirmed the hero, all four recommendation rows, rank badges, and cover placeholders render correctly
+- Current Sprint: Sprint 42 of 68 — Home Feed API — Complete
+- Last Completed Task: Sprint 42 / Task 1 — Home Feed API
+- Last Commit: (recorded after commit; Sprint 42)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (192 source files); `pytest -q` — pass (589 passed; 42 pre-existing, unrelated Docker-dependent PostgreSQL-test errors, same as Sprint 40/41); `python scripts/run_demo.py` re-run — rankings/scores unchanged; frontend `npm run lint`/`npx tsc --noEmit`/`npm run build` — pass; manual end-to-end check against a live, demo-seeded backend confirmed the frontend home now renders entirely from `GET /home-feed`, with real presentation metadata (publisher/description/cover) flowing through
 - Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phase 2 (this Phase) is a new, in-progress frontend/presentation capability layered on top of that unchanged backend.
 
 ## Task Log
@@ -1251,8 +1251,32 @@ Use this format:
   - `cd frontend && npm run build` — pass (Turbopack production build)
   - Manual end-to-end check: started the real backend seeded with `scripts/demo_fixtures.py`'s deterministic dataset (via a throwaway local script, not committed) and the frontend dev server against it. Confirmed via the rendered HTML: hero renders "Sapiens" (the #1 popularity book); "Popular books", "Recommended picks", "Similar to Sapiens", and three "More in `<category>`" rows (History/Science Fiction/Software Engineering) all render; rank badges `#1`-`#6` present; all 6 placeholder cover variants resolve `200` and multiple distinct variants appear across cards, confirming the hash-based fallback actually varies.
   - `git status`/`git diff` reviewed before staging: only this Sprint's frontend files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 7ff9247
 - Notes: No architecture change, public-contract break, or destructive operation was required. The "personalized"/`/recommendations/personalized/{user_id}` and "explained" endpoints were deliberately not used on this anonymous home page -- Phase 2 explicitly excludes authentication/user sessions, and inventing a demo user id here would misrepresent an anonymous visit as personalization.
+
+## Sprint 42 — Home Feed API
+
+### Task 1 — Home Feed API
+
+- Status: Done
+- Summary: Added one consolidated `GET /home-feed` endpoint that composes the same existing, already-wired use cases the individual recommendation endpoints use (popularity, hybrid, semantic) plus the existing `GetBookPresentationUseCase` (Sprint 39) -- no new ranking/scoring logic, and every existing endpoint is completely unchanged. This is the backend counterpart to Sprint 41's frontend-side composition (hero + popular/recommended/similar-to-hero/category rows), now moved server-side so the frontend no longer duplicates that grouping logic itself.
+  - **`application/home_feed.py`** (new): `HomeFeedItem` (a `BookPresentation` plus `score`/`source`), `HomeFeedSection` (`id`/`title`/`items`), `HomeFeed` (`hero: HomeFeedItem | None`, `sections: list[HomeFeedSection]`) -- application-layer DTOs, mirroring `application/book_presentation.py`'s existing pattern.
+  - **`application/get_home_feed_use_case.py`** (new): `GetHomeFeedUseCase`, constructed with the *same* `GetRecommendationsUseCase`/`GenerateHybridRecommendationUseCase`/`GenerateSemanticRecommendationUseCase`/`GetBookPresentationUseCase` instances `ApplicationContext` already builds for the individual endpoints (not rebuilt/duplicated), so a request through either path is metered/logged exactly once by the existing observability wiring. `execute(limit)`: returns an empty feed (`hero=None, sections=[]`) if there are no popularity items; otherwise builds "popular" (popularity), "recommended" (hybrid, no book/user id), and -- only if non-empty -- "similar-to-hero" (semantic, anchored on the hero book) sections, plus zero or more `category-<slug>` sections grouping already-ranked items sharing a category (>=2 books, sorted by name; pure presentation shaping, not a new algorithm, ported directly from Sprint 41's frontend `buildCategoryRows`, which this Sprint's frontend change below removes as now-duplicate logic).
+  - **`application_context.py`**: refactored `_compose` to build `popularity_use_case`/`hybrid_use_case`/`semantic_use_case`/`book_presentation_use_case` as local variables (previously constructed inline as `cls(...)` keyword arguments) so `get_home_feed_use_case` -- and the existing fields -- reference the exact same instances; no behavioural change to any existing field.
+  - **`api/schemas.py`**: added `BookPresentationResponse`, `HomeFeedItemResponse`, `HomeFeedSectionResponse`, `HomeFeedResponse` (all with `from_domain`, following every existing schema's pattern). No existing schema (`BookResponse` included) changed.
+  - **`api/home_feed_router.py`** (new) + registered in `api/main.py`: `GET /home-feed?limit=` (default 12, `1 <= limit <= 100` matching every other recommendation endpoint's `_LimitQuery`).
+  - **Frontend**: `frontend/src/lib/api.ts` now exposes `BookPresentation`/`HomeFeedItem`/`HomeFeedSection`/`HomeFeed` and `getHomeFeed()`, replacing the Sprint-41 `getPopularityRecommendations`/`getHybridRecommendations`/`getSemanticRecommendations` trio (removed -- no remaining caller). `frontend/src/app/page.tsx` now makes one `getHomeFeed()` call instead of composing three; `BookCard`/`Hero` render `book.cover_url` directly from the backend (real metadata when recorded, the same deterministic-fallback path otherwise) instead of computing their own hash. `frontend/src/lib/covers.ts` and `frontend/src/lib/categoryRows.ts` (Sprint 41) are deleted as now-duplicate logic; `frontend/public/covers/placeholder-*.svg` are kept -- the backend's `deterministic_cover_fallback` returns a *relative* path (e.g. `/covers/placeholder-3.svg`), so the frontend must still serve those static assets even though it no longer computes which one to use.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (192 source files)
+  - `python3 -m pytest -q` — 589 passed; same 42 pre-existing, Docker-dependent PostgreSQL-test errors as Sprint 40/41 (unrelated to this Sprint)
+  - New tests: `tests/application/test_get_home_feed_use_case.py` (4 tests, isolated with stub `RecommendationEngine`s -- empty feed, hero/section composition anchored correctly on the hero book, category grouping/single-book-category exclusion, omitted similar-to-hero section when semantic has no results); `tests/api/test_home_feed_router.py` (13 tests -- empty feed, hero selection + score/source, presentation metadata passthrough, deterministic cover fallback, popular section matches `GET /recommendations/popularity` exactly, similar-to-hero present/absent, category section present/absent, determinism across repeated calls, limit validation); 2 new `tests/api/test_openapi_contract.py` tests (endpoint documented; `HomeFeedResponse`/`HomeFeedSectionResponse`/`HomeFeedItemResponse`/`BookPresentationResponse` schemas declared with the expected fields)
+  - `python scripts/run_demo.py` — re-run end-to-end; rankings/scores for every engine unchanged, confirming this Sprint's composition introduces no ranking/scoring changes
+  - `cd frontend && npm run lint` — pass (2 pre-existing `no-img-element` warnings, not errors); `npx tsc --noEmit` — pass; `npm run build` — pass
+  - Manual end-to-end check: started the real backend seeded with `scripts/demo_fixtures.py`'s dataset and the frontend dev server against it (throwaway local script, not committed). `GET /home-feed` returned real publisher/description/cover data for the demo books (not just the fallback). The rendered home page showed the hero ("Sapiens"), "Popular books", "Recommended picks", "Similar to Sapiens", and three "More in `<category>`" rows -- all sourced from the single `/home-feed` response, with cover images resolving correctly.
+  - `git status`/`git diff` reviewed before staging: only this Sprint's backend + frontend files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required -- every existing endpoint (`/recommendations/*`, `/health`, `/readiness`) is byte-for-byte unchanged; `/home-feed` is strictly additive.
 
 ## Current Constraints
 

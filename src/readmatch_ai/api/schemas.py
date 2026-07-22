@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from readmatch_ai.application.book_presentation import BookPresentation
+from readmatch_ai.application.home_feed import HomeFeed, HomeFeedItem, HomeFeedSection
 from readmatch_ai.domain.book import Book
 from readmatch_ai.domain.explainer import (
     ExplainedRecommendationItem,
@@ -56,6 +58,84 @@ class RecommendationResponse(BaseModel):
                 )
                 for item in result.recommendation.items
             ]
+        )
+
+
+class BookPresentationResponse(BaseModel):
+    """API representation of a BookPresentation (Sprint 39): UI-ready book data."""
+
+    id: str
+    isbn: str
+    title: str
+    author: str
+    category: str
+    publisher: str | None
+    description: str | None
+    cover_url: str
+    published_date: str | None
+
+    @classmethod
+    def from_domain(cls, presentation: BookPresentation) -> BookPresentationResponse:
+        return cls(
+            id=presentation.id,
+            isbn=presentation.isbn,
+            title=presentation.title,
+            author=presentation.author,
+            category=presentation.category,
+            publisher=presentation.publisher,
+            description=presentation.description,
+            cover_url=presentation.cover_url,
+            published_date=presentation.published_date,
+        )
+
+
+class HomeFeedItemResponse(BaseModel):
+    """API representation of a single HomeFeedItem: a presentation-ready book plus its signal."""
+
+    book: BookPresentationResponse
+    score: float
+    source: str
+
+    @classmethod
+    def from_domain(cls, item: HomeFeedItem) -> HomeFeedItemResponse:
+        return cls(
+            book=BookPresentationResponse.from_domain(item.book),
+            score=item.score,
+            source=item.source,
+        )
+
+
+class HomeFeedSectionResponse(BaseModel):
+    """API representation of one identified, titled HomeFeedSection."""
+
+    id: str
+    title: str
+    items: list[HomeFeedItemResponse]
+
+    @classmethod
+    def from_domain(cls, section: HomeFeedSection) -> HomeFeedSectionResponse:
+        return cls(
+            id=section.id,
+            title=section.title,
+            items=[HomeFeedItemResponse.from_domain(item) for item in section.items],
+        )
+
+
+class HomeFeedResponse(BaseModel):
+    """API representation of the consolidated HomeFeed (Sprint 42).
+
+    `hero`/`sections` are both empty (`hero: null`, `sections: []`) when
+    there are no books yet -- a valid, safe response, not an error.
+    """
+
+    hero: HomeFeedItemResponse | None
+    sections: list[HomeFeedSectionResponse]
+
+    @classmethod
+    def from_domain(cls, feed: HomeFeed) -> HomeFeedResponse:
+        return cls(
+            hero=HomeFeedItemResponse.from_domain(feed.hero) if feed.hero is not None else None,
+            sections=[HomeFeedSectionResponse.from_domain(section) for section in feed.sections],
         )
 
 

@@ -111,6 +111,41 @@ def test_docs_ui_is_served(client: TestClient) -> None:
     assert "text/html" in response.headers["content-type"]
 
 
+def test_openapi_schema_documents_the_home_feed_endpoint(client: TestClient) -> None:
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/home-feed" in paths
+    assert "get" in paths["/home-feed"]
+
+
+def test_openapi_schema_declares_the_home_feed_response_model(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+
+    home_feed_get = schema["paths"]["/home-feed"]["get"]
+    response_schema = home_feed_get["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "HomeFeedResponse" in response_schema["$ref"]
+    home_feed_schema = schema["components"]["schemas"]["HomeFeedResponse"]
+    assert set(home_feed_schema["properties"]) == {"hero", "sections"}
+    section_schema = schema["components"]["schemas"]["HomeFeedSectionResponse"]
+    assert set(section_schema["properties"]) == {"id", "title", "items"}
+    item_schema = schema["components"]["schemas"]["HomeFeedItemResponse"]
+    assert set(item_schema["properties"]) == {"book", "score", "source"}
+    book_schema = schema["components"]["schemas"]["BookPresentationResponse"]
+    assert set(book_schema["properties"]) == {
+        "id",
+        "isbn",
+        "title",
+        "author",
+        "category",
+        "publisher",
+        "description",
+        "cover_url",
+        "published_date",
+    }
+
+
 def test_openapi_schema_documents_the_health_and_readiness_endpoints(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
 

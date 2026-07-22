@@ -43,6 +43,8 @@ def full_schema_connection() -> Iterator[psycopg.Connection]:
                 "0004_add_pgvector_to_book_embeddings.sql",
                 "0005_widen_book_embeddings_vector_to_384.sql",
                 "0006_create_user_book_interactions_table.sql",
+                "0007_add_model_version_and_content_hash_to_book_embeddings.sql",
+                "0008_configure_hnsw_index_parameters.sql",
             ),
         )
         yield connection

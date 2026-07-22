@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 5 of 8 — PostgreSQL, pgvector, Vector Indexing, and Production Retrieval (in progress)
-- Current Sprint: Sprint 53 of 68 — pgvector Integration — Complete
-- Last Completed Task: Sprint 53 / Task 1 — pgvector Integration
-- Last Commit: (recorded after commit; Sprint 53)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (222 source files); `pytest -q` — pass (746 passed, up from 745; 47 pre-existing, unrelated Docker-dependent PostgreSQL-test errors -- one new Docker-dependent inner-product test added, one new constructor-validation test needed no Docker at all and actually ran/passed in this sandbox); `python scripts/run_demo.py` re-run — deterministic, unchanged
+- Current Sprint: Sprint 54 of 68 — Vector Indexing — Complete
+- Last Completed Task: Sprint 54 / Task 1 — Vector Indexing
+- Last Commit: (recorded after commit; Sprint 54)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (222 source files); `pytest -q` — pass (746 passed, unchanged; 49 pre-existing, unrelated Docker-dependent PostgreSQL-test errors -- 2 more than Sprint 53's count, both this Sprint's own new HNSW-verification tests); `python scripts/run_demo.py` re-run — deterministic, unchanged; `scripts/validate_release.py` — valid (unaffected, default backend is in-memory)
 - Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2, 3, and 4 (frontend experience, user interaction/feedback, real embeddings) are complete. Phase 5 (this Phase) is a new, in-progress production-vector-persistence capability layered on top of all three.
 
 ## Task Log
@@ -1517,8 +1517,30 @@ Use this format:
   - `python scripts/run_demo.py` — re-run; deterministic, unchanged (no recommendation-path code touched; `SemanticRecommendationEngine` still calls `find_similar()` exactly as before, unaware of which operator the repository uses underneath)
   - No PostgreSQL/Docker available in this sandbox to run the new database-dependent test live (same, by-now well-established environmental limitation as every prior PostgreSQL-dependent Sprint) -- confirmed via `which docker`/`docker ps`/`systemctl status postgresql`, all absent
   - `git status`/`git diff` reviewed before staging: only this Sprint's one file (plus its tests) touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 1b86a84
 - Notes: No architecture change, public-contract break, or destructive operation was required -- `similarity_metric` defaults to the existing `"cosine"` behavior, so every existing caller (including the composition root, which doesn't pass it) is completely unaffected. Not wired through `ApplicationContext`/environment configuration this Sprint: no current caller needs to switch it at runtime, and adding a whole config surface (`VECTOR_SIMILARITY_METRIC` env var, `ApplicationConfiguration` aggregation, `RuntimeConfigurationSummary` field) for a capability nothing yet uses would be scope creep beyond "the smallest coherent capability" this Phase's own execution policy asks for; the constructor parameter is the complete, appropriately-scoped answer to "support inner product where appropriate."
+
+## Sprint 54 — Vector Indexing
+
+### Task 1 — Vector Indexing
+
+- Status: Done
+- Summary: Reviewed the existing indexing setup first (same discipline as Sprints 52-53) and found the HNSW index itself, and its runtime validation, already built: `migrations/0004_add_pgvector_to_book_embeddings.sql` already creates `idx_book_embeddings_vector_cosine` using `hnsw (vector vector_cosine_ops)`, and `PostgreSQLPersistenceRuntimeValidator._check_vector_index` (with 2 dedicated tests, `test_valid_schema_reports_no_violations`/`test_missing_required_index_is_reported`) already validates it exists at runtime -- "create HNSW index" and "validate index creation" were both already complete. The gaps against this Sprint's remaining requirements: the index's build parameters were implicit (pgvector's own defaults, never stated), and nothing verified the index is actually *used*, correct, or compared against a sequential scan.
+  - **`migrations/0008_configure_hnsw_index_parameters.sql`** (new): drops and recreates the same index with explicit `WITH (m = 16, ef_construction = 64)` -- pgvector's own default values, now stated rather than implicit, with the migration's own comment documenting the trade-off (higher values -> slower builds/more memory for better recall) and explicitly noting these remain appropriate at this repository's current (demo) catalog scale, not production Data4Library volume (Phase 6, out of this Phase's scope). Also documents a real limitation this Sprint's review surfaced: `similarity_metric="inner_product"` (Sprint 53) queries (`<#>`) do **not** use this index -- pgvector requires a separate index per operator class (`vector_ip_ops` for inner product vs. this index's `vector_cosine_ops`) -- and a second, currently-unused index isn't justified while no caller selects that metric. Recorded as a documented trade-off, not silently glossed over.
+  - **`tests/infrastructure/test_postgresql_persistence_runtime_validator.py`**: while updating `full_schema_connection`'s applied-migrations list for 0008, noticed it was *also* missing migration 0007 (added in Sprint 48) -- a pre-existing gap that meant this fixture's "full schema" hadn't actually included `model_version`/`content_hash` since Sprint 48, even though nothing in that validator checks those specific columns so no test was failing because of it. Fixed alongside 0008 (both are one-line additions to the same tuple) rather than left for a later Sprint to rediscover.
+  - **`tests/infrastructure/test_postgresql_book_embedding_repository.py`** (+2 tests, both requiring a live database):
+    - `test_hnsw_index_is_used_by_the_query_planner`: runs `EXPLAIN` on the exact query `find_similar()` issues and asserts the plan actually names `idx_book_embeddings_vector_cosine` -- "verify similarity search correctness" needs the index to be *engaged*, not merely present; this is the check that would have caught a hypothetical future migration that created the index but query patterns that never triggered PostgreSQL's planner to choose it.
+    - `test_indexed_and_sequential_retrieval_return_the_same_ranking`: saves 5 distinct, deliberately-separated vectors, retrieves via the normal (indexed) `find_similar()`, then retrieves again with `SET LOCAL enable_indexscan = off; SET LOCAL enable_bitmapscan = off` forcing a sequential scan of the same data, and asserts both return the identical book-id ordering -- "compare indexed vs sequential retrieval": HNSW is an approximate algorithm in general, so this is the concrete check that approximation doesn't cost correctness at this repository's actual data volumes.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (222 source files)
+  - `python3 -m pytest -q` — 746 passed (unchanged from Sprint 53 -- both new tests require a live database); 49 pre-existing, Docker-dependent PostgreSQL-test errors (2 more than Sprint 53's count, both this Sprint's own new tests)
+  - `python scripts/run_demo.py` — re-run; deterministic, unchanged (no recommendation-path code touched)
+  - `python scripts/validate_release.py` — valid (unaffected; default `BOOK_REPOSITORY_BACKEND=in_memory` never touches this migration)
+  - No PostgreSQL/Docker available in this sandbox to run the new tests live (same well-established environmental limitation as every prior PostgreSQL-dependent Sprint this Phase) -- confirmed again via `which docker`/`docker ps`/`systemctl status postgresql`
+  - `git status`/`git diff` reviewed before staging: only this Sprint's files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. **Index configuration documented here, per this Sprint's own explicit requirement**: HNSW, `vector_cosine_ops`, `m=16`, `ef_construction=64` (pgvector defaults, now explicit) on `book_embeddings.vector`, sized for the current demo-scale catalog; query-time recall is separately tunable via the per-session `hnsw.ef_search` GUC (no migration needed, not currently wired up since nothing yet needs to tune it). The `inner_product` metric's lack of index support is a known, documented limitation, not an oversight -- flagged for a future Sprint if that metric is ever actually selected in production.
 
 ## Current Constraints
 

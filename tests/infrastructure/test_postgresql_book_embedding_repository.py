@@ -3,6 +3,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
+from pgvector import Vector
 from testcontainers.postgres import PostgresContainer
 
 from readmatch_ai.application_context import ApplicationContext
@@ -10,6 +11,7 @@ from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
 from readmatch_ai.domain.book_embedding import BookEmbedding
 from readmatch_ai.domain.book_popularity import BookPopularity
 from readmatch_ai.infrastructure.postgresql_book_embedding_repository import (
+    _SELECT_COLUMNS,
     PostgreSQLBookEmbeddingRepository,
 )
 from readmatch_ai.infrastructure.postgresql_book_repository import PostgreSQLBookRepository
@@ -33,6 +35,7 @@ def postgres_connection() -> Iterator[psycopg.Connection]:
             "0004_add_pgvector_to_book_embeddings.sql",
             "0005_widen_book_embeddings_vector_to_384.sql",
             "0007_add_model_version_and_content_hash_to_book_embeddings.sql",
+            "0008_configure_hnsw_index_parameters.sql",
         ):
             connection.execute((_MIGRATIONS_DIR / migration).read_text())
         connection.commit()
@@ -237,6 +240,68 @@ def test_find_similar_truncates_to_limit(
     result = repository.find_similar(_vector(1.0, 0.0), limit=1)
 
     assert [embedding.book_id for embedding in result] == [closest.book_id]
+
+
+# --- Sprint 54: HNSW index verification ---
+
+
+def test_hnsw_index_is_used_by_the_query_planner(
+    postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
+) -> None:
+    """Confirms the index (migration 0008) is actually engaged by
+    find_similar()'s query, not merely present-but-unused -- complements
+    PostgreSQLPersistenceRuntimeValidator's existing "does the index
+    exist" check with "is it actually the plan PostgreSQL picks".
+    """
+    repository.save(
+        _embedding_with_vector(_add_book(postgres_connection, "978-3-16-148410-0").id, _vector(1.0))
+    )
+    with postgres_connection.cursor() as cursor:
+        cursor.execute(
+            "EXPLAIN SELECT book_id FROM book_embeddings ORDER BY vector <=> %s LIMIT %s",
+            (Vector(list(_vector(1.0))), 1),
+        )
+        plan = "\n".join(row[0] for row in cursor.fetchall())
+
+    assert "idx_book_embeddings_vector_cosine" in plan
+
+
+def test_indexed_and_sequential_retrieval_return_the_same_ranking(
+    postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
+) -> None:
+    """Compares HNSW-indexed retrieval against a forced sequential scan of
+    the same data: HNSW is an approximate algorithm in general, but for
+    this small, well-separated a fixture it must still recover the exact
+    same ranking a brute-force scan finds -- proving the index doesn't
+    trade away correctness for this repository's actual data volumes.
+    """
+    vectors = {
+        "978-3-16-148410-0": _vector(1.0, 0.0, 0.0),
+        "0-306-40615-2": _vector(0.9, 0.1, 0.0),
+        "9780132350884": _vector(0.5, 0.5, 0.0),
+        "978-0-13-468599-1": _vector(0.0, 1.0, 0.0),
+        "978-0-596-00712-6": _vector(0.0, 0.0, 1.0),
+    }
+    for isbn, vector in vectors.items():
+        repository.save(_embedding_with_vector(_add_book(postgres_connection, isbn).id, vector))
+    query = _vector(1.0, 0.0, 0.0)
+
+    indexed_result = repository.find_similar(query, limit=5)
+
+    with postgres_connection.cursor() as cursor:
+        cursor.execute("SET LOCAL enable_indexscan = off")
+        cursor.execute("SET LOCAL enable_bitmapscan = off")
+        cursor.execute(
+            f"SELECT {_SELECT_COLUMNS} FROM book_embeddings ORDER BY vector <=> %s LIMIT %s",
+            (Vector(list(query)), 5),
+        )
+        sequential_rows = cursor.fetchall()
+    postgres_connection.rollback()  # SET LOCAL is transaction-scoped; discard, don't commit
+    sequential_result = [
+        PostgreSQLBookEmbeddingRepository._row_to_embedding(row) for row in sequential_rows
+    ]
+
+    assert [e.book_id for e in indexed_result] == [e.book_id for e in sequential_result]
 
 
 def test_application_context_generates_and_finds_similar_embeddings_via_postgresql(

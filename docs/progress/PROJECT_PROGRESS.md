@@ -1964,7 +1964,7 @@ while exercising the real stack.
   - `git status` reviewed before/after: no tracked file changed by this
     Sprint (progress log entry only); the pre-existing, unrelated
     `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after this entry is committed)
+- Commit: 6040de9
 - Notes: **Environmental limitation found and documented, not fixed**:
   Sprint 65's `pytest -q` run had `BOOK_REPOSITORY_BACKEND=postgresql`/
   `DATABASE_URL` (pointed at this same real, persistent

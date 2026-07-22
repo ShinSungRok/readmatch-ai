@@ -3,11 +3,11 @@
 ## Current State
 
 - Current Phase: Phase 6 of 8 — Data4Library Import Pipeline (extended: Sprint 58-60, production data refresh flow) — in progress
-- Current Sprint: Sprint 58 of 68 — Incremental Synchronization — Complete
-- Last Completed Task: Sprint 58 / Task 1 — Incremental Synchronization
-- Last Commit: (recorded after commit; Sprint 58)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (233 source files); `pytest -q` (full suite) — 819 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint); `python scripts/run_demo.py` / `validate_release.py` / `validate_runtime.py` / `validate_deployment.py` — all pass, deterministic; `git diff --stat` confirms zero changes to any embedding-generation or recommendation-engine file
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-5 are complete. Phase 6 (Data4Library import pipeline) originally completed at Sprint 57 and has now been extended (Sprint 58-60) to add the production data-refresh flow: incremental synchronization (Sprint 58, done) feeding selective embedding refresh (Sprint 59) and popularity refresh/orchestration (Sprint 60).
+- Current Sprint: Sprint 59 of 68 — Selective Embedding Refresh — Complete
+- Last Completed Task: Sprint 59 / Task 1 — Selective Embedding Refresh
+- Last Commit: (recorded after commit; Sprint 59)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (235 source files); `pytest -q` (full suite) — 825 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint); `python scripts/run_demo.py` — pass, deterministic; `git diff --stat` confirms zero changes to any recommendation-engine or ranking-strategy file
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-5 are complete. Phase 6 (Data4Library import pipeline) originally completed at Sprint 57 and has now been extended (Sprint 58-60) to add the production data-refresh flow: incremental synchronization (Sprint 58, done) and selective embedding refresh (Sprint 59, done), with popularity refresh/orchestration (Sprint 60) next.
 
 ## Task Log
 
@@ -1628,8 +1628,28 @@ Use this format:
   - Manual smoke test of `scripts/sync_books.py` (in-process, fake `BookDataSource`, real `ApplicationContext.create()`): first run creates 1 book and advances the checkpoint to `2024-01-31`; second run against the same data reports `unchanged 1` (not `updated`) and advances the checkpoint to `2024-02-29` -- confirms the CLI, not just the unit tests, exhibits the required idempotent-rerun behavior
   - `git diff --stat` confirms zero changes to any embedding-generation or recommendation-engine file
   - `git status`/`git diff` reviewed before staging: only this Sprint's files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 08029ca
 - Notes: No architecture change, public-contract break, or destructive operation was required. BookId is always preserved on update (`dataclasses.replace(book, id=existing_book.id)`, unchanged from Sprint 57). Re-running identical data creates no duplicates (ISBN-keyed reconciliation, unchanged since Sprint 57) and no false updates (new `unchanged` classification this Sprint). No job framework, scheduler, or queue was added -- `scripts/sync_books.py` is a plain, manually-invoked CLI script, exactly like `scripts/import_books.py`.
+
+## Sprint 59 — Selective Embedding Refresh
+
+### Task 1 — Selective Embedding Refresh
+
+- Status: Done
+- Summary: Reviewed the existing embedding pipeline first and found `BatchGenerateBookEmbeddingsUseCase` (Sprint 50) already implementing exactly the required regeneration decision -- missing embedding, changed canonical content (via `embedding_text.embedding_content_hash`), or stale `(model_name, model_version)` triggers regeneration; everything else is skipped, with zero model calls. Since "stale model version" can affect any book in the catalog (a model bump doesn't just affect books touched by the latest sync), scanning the whole catalog via `list_all()` -- what that use case already does -- is correct behavior here, not an inefficiency to work around; a sync-scoped variant would have missed exactly that case. The one genuine gap: nothing "connected" a sync run's completion to triggering this, and there was no whole-run failure reporting (an exception from `generate_batch()` would simply propagate and abort any caller).
+  - **`RefreshBookEmbeddingsUseCase`** (new, `application/refresh_book_embeddings_use_case.py`): a thin wrapper around an already-constructed `BatchGenerateBookEmbeddingsUseCase` -- reused unmodified, so there is exactly one embedding-regeneration engine, not two. Catches a whole-run failure (e.g. a real model/library error; `DeterministicFakeBookEmbeddingGenerator`, the default, never raises) and reports it via a new `failed` tuple instead of raising, so a later orchestration pipeline (Sprint 60) can treat embedding refresh as one recoverable stage. `EmbeddingRefreshResult` reports `requested`/`generated`/`skipped`/`failed`, mapped directly from `BatchEmbeddingGenerationStats`.
+  - **`ApplicationContext`**: added `refresh_book_embeddings_use_case`, built from the same, already-resolved `batch_generate_book_embeddings_use_case` instance (extracted from an inline expression into a named local so both fields can reference it) -- no external dependency gap here (unlike `ImportBooksUseCase`/`SynchronizeBooksUseCase`), so unlike those two, this use case is fully constructed inside the composition root.
+  - **Recommendation engines/ranking untouched**: confirmed via `git diff --stat` against every ALS/Popularity/Hybrid/ranking-strategy/`SemanticRecommendationEngine` file -- empty.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (235 source files)
+  - `python3 -m pytest -q tests/application/test_refresh_book_embeddings_use_case.py -v` — 6 passed: new/missing embedding, unchanged (repeated run skips), changed canonical content, stale model version, empty catalog, and a whole-run failure reported via `failed` rather than raised (using a `BookEmbeddingGenerator` test double that always raises)
+  - `python3 -m pytest -q tests/test_application_context.py` — 44 passed (confirms the new field/wiring didn't disturb the composition root's existing guarantees, including the postgresql-backend-with-fakes tests fixed in Sprint 58)
+  - `python3 -m pytest -q` (full suite) — 825 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
+  - `python scripts/run_demo.py` — run twice, diffed with timing noise excluded — identical
+  - `git status`/`git diff` reviewed before staging: only `application_context.py` (wiring) plus this Sprint's two new files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required -- no recommendation engine or ranking contract was touched. `DeterministicFakeBookEmbeddingGenerator`'s behavior is unchanged (not modified this Sprint at all). "Connecting" synchronization results to this pipeline is completed by Sprint 60's orchestration use case, which calls `RefreshBookEmbeddingsUseCase.execute()` after `SynchronizeBooksUseCase.execute()` -- this Sprint builds and unit-tests the embedding-refresh stage in isolation; Sprint 60 wires the full flow together.
 
 ## Current Constraints
 

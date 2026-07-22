@@ -43,6 +43,9 @@ from readmatch_ai.application.recommendation_metrics_collector import (
     RecommendationMetricsCollector,
 )
 from readmatch_ai.application.record_interaction_use_case import RecordInteractionUseCase
+from readmatch_ai.application.refresh_book_embeddings_use_case import (
+    RefreshBookEmbeddingsUseCase,
+)
 from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
 from readmatch_ai.config import (
     POSTGRESQL_BACKEND,
@@ -179,6 +182,7 @@ class ApplicationContext:
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     batch_generate_book_embeddings_use_case: BatchGenerateBookEmbeddingsUseCase
+    refresh_book_embeddings_use_case: RefreshBookEmbeddingsUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
     generate_hybrid_recommendation_use_case: GenerateHybridRecommendationUseCase
     generate_als_recommendation_use_case: GenerateAlsRecommendationUseCase
@@ -379,6 +383,14 @@ class ApplicationContext:
         books whose stored embedding is missing, stale (model changed), or
         out of date (content changed).
 
+        refresh_book_embeddings_use_case (Sprint 59) wraps that same,
+        already-resolved batch_generate_book_embeddings_use_case instance
+        -- not a second, competing embedding pipeline -- to additionally
+        catch a whole-run failure and report it instead of raising, so an
+        orchestration pipeline calling this after a sync (Sprint 60) can
+        treat embedding refresh as one recoverable stage rather than a
+        fatal one.
+
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
         als_recommendation_engine defaults to an ALSRecommendationEngine
@@ -526,6 +538,9 @@ class ApplicationContext:
             if sync_checkpoint_repository is not None
             else _build_sync_checkpoint_repository()
         )
+        batch_embeddings_use_case = BatchGenerateBookEmbeddingsUseCase(
+            repository, metadata_repository, embedding_generator, embedding_repository
+        )
         interaction_repository = (
             user_book_interaction_repository
             if user_book_interaction_repository is not None
@@ -638,8 +653,9 @@ class ApplicationContext:
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository, metadata_repository
             ),
-            batch_generate_book_embeddings_use_case=BatchGenerateBookEmbeddingsUseCase(
-                repository, metadata_repository, embedding_generator, embedding_repository
+            batch_generate_book_embeddings_use_case=batch_embeddings_use_case,
+            refresh_book_embeddings_use_case=RefreshBookEmbeddingsUseCase(
+                batch_embeddings_use_case
             ),
             generate_semantic_recommendation_use_case=semantic_use_case,
             generate_hybrid_recommendation_use_case=hybrid_use_case,

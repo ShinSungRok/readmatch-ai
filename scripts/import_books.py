@@ -43,12 +43,18 @@ def main(
         else context.book_popularity_repository
     )
 
-    use_case = ImportBooksUseCase(data_source, context.book_repository, popularity_repository)
+    use_case = ImportBooksUseCase(
+        data_source,
+        context.book_repository,
+        popularity_repository,
+        context.import_history_repository,
+    )
     result = use_case.execute(PopularLoanBooksQuery(args.start_date, args.end_date))
 
     print(
         f"Imported {len(result.imported)} book(s); "
-        f"skipped {len(result.skipped_duplicate_isbns)} duplicate ISBN(s)."
+        f"updated {len(result.updated)} book(s); "
+        f"skipped {len(result.invalid_records)} invalid record(s)."
     )
     return 0
 

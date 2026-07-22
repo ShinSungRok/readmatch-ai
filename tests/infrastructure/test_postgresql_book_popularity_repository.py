@@ -13,6 +13,9 @@ from readmatch_ai.domain.book_data_source import (
     PopularLoanBooksQuery,
 )
 from readmatch_ai.domain.book_popularity import BookPopularity
+from readmatch_ai.infrastructure.in_memory_import_history_repository import (
+    InMemoryImportHistoryRepository,
+)
 from readmatch_ai.infrastructure.postgresql_book_popularity_repository import (
     PostgreSQLBookPopularityRepository,
 )
@@ -160,7 +163,10 @@ def test_repeated_book_import_refreshes_popularity_via_postgresql(
         loan_count=100,
     )
     first_use_case = ImportBooksUseCase(
-        FakeBookDataSource([source_book]), book_repository, popularity_repository
+        FakeBookDataSource([source_book]),
+        book_repository,
+        popularity_repository,
+        InMemoryImportHistoryRepository(),
     )
     first_result = first_use_case.execute(PopularLoanBooksQuery("2024-01-01", "2024-01-31"))
     existing_book_id = first_result.imported[0].id
@@ -174,12 +180,16 @@ def test_repeated_book_import_refreshes_popularity_via_postgresql(
         loan_count=777,
     )
     second_use_case = ImportBooksUseCase(
-        FakeBookDataSource([reimported_book]), book_repository, popularity_repository
+        FakeBookDataSource([reimported_book]),
+        book_repository,
+        popularity_repository,
+        InMemoryImportHistoryRepository(),
     )
     second_result = second_use_case.execute(PopularLoanBooksQuery("2024-02-01", "2024-02-29"))
 
     assert second_result.imported == []
-    assert second_result.skipped_duplicate_isbns == ["9783161484100"]
+    assert len(second_result.updated) == 1
+    assert second_result.updated[0].id == existing_book_id
 
     top = popularity_repository.top_by_loan_count(10)
     assert len(top) == 1

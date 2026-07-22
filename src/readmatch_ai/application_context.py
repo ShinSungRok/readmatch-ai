@@ -60,6 +60,7 @@ from readmatch_ai.domain.book_metadata import BookMetadataRepository
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.explainer import DefaultRecommendationExplainer, RecommendationExplainer
+from readmatch_ai.domain.import_history import ImportHistoryRepository
 from readmatch_ai.domain.interaction_repository import InteractionRepository
 from readmatch_ai.domain.ranking_strategies import (
     ReciprocalRankFusionStrategy,
@@ -94,6 +95,9 @@ from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
 )
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
+from readmatch_ai.infrastructure.in_memory_import_history_repository import (
+    InMemoryImportHistoryRepository,
+)
 from readmatch_ai.infrastructure.in_memory_interaction_repository import (
     InMemoryInteractionRepository,
 )
@@ -145,6 +149,7 @@ class ApplicationContext:
     book_popularity_repository: BookPopularityRepository
     book_embedding_repository: BookEmbeddingRepository
     book_metadata_repository: BookMetadataRepository
+    import_history_repository: ImportHistoryRepository
     explicit_interaction_repository: InteractionRepository
     user_book_interaction_repository: UserBookInteractionRepository
     recommendation_engine: RecommendationEngine
@@ -188,6 +193,7 @@ class ApplicationContext:
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         book_metadata_repository: BookMetadataRepository | None = None,
+        import_history_repository: ImportHistoryRepository | None = None,
         explicit_interaction_repository: InteractionRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
@@ -224,6 +230,7 @@ class ApplicationContext:
                 book_embedding_repository=book_embedding_repository,
                 book_embedding_generator=book_embedding_generator,
                 book_metadata_repository=book_metadata_repository,
+                import_history_repository=import_history_repository,
                 explicit_interaction_repository=explicit_interaction_repository,
                 semantic_recommendation_engine=semantic_recommendation_engine,
                 hybrid_recommendation_engine=hybrid_recommendation_engine,
@@ -258,6 +265,7 @@ class ApplicationContext:
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         book_metadata_repository: BookMetadataRepository | None = None,
+        import_history_repository: ImportHistoryRepository | None = None,
         explicit_interaction_repository: InteractionRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
@@ -295,6 +303,18 @@ class ApplicationContext:
         Book with its optional presentation metadata (see
         application.book_presentation) -- a UI concern kept out of the
         recommendation engines/use cases entirely.
+
+        import_history_repository (Sprint 57) always defaults to
+        InMemoryImportHistoryRepository -- like book_metadata_repository, it
+        has no BookRepositoryConfig-driven PostgreSQL backend (out of this
+        Sprint's scope). It is exposed as a field so scripts/import_books.py
+        can construct ImportBooksUseCase against the same instance the rest
+        of ApplicationContext uses, but ImportBooksUseCase itself is
+        deliberately not built here: unlike every other repository above, a
+        BookDataSource (Data4LibraryBookDataSource) has no sensible default
+        and requires a real external auth key, so import orchestration
+        continues to live in scripts/import_books.py, not this composition
+        root -- see that script's own docstring.
 
         get_home_feed_use_case (Sprint 42) composes the already-built
         popularity_use_case/hybrid_use_case/semantic_use_case (built below,
@@ -472,6 +492,11 @@ class ApplicationContext:
             if book_metadata_repository is not None
             else InMemoryBookMetadataRepository()
         )
+        history_repository = (
+            import_history_repository
+            if import_history_repository is not None
+            else InMemoryImportHistoryRepository()
+        )
         interaction_repository = (
             user_book_interaction_repository
             if user_book_interaction_repository is not None
@@ -554,6 +579,7 @@ class ApplicationContext:
             book_popularity_repository=popularity_repository,
             book_embedding_repository=embedding_repository,
             book_metadata_repository=metadata_repository,
+            import_history_repository=history_repository,
             explicit_interaction_repository=explicit_interactions,
             user_book_interaction_repository=interaction_repository,
             recommendation_engine=engine,

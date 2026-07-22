@@ -89,6 +89,21 @@ def test_openapi_schema_declares_the_recommendation_response_model(client: TestC
     assert "BookResponse" in schema["components"]["schemas"]
 
 
+def test_book_response_schema_is_unaffected_by_the_presentation_model(
+    client: TestClient,
+) -> None:
+    """Sprint 39 adds a Book presentation model (application layer only) --
+    the existing BookResponse contract embedded in every recommendation
+    endpoint must stay exactly as it was, since presentation data is
+    surfaced through a dedicated contract in a later Sprint, not by
+    silently widening this one.
+    """
+    schema = client.get("/openapi.json").json()
+
+    book_schema = schema["components"]["schemas"]["BookResponse"]
+    assert set(book_schema["properties"]) == {"id", "isbn", "title", "author", "category"}
+
+
 def test_docs_ui_is_served(client: TestClient) -> None:
     response = client.get("/docs")
 

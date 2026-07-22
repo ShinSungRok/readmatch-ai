@@ -27,6 +27,7 @@ from readmatch_ai.application.generate_semantic_recommendation_use_case import (
 )
 from readmatch_ai.application.get_book_by_id_use_case import GetBookByIdUseCase
 from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseCase
+from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
 from readmatch_ai.application.health_check_service import HealthCheckService
 from readmatch_ai.application.readiness_check_service import ReadinessCheckService
@@ -46,6 +47,7 @@ from readmatch_ai.config import (
 )
 from readmatch_ai.domain.book_embedding_generator import BookEmbeddingGenerator
 from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepository
+from readmatch_ai.domain.book_metadata import BookMetadataRepository
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.explainer import DefaultRecommendationExplainer, RecommendationExplainer
@@ -73,6 +75,9 @@ from readmatch_ai.infrastructure.deterministic_fake_book_embedding_generator imp
 from readmatch_ai.infrastructure.hybrid_recommendation_engine import HybridRecommendationEngine
 from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
     InMemoryBookEmbeddingRepository,
+)
+from readmatch_ai.infrastructure.in_memory_book_metadata_repository import (
+    InMemoryBookMetadataRepository,
 )
 from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
@@ -125,6 +130,7 @@ class ApplicationContext:
     book_repository: BookRepository
     book_popularity_repository: BookPopularityRepository
     book_embedding_repository: BookEmbeddingRepository
+    book_metadata_repository: BookMetadataRepository
     user_book_interaction_repository: UserBookInteractionRepository
     recommendation_engine: RecommendationEngine
     semantic_recommendation_engine: RecommendationEngine
@@ -135,6 +141,7 @@ class ApplicationContext:
     register_book_use_case: RegisterBookUseCase
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
+    get_book_presentation_use_case: GetBookPresentationUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
@@ -158,6 +165,7 @@ class ApplicationContext:
         recommendation_engine: RecommendationEngine | None = None,
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
+        book_metadata_repository: BookMetadataRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
@@ -192,6 +200,7 @@ class ApplicationContext:
                 recommendation_engine=recommendation_engine,
                 book_embedding_repository=book_embedding_repository,
                 book_embedding_generator=book_embedding_generator,
+                book_metadata_repository=book_metadata_repository,
                 semantic_recommendation_engine=semantic_recommendation_engine,
                 hybrid_recommendation_engine=hybrid_recommendation_engine,
                 user_book_interaction_repository=user_book_interaction_repository,
@@ -224,6 +233,7 @@ class ApplicationContext:
         recommendation_engine: RecommendationEngine | None = None,
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
+        book_metadata_repository: BookMetadataRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
@@ -251,6 +261,15 @@ class ApplicationContext:
         semantic_recommendation_engine defaults to
         SemanticRecommendationEngine built from those same (already-resolved)
         book_embedding_repository/book_repository.
+
+        book_metadata_repository (Sprint 39) always defaults to
+        InMemoryBookMetadataRepository -- unlike the other repositories, it
+        has no BookRepositoryConfig-driven PostgreSQL backend, since a
+        persistence migration is out of this Sprint's scope.
+        get_book_presentation_use_case pairs it with `repository` to merge a
+        Book with its optional presentation metadata (see
+        application.book_presentation) -- a UI concern kept out of the
+        recommendation engines/use cases entirely.
 
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
@@ -379,6 +398,11 @@ class ApplicationContext:
             if semantic_recommendation_engine is not None
             else SemanticRecommendationEngine(embedding_repository, repository)
         )
+        metadata_repository = (
+            book_metadata_repository
+            if book_metadata_repository is not None
+            else InMemoryBookMetadataRepository()
+        )
         interaction_repository = (
             user_book_interaction_repository
             if user_book_interaction_repository is not None
@@ -441,6 +465,7 @@ class ApplicationContext:
             book_repository=repository,
             book_popularity_repository=popularity_repository,
             book_embedding_repository=embedding_repository,
+            book_metadata_repository=metadata_repository,
             user_book_interaction_repository=interaction_repository,
             recommendation_engine=engine,
             semantic_recommendation_engine=semantic_engine,
@@ -451,6 +476,9 @@ class ApplicationContext:
             register_book_use_case=RegisterBookUseCase(repository),
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
+            get_book_presentation_use_case=GetBookPresentationUseCase(
+                repository, metadata_repository
+            ),
             get_recommendations_use_case=GetRecommendationsUseCase(
                 _observed(engine, "popularity", "popularity")
             ),

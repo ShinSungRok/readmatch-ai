@@ -2,12 +2,12 @@
 
 ## Current State
 
-- Current Phase: Phase 7 — Release — Complete
-- Current Sprint: Sprint 38 — Final End-to-End Validation and Release Candidate — Complete (final sprint; project complete)
-- Last Completed Task: Sprint 38 / Task 1 — Final End-to-End Validation and Release Candidate
-- Last Commit: (recorded after commit; Sprint 38 / Task 1)
-- Validation: Established — `ruff check`, `mypy` (strict, 178 source files), `pytest` (595 tests) all passing; `python scripts/validate_release.py --include-tests` (the full orchestrated pipeline: configuration, deployment, operations, and the project's own quality gates) ran successfully end-to-end and reported `valid: True`; two consecutive runs produced byte-identical output, confirming deterministic repeated execution; documentation cross-checked for consistency (README table-of-contents anchors verified against actual headers; no unimplemented-feature references remain in linked docs)
-- Release status: **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md) for the full summary (implemented capabilities, prerequisites, validation/operational workflow, known limitations, release-readiness verdict).
+- Current Phase: Phase 2 of 8 — Frontend Experience MVP (in progress)
+- Current Sprint: Sprint 39 of 68 — Book Presentation Model — Complete
+- Last Completed Task: Sprint 39 / Task 1 — Book Presentation Model
+- Last Commit: (recorded after commit; Sprint 39)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass; `pytest -q` — pass (609 tests, up from 595); `python scripts/run_demo.py` re-run to confirm recommendation ranking/scores are byte-identical to before this Sprint (presentation data is additive only)
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phase 2 (this Phase) is a new, in-progress frontend/presentation capability layered on top of that unchanged backend.
 
 ## Task Log
 
@@ -1179,6 +1179,28 @@ Use this format:
   - `git status`/`git diff --stat` reviewed before staging: only Sprint 38 documentation files touched (`README.md`, `docs/progress/PROJECT_PROGRESS.md`, new `docs/release/RELEASE_CANDIDATE.md`); the pre-existing, unrelated `docs/agent/architecture/*` deletion (standing since Sprint 1) left untouched and unstaged, exactly as every prior Sprint has preserved it.
 - Commit: (recorded after commit)
 - Notes: This is the final Sprint (38 of 38) -- Phase 7 (Release) and the project as a whole are complete as of this commit. No architecture change, public-contract break, or destructive operation was required or requested, so no confirmation was needed per this Sprint's own Execution Policy. The Release Candidate verdict in `docs/release/RELEASE_CANDIDATE.md` is: **approved**, under the default (in-memory, development-mode) configuration validated directly in this Sprint; a PostgreSQL production deployment should still run the validation scripts against its own real `DATABASE_URL` before serving traffic, since this Sprint (correctly, per the project's own default configuration) never exercised a real PostgreSQL connection.
+
+## Sprint 39 — Book Presentation Model
+
+### Task 1 — Book Presentation Model
+
+- Status: Done
+- Summary: Reviewed the existing Book domain (`domain/book.py`: id/isbn/title/author/category only, no metadata fields), `BookResponse`/recommendation response schemas, `book_import_mapper.py`, and demo fixtures before choosing a design. Followed the existing `BookPopularity`/`BookPopularityRepository` pattern (a signal recorded independently of the `Book` aggregate, via its own port/adapter) rather than widening the core `Book` entity itself, since `Book` is used throughout ranking/scoring/hashing and Sprint scope requires UI concerns to stay out of the recommendation Domain.
+  - **`domain/book_metadata.py`** (new): `BookMetadata` (book_id, publisher, description, cover_url, published_date — every field optional) and the `BookMetadataRepository` port (`record`/`get_by_book_id`).
+  - **`infrastructure/in_memory_book_metadata_repository.py`** (new): dict-backed adapter, the only adapter added — no PostgreSQL backend, since a persistence migration is out of this Sprint's scope (and out of scope for Phase 2 generally, per this Phase's Out of Scope list).
+  - **`application/book_presentation.py`** (new): `BookPresentation` (an application-layer DTO, not a Domain concept) and `to_book_presentation(book, metadata)`, which merges a `Book` with its optional `BookMetadata`. Missing metadata is handled safely (every field but `cover_url` stays `None`); `cover_url` always resolves via `deterministic_cover_fallback(book_id)` — a stable placeholder path derived from a SHA-256 hash of the book id, requiring no network call and reproducible across runs/processes.
+  - **`application/get_book_presentation_use_case.py`** (new): `GetBookPresentationUseCase.execute(book_id) -> BookPresentation | None`, composing `BookRepository` + `BookMetadataRepository`; returns `None` for an unknown book id, consistent with `GetBookByIdUseCase`.
+  - **`application_context.py`**: added `book_metadata_repository` (always `InMemoryBookMetadataRepository`, no env-driven backend) and `get_book_presentation_use_case` fields/wiring, following the same override-parameter pattern as every other repository/use case.
+  - **`scripts/demo_fixtures.py`**: enriched all 8 seed books with real, publicly-known publisher/description/published_date metadata (each clearly a small factual blurb, not fabricated data); `seed_demo_dataset` now also records this into `book_metadata_repository`. Cover URLs are intentionally left unset for every demo book, so the deterministic fallback path is what a fresh checkout actually exercises end-to-end.
+  - No REST endpoint was added this Sprint: the required "API contract test" instead guards that the existing `BookResponse` contract embedded in every recommendation endpoint is completely unaffected (still exactly `id`/`isbn`/`title`/`author`/`category`) — presentation data reaches the API in Sprint 42 (home feed) and Sprint 43 (book detail) via their own dedicated contracts, not by silently widening this one.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy src tests scripts` — pass, strict (178 source files)
+  - `python3 -m pytest -q` — pass (609 passed, up from 595 — 14 new tests: `tests/domain/test_book_metadata.py`, `tests/infrastructure/test_in_memory_book_metadata_repository.py`, `tests/application/test_book_presentation.py`, `tests/application/test_get_book_presentation_use_case.py`, plus one new contract test in `tests/api/test_openapi_contract.py`)
+  - `python scripts/run_demo.py` — re-run end-to-end; recommendation rankings/scores for every engine are unchanged from before this Sprint, confirming the addition is purely additive and does not touch ranking/scoring
+  - `git status`/`git diff` reviewed before staging: only this Sprint's files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged, as every prior Sprint has preserved it
+- Commit: (recorded after commit)
+- Notes: `BookMetadataRepository` deliberately has no PostgreSQL adapter (unlike `BookPopularityRepository`) — out of this Sprint's/Phase's scope. No architecture change, public-contract break, or destructive operation was required.
 
 ## Current Constraints
 

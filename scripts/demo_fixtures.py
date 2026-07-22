@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
+from readmatch_ai.domain.book_metadata import BookMetadata
 from readmatch_ai.domain.book_popularity import BookPopularity
 from readmatch_ai.domain.evaluation import EvaluationCase, EvaluationDataset
 from readmatch_ai.domain.ranking_strategies import (
@@ -49,6 +50,9 @@ class _SeedBook:
     author: str
     category: str
     loan_count: int
+    publisher: str
+    description: str
+    published_date: str
 
 
 def _isbn13(twelve_digits: str) -> str:
@@ -62,16 +66,86 @@ def _isbn13(twelve_digits: str) -> str:
 # loan_count) and category-grouping (used below as evaluation ground truth)
 # produce visibly different rankings.
 SEED_BOOKS: tuple[_SeedBook, ...] = (
-    _SeedBook("978000000001", "Clean Code", "Robert C. Martin", "Software Engineering", 120),
     _SeedBook(
-        "978000000002", "The Pragmatic Programmer", "Andrew Hunt", "Software Engineering", 95
+        "978000000001",
+        "Clean Code",
+        "Robert C. Martin",
+        "Software Engineering",
+        120,
+        publisher="Prentice Hall",
+        description="A handbook of agile software craftsmanship.",
+        published_date="2008-08-01",
     ),
-    _SeedBook("978000000003", "Effective Java", "Joshua Bloch", "Software Engineering", 80),
-    _SeedBook("978000000004", "Dune", "Frank Herbert", "Science Fiction", 150),
-    _SeedBook("978000000005", "Foundation", "Isaac Asimov", "Science Fiction", 60),
-    _SeedBook("978000000006", "Neuromancer", "William Gibson", "Science Fiction", 40),
-    _SeedBook("978000000007", "Sapiens", "Yuval Noah Harari", "History", 200),
-    _SeedBook("978000000008", "Guns, Germs, and Steel", "Jared Diamond", "History", 30),
+    _SeedBook(
+        "978000000002",
+        "The Pragmatic Programmer",
+        "Andrew Hunt",
+        "Software Engineering",
+        95,
+        publisher="Addison-Wesley",
+        description="From journeyman to master, a guide to becoming a better programmer.",
+        published_date="1999-10-20",
+    ),
+    _SeedBook(
+        "978000000003",
+        "Effective Java",
+        "Joshua Bloch",
+        "Software Engineering",
+        80,
+        publisher="Addison-Wesley",
+        description="Best practices for the Java platform.",
+        published_date="2001-05-01",
+    ),
+    _SeedBook(
+        "978000000004",
+        "Dune",
+        "Frank Herbert",
+        "Science Fiction",
+        150,
+        publisher="Chilton Books",
+        description="A young heir navigates politics, religion, and ecology on a desert planet.",
+        published_date="1965-08-01",
+    ),
+    _SeedBook(
+        "978000000005",
+        "Foundation",
+        "Isaac Asimov",
+        "Science Fiction",
+        60,
+        publisher="Gnome Press",
+        description="A mathematician predicts the fall of a galactic empire.",
+        published_date="1951-05-01",
+    ),
+    _SeedBook(
+        "978000000006",
+        "Neuromancer",
+        "William Gibson",
+        "Science Fiction",
+        40,
+        publisher="Ace Books",
+        description="A washed-up hacker takes one last job in a near-future dystopia.",
+        published_date="1984-07-01",
+    ),
+    _SeedBook(
+        "978000000007",
+        "Sapiens",
+        "Yuval Noah Harari",
+        "History",
+        200,
+        publisher="Harvill Secker",
+        description="A brief history of humankind.",
+        published_date="2011-01-01",
+    ),
+    _SeedBook(
+        "978000000008",
+        "Guns, Germs, and Steel",
+        "Jared Diamond",
+        "History",
+        30,
+        publisher="W. W. Norton",
+        description="The fates of human societies, explained by geography and environment.",
+        published_date="1997-03-01",
+    ),
 )
 
 
@@ -143,6 +217,14 @@ def seed_demo_dataset(context: ApplicationContext) -> list[Book]:
                 loan_count=seed.loan_count,
                 period_start="2024-01-01",
                 period_end="2024-12-31",
+            )
+        )
+        context.book_metadata_repository.record(
+            BookMetadata(
+                book.id,
+                publisher=seed.publisher,
+                description=seed.description,
+                published_date=seed.published_date,
             )
         )
         context.generate_book_embedding_use_case.execute(str(book.id.value))

@@ -18,8 +18,9 @@ fail-fast operational configuration validation with a redacted runtime
 summary, read-only production persistence/pgvector runtime validation
 integrated with readiness, deterministic deployment/container runtime
 validation, an aggregated read-only operations report, a unified release
-validation pipeline, and a FastAPI recommendation service backed by
-PostgreSQL and pgvector.
+validation pipeline, a FastAPI recommendation service backed by PostgreSQL
+and pgvector, and a Next.js/TypeScript frontend (`frontend/`) consuming
+that API directly over HTTP.
 
 > **Status note:** the embedding generator wired by default
 > (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
@@ -41,6 +42,7 @@ PostgreSQL and pgvector.
   - [Recommendation Quality Reports](#recommendation-quality-reports)
   - [Run the demo](#run-the-demo)
   - [Run the API server](#run-the-api-server)
+  - [Run the frontend](#run-the-frontend)
   - [Import real book data (optional)](#import-real-book-data-optional)
 - [API Reference](#api-reference)
 - [Observability](#observability)
@@ -112,7 +114,7 @@ For the architecture decision record and system diagram, see
 [`docs/architecture/ADR.md`](docs/architecture/ADR.md) and
 [`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md).
 Sprint-by-sprint implementation history (what was built, why, and how it was
-validated, for all 38 completed sprints) is in
+validated, for all 68 completed sprints) is in
 [`docs/progress/PROJECT_PROGRESS.md`](docs/progress/PROJECT_PROGRESS.md). For
 a release-readiness summary (implemented capabilities, prerequisites,
 validation workflow, known limitations), see
@@ -135,7 +137,8 @@ readmatch-ai/
 │   └── release_automation.py     # release validation pipeline
 ├── tests/                  # mirrors src/ layout; one test module per production module
 ├── scripts/                 # operator CLIs — see Operational Scripts Reference
-├── migrations/              # numbered, ordered PostgreSQL/pgvector SQL migrations (0001-0006)
+├── migrations/              # numbered, ordered PostgreSQL/pgvector SQL migrations (0001-0009)
+├── frontend/                 # Next.js/TypeScript web experience — see frontend/README.md
 ├── docs/
 │   ├── architecture/        # ADR.md, SYSTEM_ARCHITECTURE.md
 │   └── progress/            # PROJECT_PROGRESS.md — sprint-by-sprint build log
@@ -163,7 +166,7 @@ PostgreSQL/pgvector instead, set:
 ```bash
 export BOOK_REPOSITORY_BACKEND=postgresql
 export DATABASE_URL=postgresql://user:pass@localhost:5432/readmatch
-# apply migrations/*.sql in order (0001-0006) against that database first
+# apply migrations/*.sql in order (0001-0009) against that database first
 ```
 
 The Hybrid engine's fusion algorithm is selected independently via:
@@ -384,6 +387,23 @@ combination of the two.
 # see Deployment and Container Runtime Readiness below
 python scripts/validate_deployment.py
 ```
+
+### Run the frontend
+
+A Next.js/TypeScript web experience (`frontend/`) consuming this REST API
+directly over HTTP — no server-side framework/database of its own. With
+the backend already running (above):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. See [`frontend/README.md`](frontend/README.md)
+for layout, environment configuration (`NEXT_PUBLIC_API_BASE_URL`), and
+frontend-specific validation (`npm run lint`, `npx tsc --noEmit`,
+`npm run build`).
 
 ### Import real book data (optional)
 

@@ -2125,6 +2125,104 @@ while exercising the real stack.
   `ApplicationContext.create()` — keep seeding/demo and test-running
   shells separate.
 
+## Sprint 68 — Release Candidate Validation
+
+### Task 1 — Release Candidate Validation
+
+- Status: Done
+- Summary: Ran every backend/frontend/database/recommendation/evaluation/
+  release validation fresh, then found and corrected real documentation
+  inaccuracies by literally trying to follow this repository's own
+  documented commands as a new reviewer would — one of which was found to
+  be broken only by actually running it, not by reading it.
+  - **Documentation corrected** (no source/behavior change, factual-accuracy
+    only): `README.md` (migration range `0001-0006` → `0001-0009` in two
+    places; completed-Sprint count `38` → `68`; added a `frontend/` entry
+    to the Repository Structure tree; added a new "Run the frontend"
+    subsection + Contents entry, since the frontend — built Sprints 40-49 —
+    had never been mentioned anywhere in this file); `docs/architecture/ADR.md`
+    (ADR-008 and its "Historical note" both still said "no frontend UI is
+    implemented" / "neither was built", stale since Sprint 40 — corrected
+    to state the frontend exists, while leaving the Parquet claim, which
+    is still accurate, alone); `docs/architecture/SYSTEM_ARCHITECTURE.md`
+    (same stale "no frontend/UI stage exists" claim, plus the pipeline
+    diagram itself never showed a Frontend stage — added one);
+    `docs/release/RELEASE_CANDIDATE.md` (same stale frontend claims in two
+    places; migration range; a new bullet documenting the Sprint 65
+    docker-compose env-forwarding fix and that Postgres is intentionally a
+    separate container, not a bundled service; a new "Manual Demo
+    Walkthrough" section per this Sprint's own explicit requirement; a
+    refreshed Release Readiness table with today's real numbers instead of
+    Sprint-36-era ones).
+  - **A genuine defect found while verifying the new walkthrough, not
+    invented**: the walkthrough's first draft used the same
+    `DATABASE_URL=...@localhost:5433/...` for both the in-process seeding
+    script (correct — runs on the host) and `docker compose up --build -d`
+    (wrong — the app runs *inside* a container there, where `localhost`
+    refers to the container itself, not the host machine running
+    PostgreSQL). Running it exactly as first written produced a real
+    `psycopg.OperationalError: connection to server at "127.0.0.1" ...
+    Connection refused` — proof this is a real trap a reviewer would hit,
+    not a hypothetical. Fixed by making the plain `uvicorn --reload` host
+    process the documented primary path (where the original `DATABASE_URL`
+    is correct as-is) and noting the Docker-bridge-gateway address
+    (`172.17.0.1` on Linux, with the exact command to confirm it) as a
+    caveat for the containerized alternative. Re-ran the corrected
+    walkthrough end to end from a genuinely clean state (fresh
+    `docker run`/migrations/seed/`uvicorn`/`npm run dev`) and confirmed
+    every step and every claimed browser behavior.
+  - No architecture, recommendation engine, API contract, or frontend
+    behavior was changed — this Sprint is documentation-accuracy plus
+    validation only, per its own "do not perform broad UI redesign or
+    portfolio polish" instruction.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (243 source files)
+  - `python3 -m pytest -q` (full suite, default in-memory) — 863 passed, 2
+    failed; the 2 failures are the same, already-documented, pre-existing
+    Sprint 54/55 HNSW-ranking pair
+  - `python3 scripts/validate_release.py` (default, in-memory) — valid:
+    `configuration, deployment, operations`
+  - `python3 scripts/validate_deployment.py` — valid
+  - `python3 scripts/generate_quality_report.py` — 6 engines evaluated
+    against `readmatch-ai-demo-dataset-v1`; regression check PASSED
+  - `cd frontend && npm run lint` — pass (0 errors; 3 pre-existing
+    `no-img-element` warnings, unchanged)
+  - `cd frontend && npx tsc --noEmit` — pass
+  - `cd frontend && npm run build` — pass (Turbopack production build)
+  - Manual Demo Walkthrough re-run verbatim from a clean state: real
+    `docker run` (`pgvector/pgvector:pg16`) + all 9 migrations applied;
+    deterministic fixtures seeded through the real pipeline; `uvicorn
+    --reload` → `GET /readiness` `ready:true` including
+    `persistence_runtime`; `npm run dev` → `GET http://localhost:3000/`
+    (200, green "Backend connected", real seeded titles) and
+    `GET http://localhost:3000/books/{id}` (200, real title) both
+    confirmed by inspecting actual response content, not assumed;
+    `GET http://localhost:8000/docs` (200)
+  - Backend/database/recommendation/frontend re-validated together as one
+    system (not separately): confirmed in the walkthrough re-run above
+  - All started processes/containers (`readmatch-postgres`, `uvicorn`,
+    `next dev`) stopped/removed after validation — confirmed via `ps
+    aux`/`docker ps -a` showing nothing left running
+  - `git status`/`git diff` reviewed before staging: only `README.md`,
+    `docs/architecture/ADR.md`, `docs/architecture/SYSTEM_ARCHITECTURE.md`,
+    and `docs/release/RELEASE_CANDIDATE.md` touched; the pre-existing,
+    unrelated `docs/agent/architecture/*` deletion left untouched and
+    unstaged
+- Commit: (recorded after this entry is committed)
+- Notes: No architecture change, public-contract break, or destructive
+  operation was required. This completes Sprint 65-68 (Phase 8, Production
+  Validation): Sprint 65 proved and fixed local startup (docker-compose
+  env-forwarding gap); Sprint 66 proved the full data→embedding→pgvector→
+  API→frontend flow with zero defects found; Sprint 67 proved all 7
+  operational scenarios and fixed a real PostgreSQL connection-lifecycle
+  defect (idle-in-transaction reads blocking DDL/accumulating connections),
+  with a new regression test; Sprint 68 validated the whole system fresh
+  and corrected documentation that had drifted since Sprint 36-40 (frontend
+  existence, migration range, Sprint count) without touching any
+  implementation. The two pre-existing Sprint 54/55 HNSW-ranking test
+  failures remain untouched throughout, exactly as instructed.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

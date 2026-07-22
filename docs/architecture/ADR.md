@@ -24,8 +24,11 @@
   against a deterministic dataset; it is a regression/sanity signal for
   development and CI, not a substitute for online experimentation.
 - ADR-008: FastAPI serves recommendations over REST, with OpenAPI docs as
-  the interactive reference. No frontend UI is implemented — `/docs` and
-  `scripts/run_demo.py` are the primary ways to explore system behaviour.
+  an interactive reference. A Next.js/TypeScript frontend (`frontend/`,
+  Sprints 40-49) is also implemented, consuming this REST API directly
+  over HTTP with no server-side framework/database of its own; `/docs` and
+  `scripts/run_demo.py` remain the primary ways to explore system
+  behaviour without a browser.
 - ADR-009: Docker (with a container-level `HEALTHCHECK`) provides the
   container runtime; `docker-compose.yml` provides local orchestration. No
   Kubernetes or other orchestrator-specific manifests exist in this
@@ -47,10 +50,15 @@
 ## Historical note
 
 An early planning draft of this document referenced a Next.js/TypeScript
-demonstration frontend and Parquet-based offline storage. Neither was
-built: the project's actual trajectory implemented a REST API plus
-CLI/demo tooling, then invested the equivalent effort in production-
-readiness depth (Sprints 31-36) instead of a UI. This document has been
-corrected to describe what was actually implemented, per the standing
-project rule that documentation must reflect the current implementation,
-not superseded plans.
+demonstration frontend and Parquet-based offline storage. As of Sprint 36,
+neither had been built: the project's trajectory to that point implemented
+a REST API plus CLI/demo tooling, investing the equivalent effort in
+production-readiness depth (Sprints 31-36) instead of a UI, and this
+document was corrected at the time to say so. The frontend was since built
+(Sprints 40-49, see ADR-008) once that production-readiness work was
+complete — the outcome PROJECT_INSTRUCTIONS.md's approved direction always
+called for, just sequenced after runtime hardening rather than before it.
+Parquet-based offline storage remains unbuilt (ADR-001: PostgreSQL/pgvector
+is the sole persistence layer) and is not currently planned. This document
+is corrected again here per the same standing rule: documentation must
+reflect the current implementation, not a superseded snapshot of it.

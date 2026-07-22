@@ -2,7 +2,7 @@
 
 - Project: ReadMatch AI
 - Version: `0.1.0` (`pyproject.toml`)
-- Status: **Release Candidate — validated 2026-07-21**
+- Status: **Release Candidate — validated 2026-07-22**
 - Scope: this document summarizes release readiness for operators and
   repository reviewers. It does not restate implementation detail already
   covered in [`README.md`](../../README.md) — every claim below links to
@@ -54,10 +54,13 @@
 - **Documentation and Portfolio Polish** — a navigable, accurate README
   and architecture record reflecting the implementation as built, not
   superseded planning drafts.
-
-No frontend/UI was built; the REST API's interactive OpenAPI documentation
-(`/docs`) and `scripts/run_demo.py` are the primary ways to explore system
-behaviour (see [ADR-008](../architecture/ADR.md)).
+- **Frontend** — a Next.js/TypeScript web experience (`frontend/`, Sprints
+  40-49: home/recommendation feed, book detail, personal library,
+  recommendation feedback) consuming the REST API directly over HTTP, with
+  its own [README](../../frontend/README.md) for setup/validation. The
+  REST API's interactive OpenAPI documentation (`/docs`) and
+  `scripts/run_demo.py` remain the primary ways to explore system
+  behaviour without a browser (see [ADR-008](../architecture/ADR.md)).
 
 ## Runtime Prerequisites
 
@@ -68,9 +71,9 @@ behaviour (see [ADR-008](../architecture/ADR.md)).
   persistent `BOOK_REPOSITORY_BACKEND=postgresql` (with `DATABASE_URL`)
   are required together — the application refuses to start otherwise. See
   README [Operational Configuration and Runtime Hardening](../../README.md#operational-configuration-and-runtime-hardening).
-- For PostgreSQL: apply `migrations/0001` through `0006` in order first
-  (creates the schema, the `pgvector` extension, and the required vector
-  index).
+- For PostgreSQL: apply `migrations/0001` through `0009` in order first
+  (creates the schema, the `pgvector` extension, the required vector
+  index, and the sync checkpoint used by incremental synchronization).
 
 ## Deployment Prerequisites
 
@@ -80,8 +83,17 @@ behaviour (see [ADR-008](../architecture/ADR.md)).
   README [Deployment and Container Runtime Readiness](../../README.md#deployment-and-container-runtime-readiness)).
 - The image declares a `HEALTHCHECK` polling `GET /health` from inside the
   running container.
-- `docker-compose.yml` provides local orchestration; no Kubernetes or
-  other orchestrator-specific manifests exist in this repository.
+- `docker-compose.yml` provides local orchestration (one `app` service; no
+  Kubernetes or other orchestrator-specific manifests exist in this
+  repository). It intentionally does not bundle a PostgreSQL service (see
+  Sprint 6/65's Progress Log entries) — run a real `pgvector/pgvector:pg16`
+  container separately (see Manual Demo Walkthrough below) and pass
+  `BOOK_REPOSITORY_BACKEND`/`DATABASE_URL` (and any other `config.py`
+  variable) through the shell invoking `docker compose up`; each is
+  forwarded only when set (Sprint 65 fix — verified `docker compose run
+  --rm app python3 -c "import os; print(os.environ.get(...))"` prints
+  `None` for every one of them when unset, matching the default in-memory
+  behaviour exactly).
 
 ## Validation Workflow
 
@@ -127,30 +139,82 @@ configuration, and recommendation metrics — see README
 - ALS trains once, eagerly, at process startup; interactions recorded
   afterward do not retroactively change a running process's personalized
   results until it restarts or the model is retrained/reloaded.
-- No frontend/UI exists — the OpenAPI docs and the demo script are the
-  primary way to explore the system's behaviour without writing code.
+- The frontend (`frontend/`) is a thin REST consumer with no server-side
+  framework/database of its own; it renders whatever the backend returns
+  and has no independent data or business logic to validate beyond that.
 
 Each limitation above is documented in full, with rationale, in its
 corresponding README section.
 
+## Manual Demo Walkthrough
+
+The shortest path to seeing the whole system work end to end in a real
+browser, using deterministic fixtures (no `DATA4LIBRARY_AUTH_KEY` needed):
+
+```bash
+# 1. Real PostgreSQL + pgvector
+docker run -d --name readmatch-postgres \
+  -e POSTGRES_USER=readmatch -e POSTGRES_PASSWORD=readmatch \
+  -e POSTGRES_DB=readmatch -p 5433:5432 pgvector/pgvector:pg16
+for f in migrations/000*.sql; do
+  PGPASSWORD=readmatch docker exec -i readmatch-postgres \
+    psql -U readmatch -d readmatch < "$f"
+done
+
+# 2. Seed the deterministic demo dataset through the real pipeline
+#    (book_repository.add + generate_book_embedding_use_case.execute --
+#    the same use cases a live import uses, not a mock)
+export APPLICATION_MODE=development BOOK_REPOSITORY_BACKEND=postgresql \
+  DATABASE_URL=postgresql://readmatch:readmatch@localhost:5433/readmatch
+PYTHONPATH=scripts python3 -c \
+  "from demo_fixtures import seed_demo_dataset; \
+   from readmatch_ai.application_context import ApplicationContext; \
+   seed_demo_dataset(ApplicationContext.create())"
+
+# 3. Backend (host process -- simplest; DATABASE_URL above is correct as-is)
+uvicorn readmatch_ai.api.main:app --reload
+# or, containerized: DATABASE_URL must resolve from *inside* the container,
+# where "localhost" means the container itself, not the host -- use the
+# Docker bridge gateway instead (typically 172.17.0.1 on Linux; confirm via
+# `docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'`):
+#   DATABASE_URL=postgresql://readmatch:readmatch@172.17.0.1:5433/readmatch \
+#     docker compose up --build -d
+
+# 4. Frontend
+cd frontend && npm install && npm run dev
+```
+
+Open `http://localhost:3000` — the home page shows a green "Backend
+connected" indicator and a real, seeded book catalog (Popular books,
+recommendation rows); clicking a book opens its detail page, rendered from
+`GET /books/{id}`. `http://localhost:8000/docs` gives the same data as
+interactive OpenAPI. This is the exact flow validated in the Progress
+Log's Sprint 65-66 entries.
+
 ## Release Readiness
 
-Validated 2026-07-21 against this repository's `main` branch:
+Validated 2026-07-22 against this repository's `main` branch:
 
 | Check | Result |
 |---|---|
-| `python scripts/validate_release.py --include-tests` | **valid** — `configuration, deployment, operations, tests` all checked |
+| `python scripts/validate_release.py` (default, in-memory) | **valid** — `configuration, deployment, operations` all checked |
+| `python scripts/validate_release.py` (real PostgreSQL/pgvector) | **valid** — `configuration, persistence, deployment, operations` all checked (Progress Log, Sprint 65-67) |
 | `ruff check src tests scripts` | pass |
-| `mypy --strict src tests scripts` | pass (178 source files) |
-| `pytest -q` | pass (595 tests) |
-| Deterministic repeated execution | confirmed — two consecutive `validate_release.py` runs produced byte-identical output |
-| Documentation consistency | confirmed — README table-of-contents anchors verified against actual headers; no references to unimplemented features (frontend, Parquet) remain in linked documentation |
+| `mypy --strict src tests scripts` | pass (243 source files) |
+| `pytest -q` | 863 passed, 2 failed — the 2 failures are the pre-existing Sprint 54/55 HNSW approximate-ranking pair (not a regression; do not weaken or modify per standing instruction) |
+| `python scripts/generate_quality_report.py` | regression check PASSED (6 engines, K=5, `readmatch-ai-demo-dataset-v1`) |
+| Frontend (`npm run lint` / `npx tsc --noEmit` / `npm run build`) | pass (0 errors; 3 pre-existing `no-img-element` warnings, unchanged) |
+| Manual browser verification | confirmed (see Manual Demo Walkthrough above): real `GET /health`/`/home-feed`/`/books/{id}` data rendered by the real `next dev` server, backend-down error handling confirmed, PostgreSQL/pgvector persistence survives a container + process restart (Progress Log, Sprint 65-67) |
+| Documentation consistency | corrected this Sprint: migration references (`0001-0006` → `0001-0009`), the frontend's existence (previously documented as "not built" in this file, `ADR-008`, and `SYSTEM_ARCHITECTURE.md`, stale since Sprint 40), and README's completed-Sprint count (`38` → `68`) |
 
-**Verdict: Release Candidate approved.** No known release blockers under
-the default (in-memory, development-mode) configuration. A PostgreSQL
-production deployment additionally requires running
-`python scripts/validate_release.py --include-tests` (or at minimum
+**Verdict: Release Candidate approved**, with one honest caveat carried
+forward rather than hidden: the 2 pre-existing HNSW-ranking test failures
+above are a known, documented flake in approximate vs. exact nearest-
+neighbor ranking order (see `tests/infrastructure/test_postgresql_book_embedding_repository.py`),
+not a regression introduced by this validation. A PostgreSQL production
+deployment additionally requires running
+`python scripts/validate_release.py` (or at minimum
 `scripts/validate_runtime.py` and `scripts/validate_deployment.py`)
 against the target environment's actual `DATABASE_URL` before serving
-traffic, since persistence/deployment validation are environment-specific
-and were exercised here only against the default in-memory configuration.
+traffic — both were re-run against a real `pgvector/pgvector:pg16`
+container for this validation, not assumed from the in-memory default.

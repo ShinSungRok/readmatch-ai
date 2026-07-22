@@ -13,11 +13,14 @@ Public Book Data (data4library API)
 → Explanation (RecommendationExplainer, evidence-gated, no second ranking pass)
 → Evaluation (offline metrics, quality reports, regression checks)
 → FastAPI REST API (+ OpenAPI docs)
+→ Frontend (frontend/, Next.js/TypeScript — consumes the REST API
+  directly over HTTP; no server-side framework/database of its own)
 ```
 
-No frontend/UI stage exists; the pipeline terminates at the REST API and
-its interactive OpenAPI documentation (`/docs`). See the README's
-Architecture section for the full per-layer breakdown and file paths.
+The REST API and its interactive OpenAPI documentation (`/docs`) remain
+usable independently of the frontend (e.g. `scripts/run_demo.py`). See the
+README's Architecture section for the full per-layer breakdown and file
+paths, and `frontend/README.md` for the frontend's own layout.
 
 ## Candidate Sources
 

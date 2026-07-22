@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { FeedbackControls } from "@/components/FeedbackControls";
 import { RecommendationRow } from "@/components/RecommendationRow";
 import { getBookDetail } from "@/lib/api";
 
@@ -34,6 +35,7 @@ export default async function BookDetailPage({
           {book.description ? (
             <p className="text-zinc-700 dark:text-zinc-300">{book.description}</p>
           ) : null}
+          <FeedbackControls bookId={book.id} />
         </div>
       </section>
 

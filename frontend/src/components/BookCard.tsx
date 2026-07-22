@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { HomeFeedItem } from "@/lib/api";
+import { FeedbackControls } from "@/components/FeedbackControls";
 import { RecommendationReason } from "@/components/RecommendationReason";
 
 export function BookCard({ item, rank }: { item: HomeFeedItem; rank?: number }) {
@@ -20,7 +21,10 @@ export function BookCard({ item, rank }: { item: HomeFeedItem; rank?: number }) 
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{book.author}</p>
         </div>
       </Link>
-      <RecommendationReason source={item.source} />
+      <div className="mt-1.5 flex flex-col gap-1.5">
+        <RecommendationReason source={item.source} />
+        <FeedbackControls bookId={book.id} />
+      </div>
     </li>
   );
 }

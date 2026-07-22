@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { HomeFeedItem } from "@/lib/api";
+import { FeedbackControls } from "@/components/FeedbackControls";
 import { RecommendationReason } from "@/components/RecommendationReason";
 
 export function Hero({ item }: { item: HomeFeedItem }) {
@@ -25,6 +26,7 @@ export function Hero({ item }: { item: HomeFeedItem }) {
           </p>
         ) : null}
         <RecommendationReason source={item.source} />
+        <FeedbackControls bookId={book.id} />
       </div>
     </section>
   );

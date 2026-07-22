@@ -36,10 +36,21 @@ export interface BookDetail {
   similar_books: HomeFeedItem[];
 }
 
+/** Mirrors readmatch_ai.domain.interaction.InteractionType exactly. */
+export type InteractionType = "click" | "like" | "dislike" | "bookmark" | "read" | "rating";
+
+/** Mirrors readmatch_ai.api.schemas.InteractionResponse (Sprint 44). */
+export interface Interaction {
+  user_id: string;
+  book_id: string;
+  interaction_type: InteractionType;
+  value: number | null;
+}
+
 /** Mirrors readmatch_ai.api.schemas.LibraryItemResponse (Sprint 45). */
 export interface LibraryItem {
   book: BookPresentation;
-  interaction_type: string;
+  interaction_type: InteractionType;
   value: number | null;
 }
 
@@ -75,8 +86,8 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string): Promise<T> {
-  const response = await fetch(`${getApiBaseUrl()}${path}`, { cache: "no-store" });
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, { cache: "no-store", ...init });
   if (!response.ok) {
     throw new ApiError(response.status, `${path} responded with HTTP ${response.status}`);
   }
@@ -129,4 +140,55 @@ export async function getBookDetail(bookId: string): Promise<BookDetail | null> 
  */
 export function getPersonalLibrary(userId: string): Promise<PersonalLibrary> {
   return apiFetch<PersonalLibrary>(`/library/${encodeURIComponent(userId)}`);
+}
+
+/**
+ * POST /interactions -- see readmatch_ai.api.interaction_router.
+ *
+ * Recording a state-like interaction (everything but `click`) again for
+ * the same user/book replaces any prior value -- idempotent, not additive.
+ * Throws ApiError (404) if the book id doesn't exist, or (400) for a
+ * malformed id, an unknown type, or an invalid rating value.
+ */
+export function recordInteraction(
+  userId: string,
+  bookId: string,
+  interactionType: InteractionType,
+  value?: number,
+): Promise<Interaction> {
+  return apiFetch<Interaction>("/interactions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: userId,
+      book_id: bookId,
+      interaction_type: interactionType,
+      value: value ?? null,
+    }),
+  });
+}
+
+/**
+ * DELETE /interactions -- see readmatch_ai.api.interaction_router.
+ *
+ * Removes a previously recorded state-like interaction (e.g. un-bookmark).
+ * A no-op if nothing was recorded -- safe to call repeatedly.
+ */
+export async function clearInteraction(
+  userId: string,
+  bookId: string,
+  interactionType: InteractionType,
+): Promise<void> {
+  const params = new URLSearchParams({
+    user_id: userId,
+    book_id: bookId,
+    interaction_type: interactionType,
+  });
+  const response = await fetch(`${getApiBaseUrl()}/interactions?${params}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, `DELETE /interactions responded with HTTP ${response.status}`);
+  }
 }

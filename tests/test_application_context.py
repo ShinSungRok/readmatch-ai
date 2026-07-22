@@ -473,17 +473,24 @@ def test_create_uses_sentence_transformer_generator_when_configured(
     heavy, optional dependency installed or a model download.
     """
 
+    from readmatch_ai.infrastructure import (
+        sentence_transformer_book_embedding_generator as st_module,
+    )
+
     class _FakeSentenceTransformer:
         def __init__(self, model_name: str, **_: Any) -> None:
             self.model_name = model_name
 
-        def encode(self, text: str, normalize_embeddings: bool = True) -> list[float]:
-            return [0.1, 0.2, 0.3]
+        def encode(
+            self, texts: list[str], normalize_embeddings: bool = True
+        ) -> list[list[float]]:
+            return [[0.1, 0.2, 0.3] for _ in texts]
 
     fake_module = types.ModuleType("sentence_transformers")
     fake_module.SentenceTransformer = _FakeSentenceTransformer  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
     monkeypatch.setenv("EMBEDDING_GENERATOR_BACKEND", "sentence_transformers")
+    st_module._MODEL_CACHE.clear()  # avoid leaking another test's cached fake model
 
     context = ApplicationContext.create()
     book = context.register_book_use_case.execute(_valid_input())
@@ -492,7 +499,9 @@ def test_create_uses_sentence_transformer_generator_when_configured(
 
     assert embedding is not None
     assert embedding.vector == (0.1, 0.2, 0.3)
-    assert embedding.model_name == "sentence-transformers/all-MiniLM-L6-v2"
+    assert embedding.model_name == st_module.DEFAULT_MODEL_NAME
+
+    st_module._MODEL_CACHE.clear()  # avoid leaking this test's fake model to later tests
 
 
 # --- Sprint 31: production observability ---

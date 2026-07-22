@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 from readmatch_ai.domain.book import Book
 from readmatch_ai.domain.book_embedding import BookEmbedding
@@ -24,3 +25,18 @@ class BookEmbeddingGenerator(ABC):
     @abstractmethod
     def generate(self, book: Book, metadata: BookMetadata | None = None) -> BookEmbedding:
         """Generate an embedding for the given book (and its optional metadata)."""
+
+    def generate_batch(
+        self, items: Sequence[tuple[Book, BookMetadata | None]]
+    ) -> list[BookEmbedding]:
+        """Generate embeddings for many (book, metadata) pairs at once.
+
+        Default implementation: calls generate() once per item -- correct
+        for every implementation, but not necessarily fast. A provider that
+        can batch more efficiently (e.g. a real model's vectorized encode(),
+        which amortizes fixed per-call overhead across many inputs) should
+        override this; callers (e.g. the batch embedding pipeline, Sprint
+        50) get that efficiency gain transparently, with no change to the
+        port's contract or to any caller's code.
+        """
+        return [self.generate(book, metadata) for book, metadata in items]

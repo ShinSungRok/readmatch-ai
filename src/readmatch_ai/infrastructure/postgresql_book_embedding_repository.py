@@ -10,7 +10,7 @@ from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.book_embedding import BookEmbedding
 from readmatch_ai.domain.book_embedding_repository import BookEmbeddingRepository
 
-_SELECT_COLUMNS = "book_id, vector, model_name, dimensions"
+_SELECT_COLUMNS = "book_id, vector, model_name, model_version, dimensions, content_hash"
 
 
 class BookEmbeddingPersistenceError(Exception):
@@ -34,6 +34,11 @@ class PostgreSQLBookEmbeddingRepository(BookEmbeddingRepository):
     pgvector stores components as single-precision floats, so a value
     round-tripped through this adapter may differ slightly (float32
     precision) from the float64 value that was saved.
+
+    `model_version`/`content_hash` (Sprint 48, migration 0006) are plain
+    TEXT columns alongside the existing `model_name`/`dimensions` -- no new
+    indexing or query capability, just the two additional fields
+    BookEmbedding now carries.
     """
 
     def __init__(self, connection: psycopg.Connection) -> None:
@@ -44,17 +49,22 @@ class PostgreSQLBookEmbeddingRepository(BookEmbeddingRepository):
         try:
             with self._connection.cursor() as cursor:
                 cursor.execute(
-                    "INSERT INTO book_embeddings (book_id, vector, model_name, dimensions) "
-                    "VALUES (%s, %s, %s, %s) "
+                    "INSERT INTO book_embeddings "
+                    "(book_id, vector, model_name, model_version, dimensions, content_hash) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (book_id) DO UPDATE SET "
                     "vector = EXCLUDED.vector, "
                     "model_name = EXCLUDED.model_name, "
-                    "dimensions = EXCLUDED.dimensions",
+                    "model_version = EXCLUDED.model_version, "
+                    "dimensions = EXCLUDED.dimensions, "
+                    "content_hash = EXCLUDED.content_hash",
                     (
                         embedding.book_id.value,
                         Vector(list(embedding.vector)),
                         embedding.model_name,
+                        embedding.model_version,
                         embedding.dimensions,
+                        embedding.content_hash,
                     ),
                 )
         except psycopg.Error as exc:
@@ -83,10 +93,12 @@ class PostgreSQLBookEmbeddingRepository(BookEmbeddingRepository):
 
     @staticmethod
     def _row_to_embedding(row: tuple[Any, ...]) -> BookEmbedding:
-        book_id_value, vector, model_name, dimensions = row
+        book_id_value, vector, model_name, model_version, dimensions, content_hash = row
         return BookEmbedding(
             book_id=BookId(book_id_value),
             vector=tuple(vector.to_list()),
             model_name=model_name,
+            model_version=model_version,
             dimensions=dimensions,
+            content_hash=content_hash,
         )

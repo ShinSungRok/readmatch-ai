@@ -6,11 +6,25 @@ from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
 
 
 def _embedding(book_id: BookId, value: float = 0.5) -> BookEmbedding:
-    return BookEmbedding(book_id=book_id, vector=(value,), model_name="test-model", dimensions=1)
+    return BookEmbedding(
+        book_id=book_id,
+        vector=(value,),
+        model_name="test-model",
+        model_version="1",
+        dimensions=1,
+        content_hash="test-hash",
+    )
 
 
 def _embedding_2d(book_id: BookId, vector: tuple[float, float]) -> BookEmbedding:
-    return BookEmbedding(book_id=book_id, vector=vector, model_name="test-model", dimensions=2)
+    return BookEmbedding(
+        book_id=book_id,
+        vector=vector,
+        model_name="test-model",
+        model_version="1",
+        dimensions=2,
+        content_hash="test-hash",
+    )
 
 
 def test_get_by_book_id_missing_returns_none() -> None:

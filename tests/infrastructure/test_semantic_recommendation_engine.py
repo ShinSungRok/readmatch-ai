@@ -24,7 +24,12 @@ def _book(isbn: str, title: str = "Title") -> Book:
 
 def _embedding(book_id: BookId, vector: tuple[float, ...]) -> BookEmbedding:
     return BookEmbedding(
-        book_id=book_id, vector=vector, model_name="test-model", dimensions=len(vector)
+        book_id=book_id,
+        vector=vector,
+        model_name="test-model",
+        model_version="1",
+        dimensions=len(vector),
+        content_hash="test-hash",
     )
 
 

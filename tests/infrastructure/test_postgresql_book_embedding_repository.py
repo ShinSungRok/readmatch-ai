@@ -32,6 +32,7 @@ def postgres_connection() -> Iterator[psycopg.Connection]:
             "0003_create_book_embeddings_table.sql",
             "0004_add_pgvector_to_book_embeddings.sql",
             "0005_widen_book_embeddings_vector_to_384.sql",
+            "0007_add_model_version_and_content_hash_to_book_embeddings.sql",
         ):
             connection.execute((_MIGRATIONS_DIR / migration).read_text())
         connection.commit()
@@ -71,13 +72,20 @@ def _embedding(book_id: BookId, value: float = 0.5) -> BookEmbedding:
         book_id=book_id,
         vector=(value,) * _DIMENSIONS,
         model_name="test-model",
+        model_version="1",
         dimensions=_DIMENSIONS,
+        content_hash="test-hash",
     )
 
 
 def _embedding_with_vector(book_id: BookId, vector: tuple[float, ...]) -> BookEmbedding:
     return BookEmbedding(
-        book_id=book_id, vector=vector, model_name="test-model", dimensions=_DIMENSIONS
+        book_id=book_id,
+        vector=vector,
+        model_name="test-model",
+        model_version="1",
+        dimensions=_DIMENSIONS,
+        content_hash="test-hash",
     )
 
 
@@ -87,7 +95,9 @@ def _assert_embeddings_almost_equal(actual: BookEmbedding | None, expected: Book
     assert actual is not None
     assert actual.book_id == expected.book_id
     assert actual.model_name == expected.model_name
+    assert actual.model_version == expected.model_version
     assert actual.dimensions == expected.dimensions
+    assert actual.content_hash == expected.content_hash
     assert actual.vector == pytest.approx(expected.vector, abs=1e-6)
 
 

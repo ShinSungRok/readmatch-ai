@@ -5,38 +5,48 @@ import hashlib
 from readmatch_ai.domain.book import Book
 from readmatch_ai.domain.book_embedding import BookEmbedding
 from readmatch_ai.domain.book_embedding_generator import BookEmbeddingGenerator
+from readmatch_ai.domain.book_metadata import BookMetadata
+from readmatch_ai.domain.embedding_text import build_embedding_text, embedding_content_hash
 
 _DEFAULT_MODEL_NAME = "deterministic-fake"
+_DEFAULT_MODEL_VERSION = "1"
 # Matches SentenceTransformerBookEmbeddingGenerator's default model dimension
-# (sentence-transformers/all-MiniLM-L6-v2) so both providers are storable in
-# the same fixed-width pgvector column regardless of which is configured.
+# so both providers are storable in the same fixed-width pgvector column
+# regardless of which is configured.
 _DEFAULT_DIMENSIONS = 384
 
 
 class DeterministicFakeBookEmbeddingGenerator(BookEmbeddingGenerator):
     """Deterministic, dependency-free BookEmbeddingGenerator — the default provider.
 
-    Derives a vector from a SHA-256 digest of the Book's text fields — not a
-    real ML model. The same Book text always produces the same vector, and
-    different text produces a different vector in practice. Remains the
-    default for tests and local deterministic scenarios; a real provider
+    Derives a vector from a SHA-256 digest of the canonical embedding text
+    (domain.embedding_text.build_embedding_text) — not a real ML model. The
+    same text always produces the same vector, and different text produces
+    a different vector in practice. Remains the default for tests and local
+    deterministic scenarios; a real provider
     (SentenceTransformerBookEmbeddingGenerator) is opt-in via
     EMBEDDING_GENERATOR_BACKEND.
     """
 
     def __init__(
-        self, dimensions: int = _DEFAULT_DIMENSIONS, model_name: str = _DEFAULT_MODEL_NAME
+        self,
+        dimensions: int = _DEFAULT_DIMENSIONS,
+        model_name: str = _DEFAULT_MODEL_NAME,
+        model_version: str = _DEFAULT_MODEL_VERSION,
     ) -> None:
         self._dimensions = dimensions
         self._model_name = model_name
+        self._model_version = model_version
 
-    def generate(self, book: Book) -> BookEmbedding:
-        text = f"{book.title.value}|{book.author.value}|{book.category.value}"
+    def generate(self, book: Book, metadata: BookMetadata | None = None) -> BookEmbedding:
+        text = build_embedding_text(book, metadata)
         digest = hashlib.sha256(text.encode("utf-8")).digest()
         vector = tuple(digest[i % len(digest)] / 255.0 for i in range(self._dimensions))
         return BookEmbedding(
             book_id=book.id,
             vector=vector,
             model_name=self._model_name,
+            model_version=self._model_version,
             dimensions=self._dimensions,
+            content_hash=embedding_content_hash(text),
         )

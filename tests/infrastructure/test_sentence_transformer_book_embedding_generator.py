@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
+from readmatch_ai.domain.book_metadata import BookMetadata
 from readmatch_ai.infrastructure.sentence_transformer_book_embedding_generator import (
     SentenceTransformerBookEmbeddingGenerator,
 )
@@ -83,3 +84,44 @@ def test_generate_is_deterministic_for_the_same_encoded_vector(
     second = generator.generate(book)
 
     assert first == second
+
+
+def test_generate_uses_the_configured_model_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_sentence_transformers_module(monkeypatch, [0.0])
+
+    generator = SentenceTransformerBookEmbeddingGenerator(model_version="2")
+    embedding = generator.generate(_book())
+
+    assert embedding.model_version == "2"
+
+
+def test_generate_sets_a_content_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_sentence_transformers_module(monkeypatch, [0.1, 0.2])
+
+    embedding = SentenceTransformerBookEmbeddingGenerator().generate(_book())
+
+    assert embedding.content_hash
+
+
+def test_generate_encodes_the_description_when_metadata_is_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encoded_texts: list[str] = []
+
+    class _RecordingSentenceTransformer:
+        def __init__(self, model_name: str, **_: object) -> None:
+            self.model_name = model_name
+
+        def encode(self, text: str, normalize_embeddings: bool = True) -> list[float]:
+            encoded_texts.append(text)
+            return [0.0]
+
+    fake_module = types.ModuleType("sentence_transformers")
+    fake_module.SentenceTransformer = _RecordingSentenceTransformer  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
+
+    book = _book()
+    generator = SentenceTransformerBookEmbeddingGenerator()
+    generator.generate(book, BookMetadata(book_id=book.id, description="A classic."))
+
+    assert "A classic." in encoded_texts[0]

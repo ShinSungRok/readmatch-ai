@@ -568,7 +568,7 @@ class ApplicationContext:
             ),
             get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
-                repository, embedding_generator, embedding_repository
+                repository, embedding_generator, embedding_repository, metadata_repository
             ),
             generate_semantic_recommendation_use_case=semantic_use_case,
             generate_hybrid_recommendation_use_case=hybrid_use_case,

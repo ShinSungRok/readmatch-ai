@@ -10,6 +10,9 @@ from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
 from readmatch_ai.domain.book_embedding import BookEmbedding
 from readmatch_ai.domain.book_popularity import BookPopularity
+from readmatch_ai.infrastructure.in_memory_book_embedding_repository import (
+    InMemoryBookEmbeddingRepository,
+)
 from readmatch_ai.infrastructure.postgresql_book_embedding_repository import (
     _SELECT_COLUMNS,
     PostgreSQLBookEmbeddingRepository,
@@ -302,6 +305,40 @@ def test_indexed_and_sequential_retrieval_return_the_same_ranking(
     ]
 
     assert [e.book_id for e in indexed_result] == [e.book_id for e in sequential_result]
+
+
+# --- Sprint 55: retrieval quality, in-memory vs PostgreSQL ---
+
+
+def test_in_memory_and_postgresql_repositories_rank_identically(
+    postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
+) -> None:
+    """"Compare retrieval quality" (Sprint 55): both repositories implement
+    the same BookEmbeddingRepository contract with the same similarity
+    math (cosine), so for identical stored embeddings they must produce
+    identical rankings -- PostgreSQL's HNSW-indexed approximate search is
+    not trading away any relevance a caller would notice versus the
+    in-memory brute-force default.
+    """
+    vectors = {
+        "978-3-16-148410-0": _vector(1.0, 0.0, 0.0),
+        "0-306-40615-2": _vector(0.9, 0.1, 0.0),
+        "9780132350884": _vector(0.5, 0.5, 0.0),
+        "978-0-13-468599-1": _vector(0.0, 1.0, 0.0),
+        "978-0-596-00712-6": _vector(0.0, 0.0, 1.0),
+    }
+    in_memory_repository = InMemoryBookEmbeddingRepository()
+    for isbn, vector in vectors.items():
+        book_id = _add_book(postgres_connection, isbn).id
+        embedding = _embedding_with_vector(book_id, vector)
+        repository.save(embedding)
+        in_memory_repository.save(embedding)
+    query = _vector(1.0, 0.0, 0.0)
+
+    postgresql_result = repository.find_similar(query, limit=5)
+    in_memory_result = in_memory_repository.find_similar(query, limit=5)
+
+    assert [e.book_id for e in postgresql_result] == [e.book_id for e in in_memory_result]
 
 
 def test_application_context_generates_and_finds_similar_embeddings_via_postgresql(

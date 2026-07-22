@@ -158,6 +158,33 @@ class HybridRankingConfig:
         return cls(strategy=strategy)
 
 
+_CORS_ALLOWED_ORIGINS_ENV_VAR = "CORS_ALLOWED_ORIGINS"
+
+# The Sprint 40 frontend's default local dev origin (`next dev` on port 3000).
+_DEFAULT_CORS_ALLOWED_ORIGINS: tuple[str, ...] = ("http://localhost:3000",)
+
+
+@dataclass(frozen=True)
+class CorsConfig:
+    """Configuration for which browser origins the API accepts cross-origin requests from.
+
+    Purely a transport-layer concern (unlike BookRepositoryConfig/etc.): an
+    unrecognised value can't leave the application in a broken state, so
+    this never raises and isn't part of ApplicationConfiguration's
+    startup-validation aggregation.
+    """
+
+    allowed_origins: tuple[str, ...]
+
+    @classmethod
+    def from_env(cls) -> CorsConfig:
+        raw = os.environ.get(_CORS_ALLOWED_ORIGINS_ENV_VAR)
+        if raw is None:
+            return cls(allowed_origins=_DEFAULT_CORS_ALLOWED_ORIGINS)
+        origins = tuple(origin.strip() for origin in raw.split(",") if origin.strip())
+        return cls(allowed_origins=origins)
+
+
 @dataclass(frozen=True)
 class ConfigurationViolation:
     """One independent, operator-facing configuration problem.

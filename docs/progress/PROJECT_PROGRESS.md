@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 of 8 — Frontend Experience MVP (in progress)
-- Current Sprint: Sprint 39 of 68 — Book Presentation Model — Complete
-- Last Completed Task: Sprint 39 / Task 1 — Book Presentation Model
-- Last Commit: (recorded after commit; Sprint 39)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass; `pytest -q` — pass (609 tests, up from 595); `python scripts/run_demo.py` re-run to confirm recommendation ranking/scores are byte-identical to before this Sprint (presentation data is additive only)
+- Current Sprint: Sprint 40 of 68 — Frontend Foundation — Complete
+- Last Completed Task: Sprint 40 / Task 1 — Frontend Foundation
+- Last Commit: (recorded after commit; Sprint 40)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass; `pytest -q` — pass (571 passed; 42 pre-existing errors, all in PostgreSQL-backed tests that require Docker, unavailable in this sandbox — unrelated to this Sprint, see Sprint 40 notes); frontend `npm run lint` — pass; `npx tsc --noEmit` — pass; `npm run build` — pass; manual end-to-end check against a live backend confirmed the health badge and empty state render correctly
 - Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phase 2 (this Phase) is a new, in-progress frontend/presentation capability layered on top of that unchanged backend.
 
 ## Task Log
@@ -1199,8 +1199,36 @@ Use this format:
   - `python3 -m pytest -q` — pass (609 passed, up from 595 — 14 new tests: `tests/domain/test_book_metadata.py`, `tests/infrastructure/test_in_memory_book_metadata_repository.py`, `tests/application/test_book_presentation.py`, `tests/application/test_get_book_presentation_use_case.py`, plus one new contract test in `tests/api/test_openapi_contract.py`)
   - `python scripts/run_demo.py` — re-run end-to-end; recommendation rankings/scores for every engine are unchanged from before this Sprint, confirming the addition is purely additive and does not touch ranking/scoring
   - `git status`/`git diff` reviewed before staging: only this Sprint's files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged, as every prior Sprint has preserved it
-- Commit: (recorded after commit)
+- Commit: 3b1bfa7
 - Notes: `BookMetadataRepository` deliberately has no PostgreSQL adapter (unlike `BookPopularityRepository`) — out of this Sprint's/Phase's scope. No architecture change, public-contract break, or destructive operation was required.
+
+## Sprint 40 — Frontend Foundation
+
+### Task 1 — Frontend Foundation
+
+- Status: Done
+- Summary: Created the Next.js/TypeScript/Tailwind frontend application at `frontend/` (App Router, per the repository's own approved direction: Next.js + TypeScript, see `docs/agent/PROJECT_INSTRUCTIONS.md`). No auth, state-management framework, or extra dependencies added — only `next`, `react`, `react-dom` plus the Tailwind/ESLint/TypeScript dev tooling `create-next-app` itself needs.
+  - **`frontend/src/app/layout.tsx`**: root layout rendering the shared `Header` and a centered `main` content region; sets page metadata.
+  - **`frontend/src/components/Header.tsx`**: minimal app header with a Home link.
+  - **`frontend/src/lib/config.ts`**: `getApiBaseUrl()` reads `NEXT_PUBLIC_API_BASE_URL` (build-time-inlined, browser-readable, required since pages fetch the backend directly), defaulting to the backend's own documented local dev address (`http://localhost:8000`) so a fresh checkout works with no `.env` file. `.env.example` documents the override.
+  - **`frontend/src/lib/api.ts`**: typed backend API client (`Book`, `RecommendationItem`, `RecommendationResponse`, `HealthResponse` mirroring the existing Pydantic response schemas exactly) with `getHealth()` (`GET /health`) and `getPopularityRecommendations()` (`GET /recommendations/popularity`) — both existing, unmodified endpoints. `ApiError` surfaces a non-2xx backend response distinctly from a network failure.
+  - **`frontend/src/app/page.tsx`**: home page (async Server Component) calling `getHealth()` + `getPopularityRecommendations()` in parallel, showing a connectivity badge and a popular-books grid.
+  - **States**: `frontend/src/app/loading.tsx` (Suspense-driven route loading state) + `LoadingState` component; `frontend/src/app/error.tsx` (Next.js error boundary) + `ErrorState` component (with retry); `EmptyState` component, used by the home page when there are no recommendations yet (the honest default for a freshly booted, unseeded backend).
+  - **Responsive foundation**: Tailwind CSS v4 (`globals.css` + `postcss.config.mjs`), header and page content both use a centered `max-w-6xl` container with responsive padding; the popular-books grid reflows via Tailwind breakpoints (`grid-cols-2` → `sm:grid-cols-3` → `md:grid-cols-6`).
+  - **Backend**: added `CorsConfig` (`src/readmatch_ai/config.py`) — a transport-layer-only config (deliberately excluded from `ApplicationConfiguration`'s startup-validation aggregation, since an unrecognised CORS origin can't leave the application in a broken state), reading `CORS_ALLOWED_ORIGINS` (comma-separated) and defaulting to the frontend's own dev origin `http://localhost:3000`. Wired via `CORSMiddleware` in `src/readmatch_ai/api/main.py`, `GET`-only (matching this API's read-only public contract). No existing endpoint, schema, or behaviour changed for same-origin/non-browser callers.
+  - Per `frontend/AGENTS.md`, consulted `node_modules/next/dist/docs/` for this installed Next.js version (16.2.11) before writing App Router code, since its conventions may differ from training-data assumptions.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (187 source files)
+  - `python3 -m pytest -q` — 571 passed; 42 errors, all pre-existing and confined to `tests/infrastructure/test_postgresql_*` and `tests/test_import_books_runtime.py::test_import_runner_*_postgresql`, which require a Docker-backed Postgres via `testcontainers` — Docker itself is unavailable in this sandbox (`docker.errors.DockerException: ... FileNotFoundError`), unrelated to this Sprint's frontend/CORS-only changes and consistent with Sprint 38's documented default (`BOOK_REPOSITORY_BACKEND=in_memory`) persistence-validation skip
+  - `python3 -m pytest -q tests/api/ tests/test_config.py` — 69 passed (includes the new `tests/api/test_cors.py` and `CorsConfig` tests in `tests/test_config.py`)
+  - `cd frontend && npm run lint` — pass (no ESLint errors)
+  - `cd frontend && npx tsc --noEmit` — pass (no type errors)
+  - `cd frontend && npm run build` — pass (Turbopack production build succeeded; one local `node_modules` artifact for an unused platform package, `@img/sharp-linuxmusl-x64`, had a corrupt/empty `package.json` from this sandbox's install and was removed — a local environment fix, not a code or dependency-tree change; `package.json`/`package-lock.json` are untouched)
+  - Manual end-to-end check: started the real backend (`uvicorn`, in-memory/unseeded) and the frontend dev server against it — `/health` returned `healthy: true` with the `access-control-allow-origin: http://localhost:3000` CORS header present for the frontend's origin and absent for an unrecognised origin; the home page rendered the "Backend connected" badge and, since the backend was unseeded, the `EmptyState` ("No books have been registered yet.") — confirming the empty-state path end-to-end, not just via unit tests. Both processes stopped after the check.
+  - `git status`/`git diff` reviewed before staging: only this Sprint's files (`frontend/`, `src/readmatch_ai/api/main.py`, `src/readmatch_ai/config.py`, `tests/api/test_cors.py`, `tests/test_config.py`) staged; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged, as every prior Sprint has preserved it
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. `frontend/node_modules` and `frontend/.next` are untracked build artifacts (covered by `frontend/.gitignore`), not part of this commit.
 
 ## Current Constraints
 

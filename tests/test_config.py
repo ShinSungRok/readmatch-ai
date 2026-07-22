@@ -11,11 +11,30 @@ from readmatch_ai.config import (
     TEST_MODE,
     WEIGHTED_STRATEGY,
     ApplicationConfiguration,
+    CorsConfig,
     EmbeddingGeneratorConfig,
     HybridRankingConfig,
     UnknownEmbeddingGeneratorBackendError,
     UnknownRankingStrategyError,
 )
+
+
+def test_cors_config_defaults_to_the_frontend_dev_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+
+    config = CorsConfig.from_env()
+
+    assert config.allowed_origins == ("http://localhost:3000",)
+
+
+def test_cors_config_reads_a_comma_separated_origin_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS", "https://example.test, https://other.example.test"
+    )
+
+    config = CorsConfig.from_env()
+
+    assert config.allowed_origins == ("https://example.test", "https://other.example.test")
 
 
 def test_from_env_defaults_to_deterministic_backend(monkeypatch: pytest.MonkeyPatch) -> None:

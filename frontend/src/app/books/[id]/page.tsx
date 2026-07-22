@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { BookCover } from "@/components/BookCover";
 import { FeedbackControls } from "@/components/FeedbackControls";
 import { RecommendationRow } from "@/components/RecommendationRow";
 import { getBookDetail } from "@/lib/api";
@@ -19,7 +20,7 @@ export default async function BookDetailPage({
     <div className="flex flex-col gap-10">
       <section className="flex flex-col gap-6 sm:flex-row">
         <div className="aspect-[2/3] w-full flex-none overflow-hidden rounded-lg border border-black/10 sm:w-64 dark:border-white/15">
-          <img src={book.cover_url} alt="" aria-hidden className="h-full w-full object-cover" />
+          <BookCover key={book.cover_url} coverUrl={book.cover_url} />
         </div>
         <div className="flex flex-col gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{book.title}</h1>

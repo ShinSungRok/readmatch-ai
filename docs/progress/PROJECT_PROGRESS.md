@@ -2,12 +2,12 @@
 
 ## Current State
 
-- Current Phase: Phase 5 of 8 — PostgreSQL, pgvector, Vector Indexing, and Production Retrieval (in progress)
-- Current Sprint: Sprint 55 of 68 — Production Semantic Retrieval — Complete (Sprint 52-55 / Phase 5 complete)
-- Last Completed Task: Sprint 55 / Task 1 — Production Semantic Retrieval
-- Last Commit: (recorded after commit; Sprint 55)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (223 source files); `pytest -q` — pass (746 passed, unchanged; 52 pre-existing, unrelated Docker-dependent PostgreSQL-test errors -- 3 more than Sprint 54's count, all this Sprint's own new tests); `python scripts/run_demo.py`/`validate_release.py`/`validate_runtime.py`/`validate_deployment.py` — all pass, all unchanged; `git diff --stat` across all of Phase 5 confirms zero changes to ALS/Popularity/Hybrid/ranking-strategy/`SemanticRecommendationEngine` files
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2, 3, and 4 (frontend experience, user interaction/feedback, real embeddings) are complete. Phase 5 (this Phase) is now complete: production vector persistence, pgvector integration, HNSW indexing, and production semantic retrieval, layered on top of all three.
+- Current Phase: Phase 6 of 8 — Data4Library Import Pipeline (in progress)
+- Current Sprint: Sprint 56 of 68 — Data4Library Connector — Complete
+- Last Completed Task: Sprint 56 / Task 1 — Data4Library Connector
+- Last Commit: (recorded after commit; Sprint 56)
+- Validation: `ruff check` / `mypy --strict` — pass on both touched files; `pytest -q` (full suite) — pass (752 passed, up from 746; same 52 pre-existing, unrelated Docker-dependent PostgreSQL-test errors); `python scripts/run_demo.py` — run twice, deterministic (only timing/progress-bar noise differs)
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-5 (frontend experience, user interaction/feedback, real embeddings, PostgreSQL/pgvector production retrieval) are complete. Phase 6 (Data4Library import pipeline) is in progress: Sprint 56 (connector retry + pagination) done; Sprint 57 (import/normalization pipeline) next.
 
 ## Task Log
 
@@ -1559,8 +1559,26 @@ Use this format:
   - `python scripts/run_demo.py` — re-run; deterministic, unchanged
   - `python scripts/validate_release.py` / `validate_runtime.py` / `validate_deployment.py` — all valid, all unchanged (default `BOOK_REPOSITORY_BACKEND=in_memory` never touches this Phase's PostgreSQL code paths)
   - `git status`/`git diff` reviewed before staging: only this Sprint's files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: af10170
 - Notes: No architecture change, public-contract break, or destructive operation was required -- this Sprint added tests only, no source changes anywhere in `src/`. This completes Sprint 52-55 / Phase 5 (PostgreSQL, pgvector, Vector Indexing, and Production Retrieval). Known limitation carried into the Phase Completion Report: no live PostgreSQL/pgvector instance was reachable in this sandbox for the entire Phase, so every database-dependent test (contract tests across Sprints 52-55, HNSW verification, the new REST/comparison tests) is verified by `ruff`/`mypy --strict`/direct code review rather than a live run; this mirrors, and is consistent with, the exact same environmental constraint already documented across every PostgreSQL-dependent test since this project's Sprint 12-19-era work, and Phase 4's real-model-download findings.
+
+## Sprint 56 — Data4Library Connector
+
+### Task 1 — Data4Library Connector
+
+- Status: Done
+- Summary: Reviewed the existing connector first (same discipline as every Sprint this Phase-pattern) and found `Data4LibraryBookDataSource` already implementing the REST client, `DATA4LIBRARY_AUTH_KEY` environment configuration, a request timeout, JSON response parsing, and the `BookDataSource` port abstraction, backed by 5 existing fixture-based tests. The two genuine gaps against this Sprint's required capability list: **no retry policy** and **no pagination** -- a single `urlopen()` call fetched exactly one page and raised the raw `URLError` straight through on any transient failure.
+  - **`src/readmatch_ai/infrastructure/data4library_book_data_source.py`**: added a manual, stdlib-only exponential-backoff retry loop (`time.sleep(backoff * 2**attempt)`, default 3 retries / 1.0s base) around each page fetch, wrapping the final exhausted-retries failure in a new `Data4LibraryRequestError` (never leaking a raw `urllib` exception to callers) rather than the previous behavior of letting a bare `URLError` propagate. Added pagination: `search_popular_loans()` now loops `pageNo` starting at 1, requesting `pageSize` (default 200, constructor-configurable) per page, and stops when a page returns fewer docs than `pageSize` -- accepted as a "short page = last page" heuristic rather than trusting the API's own `resultNum` total, since that field isn't reliably present in every response shape. Constructor now validates `page_size > 0` and `max_retries >= 0`, raising `ValueError` immediately rather than failing confusingly later.
+  - **`tests/infrastructure/test_data4library_book_data_source.py`** (+6 tests): constructor validation (non-positive `page_size`, negative `max_retries`); request URL includes `pageNo`/`pageSize`; multi-page fetch (page_size=2, first page full/second page short) returns all books across both requests in order; retry-then-succeed on a transient `URLError` (with `time.sleep` mocked so the test runs instantly); raises `Data4LibraryRequestError` only after all retries are exhausted, with the expected call/sleep counts.
+- Validation:
+  - `python3 -m ruff check tests/infrastructure/test_data4library_book_data_source.py src/readmatch_ai/infrastructure/data4library_book_data_source.py` — pass
+  - `python3 -m mypy --strict tests/infrastructure/test_data4library_book_data_source.py src/readmatch_ai/infrastructure/data4library_book_data_source.py` — pass (2 source files)
+  - `python3 -m pytest -q tests/infrastructure/test_data4library_book_data_source.py -v` — 11 passed (5 pre-existing unmodified + 6 new)
+  - `python3 -m pytest -q` (full suite) — 752 passed (up from 746 at end of Sprint 55); same 52 pre-existing, Docker-dependent PostgreSQL-test errors, unchanged (this Sprint touched no PostgreSQL code)
+  - `python scripts/run_demo.py` — run twice; output identical apart from expected timing/progress-bar noise (iteration rate, average duration), confirming determinism is preserved (this Sprint touched no recommendation-path code)
+  - `git status`/`git diff` reviewed before staging: only this Sprint's two files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. `Data4LibraryBookDataSource` remains entirely inside `infrastructure/`, still implementing the unmodified `BookDataSource` domain port -- no external DTOs (Data4Library's raw JSON shape) leak outside this adapter; `PopularLoanBook` (the port's own return type) is unchanged. This begins Phase 6 (Data4Library Import Pipeline); Sprint 57 (import/normalization pipeline, upsert, import history) is next.
 
 ## Current Constraints
 

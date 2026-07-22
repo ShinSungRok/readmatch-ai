@@ -19,7 +19,9 @@ class ImportHistoryEntry:
     period_end: str
     imported_count: int
     updated_count: int
+    unchanged_count: int
     invalid_count: int
+    failed_count: int
 
 
 class ImportHistoryRepository(ABC):

@@ -1,9 +1,11 @@
 from readmatch_ai.application.import_books_use_case import ImportBooksUseCase
+from readmatch_ai.domain.book import Book
 from readmatch_ai.domain.book_data_source import (
     BookDataSource,
     PopularLoanBook,
     PopularLoanBooksQuery,
 )
+from readmatch_ai.domain.book_repository import DuplicateISBNError
 from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
 )
@@ -111,6 +113,74 @@ def test_duplicate_isbn_against_existing_repository_book_is_updated() -> None:
     assert stored.title.value == "Different Title"
 
 
+def test_reimporting_identical_content_is_classified_unchanged_not_updated() -> None:
+    repository = InMemoryBookRepository()
+    first_import = _use_case([_popular_loan_book(isbn13="978-3-16-148410-0")], repository)
+    first_result = first_import.execute(_query())
+    existing_book_id = first_result.imported[0].id
+
+    reimported_book = _popular_loan_book(isbn13="978-3-16-148410-0")
+    reimport_use_case = _use_case([reimported_book], repository)
+    result = reimport_use_case.execute(_query())
+
+    assert result.imported == []
+    assert result.updated == []
+    assert len(result.unchanged) == 1
+    assert result.unchanged[0].id == existing_book_id
+
+
+def test_repeated_sync_of_identical_data_creates_no_duplicates_or_false_updates() -> None:
+    repository = InMemoryBookRepository()
+    source_books = [
+        _popular_loan_book(isbn13="978-3-16-148410-0", title="Clean Code"),
+        _popular_loan_book(isbn13="0-306-40615-2", title="Another Book"),
+    ]
+    use_case = _use_case(source_books, repository)
+    first_result = use_case.execute(_query())
+
+    second_result = use_case.execute(_query())
+
+    assert len(first_result.imported) == 2
+    assert second_result.imported == []
+    assert second_result.updated == []
+    assert len(second_result.unchanged) == 2
+    assert len(repository.list_all()) == 2
+
+
+class _RaisingOnceBookRepository(InMemoryBookRepository):
+    """Wraps InMemoryBookRepository, raising DuplicateISBNError on the first
+    add() call for a chosen ISBN -- simulates a repository-level failure
+    (e.g. a race against a concurrent writer) independent of this use
+    case's own validation/reconciliation logic."""
+
+    def __init__(self, fail_isbn: str) -> None:
+        super().__init__()
+        self._fail_isbn = fail_isbn
+        self._has_failed = False
+
+    def add(self, book: Book) -> None:
+        if not self._has_failed and book.isbn.value == self._fail_isbn:
+            self._has_failed = True
+            raise DuplicateISBNError(f"simulated race for {self._fail_isbn}")
+        super().add(book)
+
+
+def test_repository_failure_is_recorded_as_failed_not_fatal() -> None:
+    repository = _RaisingOnceBookRepository(fail_isbn="9783161484100")
+    source_books = [
+        _popular_loan_book(isbn13="978-3-16-148410-0", title="Clean Code"),
+        _popular_loan_book(isbn13="0-306-40615-2", title="Another Book"),
+    ]
+    use_case = _use_case(source_books, repository)
+
+    result = use_case.execute(_query())
+
+    assert len(result.imported) == 1
+    assert result.imported[0].title.value == "Another Book"
+    assert len(result.failed_records) == 1
+    assert "9783161484100" in result.failed_records[0]
+
+
 def test_invalid_record_is_skipped_not_fatal() -> None:
     repository = InMemoryBookRepository()
     source_books = [
@@ -168,8 +238,9 @@ def test_successful_import_records_popularity_with_provenance() -> None:
 
 
 def test_duplicate_isbn_within_batch_still_records_popularity_once() -> None:
-    """A duplicate ISBN within one batch upserts the same book_id's popularity,
-    rather than creating a second, separate record."""
+    """A duplicate ISBN within one batch (identical content, so classified
+    as unchanged the second time) still refreshes the same book_id's
+    popularity, rather than creating a second, separate record."""
     repository = InMemoryBookRepository()
     popularity_repository = InMemoryBookPopularityRepository()
     source_books = [
@@ -182,7 +253,7 @@ def test_duplicate_isbn_within_batch_still_records_popularity_once() -> None:
 
     top = popularity_repository.top_by_loan_count(10)
     assert len(top) == 1
-    assert top[0].book_id == result.updated[0].id
+    assert top[0].book_id == result.unchanged[0].id
 
 
 def test_reimporting_existing_book_refreshes_popularity_without_duplicate_book() -> None:
@@ -208,8 +279,9 @@ def test_reimporting_existing_book_refreshes_popularity_without_duplicate_book()
     )
 
     assert second_result.imported == []
-    assert len(second_result.updated) == 1
-    assert second_result.updated[0].id == existing_book_id
+    assert second_result.updated == []
+    assert len(second_result.unchanged) == 1
+    assert second_result.unchanged[0].id == existing_book_id
 
     top = popularity_repository.top_by_loan_count(10)
     assert len(top) == 1
@@ -250,7 +322,9 @@ def test_import_history_is_recorded_with_injected_clock() -> None:
     assert entry.period_end == "2024-01-31"
     assert entry.imported_count == 1
     assert entry.updated_count == 0
+    assert entry.unchanged_count == 0
     assert entry.invalid_count == 1
+    assert entry.failed_count == 0
 
 
 def test_import_history_records_one_entry_per_execute_call() -> None:

@@ -34,6 +34,9 @@ from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
 )
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
+from readmatch_ai.infrastructure.in_memory_sync_checkpoint_repository import (
+    InMemorySyncCheckpointRepository,
+)
 from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
     InMemoryUserBookInteractionRepository,
 )
@@ -663,6 +666,7 @@ def test_create_supports_a_production_shaped_configuration_using_fakes(
         book_popularity_repository=InMemoryBookPopularityRepository(),
         book_embedding_repository=InMemoryBookEmbeddingRepository(),
         user_book_interaction_repository=InMemoryUserBookInteractionRepository(),
+        sync_checkpoint_repository=InMemorySyncCheckpointRepository(),
     )
 
     assert context.book_repository is fake_repository
@@ -682,6 +686,7 @@ def test_runtime_configuration_summary_never_exposes_the_database_url(
         book_popularity_repository=InMemoryBookPopularityRepository(),
         book_embedding_repository=InMemoryBookEmbeddingRepository(),
         user_book_interaction_repository=InMemoryUserBookInteractionRepository(),
+        sync_checkpoint_repository=InMemorySyncCheckpointRepository(),
     )
 
     for value in context.runtime_configuration_summary.__dict__.values():
@@ -725,6 +730,7 @@ def test_a_fake_repository_override_never_wires_a_persistence_validator(
         book_popularity_repository=InMemoryBookPopularityRepository(),
         book_embedding_repository=InMemoryBookEmbeddingRepository(),
         user_book_interaction_repository=InMemoryUserBookInteractionRepository(),
+        sync_checkpoint_repository=InMemorySyncCheckpointRepository(),
     )
 
     status = context.readiness_check_service.check()

@@ -188,8 +188,9 @@ def test_repeated_book_import_refreshes_popularity_via_postgresql(
     second_result = second_use_case.execute(PopularLoanBooksQuery("2024-02-01", "2024-02-29"))
 
     assert second_result.imported == []
-    assert len(second_result.updated) == 1
-    assert second_result.updated[0].id == existing_book_id
+    assert second_result.updated == []
+    assert len(second_result.unchanged) == 1
+    assert second_result.unchanged[0].id == existing_book_id
 
     top = popularity_repository.top_by_loan_count(10)
     assert len(top) == 1

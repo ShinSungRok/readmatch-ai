@@ -77,6 +77,7 @@ from readmatch_ai.domain.reranking_policies import (
     NoveltyBoostPolicy,
     PopularityPenaltyPolicy,
 )
+from readmatch_ai.domain.sync_checkpoint import SyncCheckpointRepository
 from readmatch_ai.domain.user_book_interaction_repository import UserBookInteractionRepository
 from readmatch_ai.infrastructure.als_model import train_als_model
 from readmatch_ai.infrastructure.als_model_store import AlsModelFileStore
@@ -101,6 +102,9 @@ from readmatch_ai.infrastructure.in_memory_import_history_repository import (
 from readmatch_ai.infrastructure.in_memory_interaction_repository import (
     InMemoryInteractionRepository,
 )
+from readmatch_ai.infrastructure.in_memory_sync_checkpoint_repository import (
+    InMemorySyncCheckpointRepository,
+)
 from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
     InMemoryUserBookInteractionRepository,
 )
@@ -120,6 +124,9 @@ from readmatch_ai.infrastructure.postgresql_book_popularity_repository import (
 from readmatch_ai.infrastructure.postgresql_book_repository import PostgreSQLBookRepository
 from readmatch_ai.infrastructure.postgresql_persistence_runtime_validator import (
     PostgreSQLPersistenceRuntimeValidator,
+)
+from readmatch_ai.infrastructure.postgresql_sync_checkpoint_repository import (
+    PostgreSQLSyncCheckpointRepository,
 )
 from readmatch_ai.infrastructure.postgresql_user_book_interaction_repository import (
     PostgreSQLUserBookInteractionRepository,
@@ -150,6 +157,7 @@ class ApplicationContext:
     book_embedding_repository: BookEmbeddingRepository
     book_metadata_repository: BookMetadataRepository
     import_history_repository: ImportHistoryRepository
+    sync_checkpoint_repository: SyncCheckpointRepository
     explicit_interaction_repository: InteractionRepository
     user_book_interaction_repository: UserBookInteractionRepository
     recommendation_engine: RecommendationEngine
@@ -194,6 +202,7 @@ class ApplicationContext:
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         book_metadata_repository: BookMetadataRepository | None = None,
         import_history_repository: ImportHistoryRepository | None = None,
+        sync_checkpoint_repository: SyncCheckpointRepository | None = None,
         explicit_interaction_repository: InteractionRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
@@ -231,6 +240,7 @@ class ApplicationContext:
                 book_embedding_generator=book_embedding_generator,
                 book_metadata_repository=book_metadata_repository,
                 import_history_repository=import_history_repository,
+                sync_checkpoint_repository=sync_checkpoint_repository,
                 explicit_interaction_repository=explicit_interaction_repository,
                 semantic_recommendation_engine=semantic_recommendation_engine,
                 hybrid_recommendation_engine=hybrid_recommendation_engine,
@@ -266,6 +276,7 @@ class ApplicationContext:
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         book_metadata_repository: BookMetadataRepository | None = None,
         import_history_repository: ImportHistoryRepository | None = None,
+        sync_checkpoint_repository: SyncCheckpointRepository | None = None,
         explicit_interaction_repository: InteractionRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
@@ -315,6 +326,19 @@ class ApplicationContext:
         and requires a real external auth key, so import orchestration
         continues to live in scripts/import_books.py, not this composition
         root -- see that script's own docstring.
+
+        sync_checkpoint_repository (Sprint 58) defaults via the same
+        BookRepositoryConfig.from_env() as book_repository/
+        book_popularity_repository/book_embedding_repository/
+        user_book_interaction_repository above: InMemorySyncCheckpointRepository
+        (default) or PostgreSQLSyncCheckpointRepository when
+        BOOK_REPOSITORY_BACKEND=postgresql -- unlike import_history_repository,
+        a persisted checkpoint is what makes "advance only after success"
+        meaningful across separate process runs, so it earns the same
+        PostgreSQL-backed treatment as the other production repositories.
+        SynchronizeBooksUseCase itself is not built here, for the same
+        reason ImportBooksUseCase isn't (see above): it wraps ImportBooksUseCase,
+        which needs a BookDataSource this composition root cannot default.
 
         get_home_feed_use_case (Sprint 42) composes the already-built
         popularity_use_case/hybrid_use_case/semantic_use_case (built below,
@@ -497,6 +521,11 @@ class ApplicationContext:
             if import_history_repository is not None
             else InMemoryImportHistoryRepository()
         )
+        checkpoint_repository = (
+            sync_checkpoint_repository
+            if sync_checkpoint_repository is not None
+            else _build_sync_checkpoint_repository()
+        )
         interaction_repository = (
             user_book_interaction_repository
             if user_book_interaction_repository is not None
@@ -580,6 +609,7 @@ class ApplicationContext:
             book_embedding_repository=embedding_repository,
             book_metadata_repository=metadata_repository,
             import_history_repository=history_repository,
+            sync_checkpoint_repository=checkpoint_repository,
             explicit_interaction_repository=explicit_interactions,
             user_book_interaction_repository=interaction_repository,
             recommendation_engine=engine,
@@ -659,6 +689,15 @@ def _build_book_embedding_repository() -> BookEmbeddingRepository:
         connection = psycopg.connect(config.database_url)
         return PostgreSQLBookEmbeddingRepository(connection)
     return InMemoryBookEmbeddingRepository()
+
+
+def _build_sync_checkpoint_repository() -> SyncCheckpointRepository:
+    config = BookRepositoryConfig.from_env()
+    if config.backend == POSTGRESQL_BACKEND:
+        assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
+        connection = psycopg.connect(config.database_url)
+        return PostgreSQLSyncCheckpointRepository(connection)
+    return InMemorySyncCheckpointRepository()
 
 
 def _build_book_embedding_generator() -> BookEmbeddingGenerator:

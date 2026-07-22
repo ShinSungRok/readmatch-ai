@@ -121,6 +121,9 @@ from readmatch_ai.infrastructure.popularity_recommendation_engine import (
 from readmatch_ai.infrastructure.postgresql_book_embedding_repository import (
     PostgreSQLBookEmbeddingRepository,
 )
+from readmatch_ai.infrastructure.postgresql_book_metadata_repository import (
+    PostgreSQLBookMetadataRepository,
+)
 from readmatch_ai.infrastructure.postgresql_book_popularity_repository import (
     PostgreSQLBookPopularityRepository,
 )
@@ -523,11 +526,12 @@ class ApplicationContext:
             if semantic_recommendation_engine is not None
             else SemanticRecommendationEngine(embedding_repository, repository)
         )
-        metadata_repository = (
-            book_metadata_repository
-            if book_metadata_repository is not None
-            else InMemoryBookMetadataRepository()
-        )
+        if book_metadata_repository is not None:
+            metadata_repository = book_metadata_repository
+        elif book_repository is not None:
+            metadata_repository = InMemoryBookMetadataRepository()
+        else:
+            metadata_repository = _build_book_metadata_repository()
         history_repository = (
             import_history_repository
             if import_history_repository is not None
@@ -738,6 +742,16 @@ def _build_book_embedding_repository() -> BookEmbeddingRepository:
         connection = psycopg.connect(config.database_url, autocommit=True)
         return PostgreSQLBookEmbeddingRepository(connection)
     return InMemoryBookEmbeddingRepository()
+
+
+def _build_book_metadata_repository() -> BookMetadataRepository:
+    config = BookRepositoryConfig.from_env()
+    if config.backend == POSTGRESQL_BACKEND:
+        assert config.database_url is not None
+        connection = psycopg.connect(config.database_url, autocommit=True)
+        return PostgreSQLBookMetadataRepository(connection)
+    return InMemoryBookMetadataRepository()
+
 
 
 def _build_sync_checkpoint_repository() -> SyncCheckpointRepository:

@@ -11,6 +11,7 @@ from readmatch_ai.domain.book_data_source import (
     PopularLoanBook,
     PopularLoanBooksQuery,
 )
+from readmatch_ai.domain.book_metadata import BookMetadata, BookMetadataRepository
 from readmatch_ai.domain.book_popularity import BookPopularity, BookPopularityRepository
 from readmatch_ai.domain.book_repository import (
     BookNotFoundError,
@@ -80,11 +81,13 @@ class ImportBooksUseCase:
         book_popularity_repository: BookPopularityRepository,
         import_history_repository: ImportHistoryRepository,
         clock: Callable[[], str] = _default_clock,
+        book_metadata_repository: BookMetadataRepository | None = None,
     ) -> None:
         self._book_data_source = book_data_source
         self._book_repository = book_repository
         self._book_popularity_repository = book_popularity_repository
         self._import_history_repository = import_history_repository
+        self._book_metadata_repository = book_metadata_repository
         self._clock = clock
 
     def execute(self, query: PopularLoanBooksQuery) -> ImportBooksResult:
@@ -150,17 +153,35 @@ class ImportBooksUseCase:
             self._book_repository.add(book)
             imported.append(book)
             self._record_popularity(book.id, source_book, query)
+            self._record_metadata(book.id, source_book)
             return
 
         if _content_unchanged(existing_book, book):
             unchanged.append(existing_book)
             self._record_popularity(existing_book.id, source_book, query)
+            self._record_metadata(existing_book.id, source_book)
             return
 
         upserted_book = replace(book, id=existing_book.id)
         self._book_repository.update(upserted_book)
         updated.append(upserted_book)
         self._record_popularity(upserted_book.id, source_book, query)
+        self._record_metadata(upserted_book.id, source_book)
+
+    def _record_metadata(
+        self, book_id: BookId, source_book: PopularLoanBook
+    ) -> None:
+        if self._book_metadata_repository is None:
+            return
+
+        self._book_metadata_repository.record(
+            BookMetadata(
+                book_id=book_id,
+                publisher=source_book.publisher or None,
+                cover_url=source_book.cover_url,
+                published_date=source_book.published_date,
+            )
+        )
 
     def _record_popularity(
         self, book_id: BookId, source_book: PopularLoanBook, query: PopularLoanBooksQuery

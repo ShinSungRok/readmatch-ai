@@ -48,6 +48,7 @@ def main(
         context.book_repository,
         popularity_repository,
         context.import_history_repository,
+        book_metadata_repository=context.book_metadata_repository,
     )
     result = use_case.execute(PopularLoanBooksQuery(args.start_date, args.end_date))
 

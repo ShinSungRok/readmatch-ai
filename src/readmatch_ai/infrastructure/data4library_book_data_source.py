@@ -127,6 +127,9 @@ class Data4LibraryBookDataSource(BookDataSource):
                 publisher=entry["doc"]["publisher"],
                 category=entry["doc"]["class_nm"],
                 loan_count=int(entry["doc"]["loan_count"]),
+                cover_url=entry["doc"].get("bookImageURL") or None,
+                published_date=entry["doc"].get("publication_year") or None,
+                detail_url=entry["doc"].get("bookDtlUrl") or None,
             )
             for entry in docs
         ]

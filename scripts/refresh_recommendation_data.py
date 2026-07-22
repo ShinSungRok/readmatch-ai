@@ -56,6 +56,8 @@ def main(
         context.book_repository,
         popularity_repository,
         context.import_history_repository,
+        book_metadata_repository=context.book_metadata_repository,
+
     )
     synchronize_use_case = SynchronizeBooksUseCase(
         import_use_case, context.sync_checkpoint_repository

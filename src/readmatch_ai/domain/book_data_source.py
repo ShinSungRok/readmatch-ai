@@ -26,6 +26,9 @@ class PopularLoanBook:
     publisher: str
     category: str
     loan_count: int
+    cover_url: str | None = None
+    published_date: str | None = None
+    detail_url: str | None = None
 
 
 class BookDataSource(ABC):

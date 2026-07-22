@@ -2209,7 +2209,7 @@ while exercising the real stack.
     and `docs/release/RELEASE_CANDIDATE.md` touched; the pre-existing,
     unrelated `docs/agent/architecture/*` deletion left untouched and
     unstaged
-- Commit: (recorded after this entry is committed)
+- Commit: 33317e5
 - Notes: No architecture change, public-contract break, or destructive
   operation was required. This completes Sprint 65-68 (Phase 8, Production
   Validation): Sprint 65 proved and fixed local startup (docker-compose

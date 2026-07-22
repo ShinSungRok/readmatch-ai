@@ -27,6 +27,7 @@ from readmatch_ai.application.generate_semantic_recommendation_use_case import (
 )
 from readmatch_ai.application.get_book_by_id_use_case import GetBookByIdUseCase
 from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseCase
+from readmatch_ai.application.get_book_detail_use_case import GetBookDetailUseCase
 from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
 from readmatch_ai.application.get_home_feed_use_case import GetHomeFeedUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
@@ -144,6 +145,7 @@ class ApplicationContext:
     get_book_by_isbn_use_case: GetBookByISBNUseCase
     get_book_presentation_use_case: GetBookPresentationUseCase
     get_home_feed_use_case: GetHomeFeedUseCase
+    get_book_detail_use_case: GetBookDetailUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
@@ -279,6 +281,11 @@ class ApplicationContext:
         one consolidated home-feed response -- the same use case instances
         the individual recommendation endpoints call directly, so a request
         through either path is metered/logged exactly once.
+
+        get_book_detail_use_case (Sprint 43) similarly composes
+        book_presentation_use_case with semantic_use_case (the same
+        similarity capability, not a new one) into one book-detail response
+        (the book plus its similar books).
 
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
@@ -499,6 +506,9 @@ class ApplicationContext:
             get_book_presentation_use_case=book_presentation_use_case,
             get_home_feed_use_case=GetHomeFeedUseCase(
                 popularity_use_case, hybrid_use_case, semantic_use_case, book_presentation_use_case
+            ),
+            get_book_detail_use_case=GetBookDetailUseCase(
+                book_presentation_use_case, semantic_use_case
             ),
             get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { HomeFeedItem } from "@/lib/api";
 import { RecommendationReason } from "@/components/RecommendationReason";
 
@@ -12,7 +13,9 @@ export function Hero({ item }: { item: HomeFeedItem }) {
         <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           Top pick
         </span>
-        <h2 className="text-2xl font-semibold tracking-tight">{book.title}</h2>
+        <Link href={`/books/${book.id}`} className="hover:underline">
+          <h2 className="text-2xl font-semibold tracking-tight">{book.title}</h2>
+        </Link>
         <p className="text-zinc-600 dark:text-zinc-400">
           {book.author} &middot; {book.category}
         </p>

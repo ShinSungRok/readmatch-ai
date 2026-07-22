@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from readmatch_ai.api.book_router import router as book_router
 from readmatch_ai.api.errors import register_exception_handlers
 from readmatch_ai.api.health_router import router as health_router
 from readmatch_ai.api.home_feed_router import router as home_feed_router
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(recommendations_router)
     app.include_router(home_feed_router)
+    app.include_router(book_router)
     return app
 
 

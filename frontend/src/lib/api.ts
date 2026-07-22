@@ -30,6 +30,12 @@ export interface HomeFeed {
   sections: HomeFeedSection[];
 }
 
+/** Mirrors readmatch_ai.api.schemas.BookDetailResponse (Sprint 43). */
+export interface BookDetail {
+  book: BookPresentation;
+  similar_books: HomeFeedItem[];
+}
+
 export interface ComponentCheck {
   name: string;
   available: boolean;
@@ -75,4 +81,24 @@ export function getHealth(): Promise<HealthResponse> {
  */
 export function getHomeFeed(limit = 12): Promise<HomeFeed> {
   return apiFetch<HomeFeed>(`/home-feed?limit=${limit}`);
+}
+
+/**
+ * GET /books/{book_id} -- see readmatch_ai.api.book_router.
+ *
+ * Returns `null` for a well-formed but unknown book id (the backend's 404),
+ * so the caller can render a proper not-found page instead of the generic
+ * error boundary. Any other non-2xx status still throws ApiError.
+ */
+export async function getBookDetail(bookId: string): Promise<BookDetail | null> {
+  const response = await fetch(`${getApiBaseUrl()}/books/${encodeURIComponent(bookId)}`, {
+    cache: "no-store",
+  });
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, `/books/${bookId} responded with HTTP ${response.status}`);
+  }
+  return (await response.json()) as BookDetail;
 }

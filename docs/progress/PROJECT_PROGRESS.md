@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 of 8 — Frontend Experience MVP (in progress)
-- Current Sprint: Sprint 42 of 68 — Home Feed API — Complete
-- Last Completed Task: Sprint 42 / Task 1 — Home Feed API
-- Last Commit: (recorded after commit; Sprint 42)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (192 source files); `pytest -q` — pass (589 passed; 42 pre-existing, unrelated Docker-dependent PostgreSQL-test errors, same as Sprint 40/41); `python scripts/run_demo.py` re-run — rankings/scores unchanged; frontend `npm run lint`/`npx tsc --noEmit`/`npm run build` — pass; manual end-to-end check against a live, demo-seeded backend confirmed the frontend home now renders entirely from `GET /home-feed`, with real presentation metadata (publisher/description/cover) flowing through
+- Current Sprint: Sprint 43 of 68 — Book Detail Experience — Complete (Sprint 39-43 / Phase 2 complete)
+- Last Completed Task: Sprint 43 / Task 1 — Book Detail Experience
+- Last Commit: (recorded after commit; Sprint 43)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (197 source files); `pytest -q` — pass (602 passed; 42 pre-existing, unrelated Docker-dependent PostgreSQL-test errors, same as Sprint 40-42); `python scripts/run_demo.py` re-run — rankings/scores unchanged; frontend `npm run lint`/`npx tsc --noEmit`/`npm run build` — pass; manual end-to-end check against a live, demo-seeded backend confirmed `GET /books/{book_id}` (200 with detail, 404 for unknown, 400 for malformed) and the frontend book-detail page (real data, "Similar books" row, not-found page, and home-page card/hero links navigating to it)
 - Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phase 2 (this Phase) is a new, in-progress frontend/presentation capability layered on top of that unchanged backend.
 
 ## Task Log
@@ -1275,8 +1275,32 @@ Use this format:
   - `cd frontend && npm run lint` — pass (2 pre-existing `no-img-element` warnings, not errors); `npx tsc --noEmit` — pass; `npm run build` — pass
   - Manual end-to-end check: started the real backend seeded with `scripts/demo_fixtures.py`'s dataset and the frontend dev server against it (throwaway local script, not committed). `GET /home-feed` returned real publisher/description/cover data for the demo books (not just the fallback). The rendered home page showed the hero ("Sapiens"), "Popular books", "Recommended picks", "Similar to Sapiens", and three "More in `<category>`" rows -- all sourced from the single `/home-feed` response, with cover images resolving correctly.
   - `git status`/`git diff` reviewed before staging: only this Sprint's backend + frontend files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 48872fb
 - Notes: No architecture change, public-contract break, or destructive operation was required -- every existing endpoint (`/recommendations/*`, `/health`, `/readiness`) is byte-for-byte unchanged; `/home-feed` is strictly additive.
+
+## Sprint 43 — Book Detail Experience
+
+### Task 1 — Book Detail Experience
+
+- Status: Done
+- Summary: Added the backend contract and frontend page for a single selected book -- the last Sprint of Phase 2. Reuses the existing book-presentation and semantic-similarity capabilities exclusively; introduces no new ranking/scoring logic and no change to any existing endpoint.
+  - **`application/book_detail.py`** (new): `BookDetail` (`book: BookPresentation`, `similar_books: list[HomeFeedItem]`) -- reuses Sprint 42's `HomeFeedItem` for similar books directly (a similar book is exactly presentation + score + source; no new item DTO needed).
+  - **`application/get_book_detail_use_case.py`** (new): `GetBookDetailUseCase`, composing the existing `GetBookPresentationUseCase` (Sprint 39) and `GenerateSemanticRecommendationUseCase` (unchanged since its original Sprint) -- the same similarity capability every other endpoint already uses. `execute(book_id, limit=12)` returns `None` for an unknown book id (safe not-found, handled by the router as a 404) or `BookDetail` otherwise, with `similar_books` built from the same semantic engine's live results (empty list, not an error, if the book has no embedding yet).
+  - **`application_context.py`**: added `get_book_detail_use_case`, built from the exact same `book_presentation_use_case`/`semantic_use_case` local instances Sprint 42 already extracted for `get_home_feed_use_case` -- no further refactor needed, and again no double-metering.
+  - **`api/schemas.py`**: added `BookDetailResponse` (`book`, `similar_books`), reusing `BookPresentationResponse`/`HomeFeedItemResponse` from Sprint 42/39. No existing schema changed.
+  - **`api/book_router.py`** (new) + registered in `api/main.py`: `GET /books/{book_id}?limit=` (default 12, `1 <= limit <= 100`). A malformed `book_id` still 400s via the existing `ValueError` handler (unchanged, matches every other `book_id` path parameter in this API); a well-formed but unknown id now 400s -- no, 404s (`HTTPException(404)`) -- the first 404 in this API, added because "safe not-found behaviour" is this Sprint's own explicit requirement, unlike the recommendation endpoints' existing "empty list, never 404" convention for a query parameter.
+  - **Frontend**: `frontend/src/lib/api.ts` adds `BookDetail` and `getBookDetail(bookId)`, which distinguishes a real backend 404 (returns `null`) from any other failure (still throws `ApiError`, still caught by the existing `error.tsx` boundary). `frontend/src/app/books/[id]/page.tsx` (new, App Router dynamic segment): fetches the book detail, calls Next.js's `notFound()` when `null`, and renders cover/title/author/category/publisher/description/ISBN/published date plus a "Similar books" `RecommendationRow`. `frontend/src/app/not-found.tsx` (new): renders the existing `EmptyState` component plus a link home, reusing Sprint 40's established empty-state visual language rather than Next.js's bare default. `BookCard`/`Hero` (Sprint 41) now link their title/cover to `/books/{id}`, completing the home -> detail navigation flow this Sprint's page needs to be reachable at all.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (197 source files)
+  - `python3 -m pytest -q` — 602 passed; same 42 pre-existing, Docker-dependent PostgreSQL-test errors as every prior Sprint 40-42 (unrelated to this Sprint)
+  - New tests: `tests/application/test_get_book_detail_use_case.py` (3 tests, isolated with a stub `RecommendationEngine` -- unknown book returns `None`, book + similar books composed correctly and anchored on the right book id, empty similar-books list when semantic has no results); `tests/api/test_book_router.py` (7 tests -- 404 for an unknown well-formed id, 400 for a malformed id, presentation metadata passthrough, deterministic cover fallback, similar books sourced from real semantic similarity and never including the book itself, `limit` respected and validated); 3 new `tests/api/test_openapi_contract.py` tests (endpoint documented, `BookDetailResponse` schema declared, `book_id` a required path parameter)
+  - `python scripts/run_demo.py` — re-run end-to-end; rankings/scores for every engine unchanged
+  - `cd frontend && npm run lint` — pass (3 pre-existing-pattern `no-img-element` warnings, not errors, across `BookCard`/`Hero`/the new detail page); `npx tsc --noEmit` — pass; `npm run build` — pass (new `/books/[id]` dynamic route + `/_not-found` both appear in the build output)
+  - Manual end-to-end check: started the real backend seeded with `scripts/demo_fixtures.py`'s dataset and the frontend dev server against it. `GET /books/{id}` for the seeded "Sapiens" returned its full presentation (publisher, description, cover) plus real semantic-similarity `similar_books`; `GET /books/<random-uuid>` returned 404, `GET /books/not-a-uuid` returned 400. The rendered detail page showed the book's data, ISBN, and a working "Similar books" row; the not-found page rendered for an unknown id; every home-page book card and the hero title linked to the correct `/books/{id}` URL.
+  - `git status`/`git diff` reviewed before staging: only this Sprint's backend + frontend files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required -- every existing endpoint is unchanged; `/books/{book_id}` is strictly additive and is this repository's first 404 response, justified by this Sprint's own explicit "safe not-found behaviour" requirement rather than a general policy change. This completes Sprint 39-43 / Phase 2 (Frontend Experience MVP).
 
 ## Current Constraints
 

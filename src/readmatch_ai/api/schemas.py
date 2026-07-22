@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from readmatch_ai.application.book_detail import BookDetail
 from readmatch_ai.application.book_presentation import BookPresentation
 from readmatch_ai.application.home_feed import HomeFeed, HomeFeedItem, HomeFeedSection
 from readmatch_ai.domain.book import Book
@@ -136,6 +137,22 @@ class HomeFeedResponse(BaseModel):
         return cls(
             hero=HomeFeedItemResponse.from_domain(feed.hero) if feed.hero is not None else None,
             sections=[HomeFeedSectionResponse.from_domain(section) for section in feed.sections],
+        )
+
+
+class BookDetailResponse(BaseModel):
+    """API representation of a BookDetail (Sprint 43): a book plus its similar books."""
+
+    book: BookPresentationResponse
+    similar_books: list[HomeFeedItemResponse]
+
+    @classmethod
+    def from_domain(cls, detail: BookDetail) -> BookDetailResponse:
+        return cls(
+            book=BookPresentationResponse.from_domain(detail.book),
+            similar_books=[
+                HomeFeedItemResponse.from_domain(item) for item in detail.similar_books
+            ],
         )
 
 

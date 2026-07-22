@@ -120,6 +120,36 @@ def test_openapi_schema_documents_the_home_feed_endpoint(client: TestClient) -> 
     assert "get" in paths["/home-feed"]
 
 
+def test_openapi_schema_documents_the_book_detail_endpoint(client: TestClient) -> None:
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/books/{book_id}" in paths
+    assert "get" in paths["/books/{book_id}"]
+
+
+def test_openapi_schema_declares_the_book_detail_response_model(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+
+    book_detail_get = schema["paths"]["/books/{book_id}"]["get"]
+    response_schema = book_detail_get["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "BookDetailResponse" in response_schema["$ref"]
+    book_detail_schema = schema["components"]["schemas"]["BookDetailResponse"]
+    assert set(book_detail_schema["properties"]) == {"book", "similar_books"}
+
+
+def test_openapi_schema_declares_book_id_as_a_required_path_parameter_for_book_detail(
+    client: TestClient,
+) -> None:
+    schema = client.get("/openapi.json").json()
+
+    parameters = schema["paths"]["/books/{book_id}"]["get"]["parameters"]
+    book_id_param = next(param for param in parameters if param["name"] == "book_id")
+    assert book_id_param["required"] is True
+    assert book_id_param["in"] == "path"
+
+
 def test_openapi_schema_declares_the_home_feed_response_model(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
 

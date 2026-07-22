@@ -31,6 +31,7 @@ from readmatch_ai.application.get_book_by_isbn_use_case import GetBookByISBNUseC
 from readmatch_ai.application.get_book_detail_use_case import GetBookDetailUseCase
 from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
 from readmatch_ai.application.get_home_feed_use_case import GetHomeFeedUseCase
+from readmatch_ai.application.get_personal_library_use_case import GetPersonalLibraryUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
 from readmatch_ai.application.get_user_interactions_use_case import GetUserInteractionsUseCase
 from readmatch_ai.application.health_check_service import HealthCheckService
@@ -157,6 +158,7 @@ class ApplicationContext:
     record_interaction_use_case: RecordInteractionUseCase
     clear_interaction_use_case: ClearInteractionUseCase
     get_user_interactions_use_case: GetUserInteractionsUseCase
+    get_personal_library_use_case: GetPersonalLibraryUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
@@ -314,6 +316,11 @@ class ApplicationContext:
         record_interaction_use_case/clear_interaction_use_case/
         get_user_interactions_use_case each pair it with `repository`
         (record also validates the book exists) or use it directly.
+
+        get_personal_library_use_case (Sprint 45) composes
+        `explicit_interactions` with `book_presentation_use_case` -- the
+        same two dependencies as `get_user_interactions_use_case`/
+        `book_presentation_use_case` above, not a new store.
 
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
@@ -547,6 +554,9 @@ class ApplicationContext:
             record_interaction_use_case=RecordInteractionUseCase(explicit_interactions, repository),
             clear_interaction_use_case=ClearInteractionUseCase(explicit_interactions),
             get_user_interactions_use_case=GetUserInteractionsUseCase(explicit_interactions),
+            get_personal_library_use_case=GetPersonalLibraryUseCase(
+                explicit_interactions, book_presentation_use_case
+            ),
             get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository

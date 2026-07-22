@@ -11,6 +11,7 @@ from readmatch_ai.api.errors import register_exception_handlers
 from readmatch_ai.api.health_router import router as health_router
 from readmatch_ai.api.home_feed_router import router as home_feed_router
 from readmatch_ai.api.interaction_router import router as interaction_router
+from readmatch_ai.api.library_router import router as library_router
 from readmatch_ai.api.recommendations_router import router as recommendations_router
 from readmatch_ai.application_context import ApplicationContext
 from readmatch_ai.config import CorsConfig
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(home_feed_router)
     app.include_router(book_router)
     app.include_router(interaction_router)
+    app.include_router(library_router)
     return app
 
 

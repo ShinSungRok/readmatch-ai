@@ -36,6 +36,23 @@ export interface BookDetail {
   similar_books: HomeFeedItem[];
 }
 
+/** Mirrors readmatch_ai.api.schemas.LibraryItemResponse (Sprint 45). */
+export interface LibraryItem {
+  book: BookPresentation;
+  interaction_type: string;
+  value: number | null;
+}
+
+export interface LibrarySection {
+  id: string;
+  title: string;
+  items: LibraryItem[];
+}
+
+export interface PersonalLibrary {
+  sections: LibrarySection[];
+}
+
 export interface ComponentCheck {
   name: string;
   available: boolean;
@@ -101,4 +118,15 @@ export async function getBookDetail(bookId: string): Promise<BookDetail | null> 
     throw new ApiError(response.status, `/books/${bookId} responded with HTTP ${response.status}`);
   }
   return (await response.json()) as BookDetail;
+}
+
+/**
+ * GET /library/{user_id} -- see readmatch_ai.api.library_router.
+ *
+ * Composed entirely by the backend (Sprint 45); an unknown-but-well-formed
+ * user id (e.g. a brand new anonymous browser id) returns an empty library
+ * (`sections: []`), not an error.
+ */
+export function getPersonalLibrary(userId: string): Promise<PersonalLibrary> {
+  return apiFetch<PersonalLibrary>(`/library/${encodeURIComponent(userId)}`);
 }

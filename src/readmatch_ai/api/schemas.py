@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from readmatch_ai.application.book_detail import BookDetail
 from readmatch_ai.application.book_presentation import BookPresentation
 from readmatch_ai.application.home_feed import HomeFeed, HomeFeedItem, HomeFeedSection
+from readmatch_ai.application.personal_library import LibraryItem, LibrarySection, PersonalLibrary
 from readmatch_ai.domain.book import Book
 from readmatch_ai.domain.explainer import (
     ExplainedRecommendationItem,
@@ -254,6 +255,54 @@ class InteractionListResponse(BaseModel):
     @classmethod
     def from_domain(cls, interactions: list[UserInteraction]) -> InteractionListResponse:
         return cls(items=[InteractionResponse.from_domain(i) for i in interactions])
+
+
+class LibraryItemResponse(BaseModel):
+    """API representation of one LibraryItem: a presentation-ready book plus the interaction."""
+
+    book: BookPresentationResponse
+    interaction_type: str
+    value: int | None = None
+
+    @classmethod
+    def from_domain(cls, item: LibraryItem) -> LibraryItemResponse:
+        return cls(
+            book=BookPresentationResponse.from_domain(item.book),
+            interaction_type=item.interaction_type.value,
+            value=item.value,
+        )
+
+
+class LibrarySectionResponse(BaseModel):
+    """API representation of one identified, titled LibrarySection."""
+
+    id: str
+    title: str
+    items: list[LibraryItemResponse]
+
+    @classmethod
+    def from_domain(cls, section: LibrarySection) -> LibrarySectionResponse:
+        return cls(
+            id=section.id,
+            title=section.title,
+            items=[LibraryItemResponse.from_domain(item) for item in section.items],
+        )
+
+
+class PersonalLibraryResponse(BaseModel):
+    """API representation of GET /library/{user_id} (Sprint 45).
+
+    `sections=[]` for a user with no qualifying interactions -- a valid,
+    safe response, not an error.
+    """
+
+    sections: list[LibrarySectionResponse]
+
+    @classmethod
+    def from_domain(cls, library: PersonalLibrary) -> PersonalLibraryResponse:
+        return cls(
+            sections=[LibrarySectionResponse.from_domain(section) for section in library.sections]
+        )
 
 
 class ComponentCheckResponse(BaseModel):

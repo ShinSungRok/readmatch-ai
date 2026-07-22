@@ -208,6 +208,29 @@ def test_openapi_schema_declares_the_interaction_response_models(client: TestCli
     assert set(list_schema["properties"]) == {"items"}
 
 
+def test_openapi_schema_documents_the_library_endpoint(client: TestClient) -> None:
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/library/{user_id}" in paths
+    assert "get" in paths["/library/{user_id}"]
+
+
+def test_openapi_schema_declares_the_library_response_model(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+
+    library_get = schema["paths"]["/library/{user_id}"]["get"]
+    response_schema = library_get["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "PersonalLibraryResponse" in response_schema["$ref"]
+    library_schema = schema["components"]["schemas"]["PersonalLibraryResponse"]
+    assert set(library_schema["properties"]) == {"sections"}
+    section_schema = schema["components"]["schemas"]["LibrarySectionResponse"]
+    assert set(section_schema["properties"]) == {"id", "title", "items"}
+    item_schema = schema["components"]["schemas"]["LibraryItemResponse"]
+    assert set(item_schema["properties"]) == {"book", "interaction_type", "value"}
+
+
 def test_openapi_schema_documents_the_health_and_readiness_endpoints(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
 

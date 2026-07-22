@@ -7,9 +7,12 @@ export function Header() {
         <Link href="/" className="text-lg font-semibold tracking-tight">
           ReadMatch AI
         </Link>
-        <nav className="text-sm text-zinc-600 dark:text-zinc-400">
+        <nav className="flex items-center gap-4 text-sm text-zinc-600 dark:text-zinc-400">
           <Link href="/" className="hover:text-foreground">
             Home
+          </Link>
+          <Link href="/library" className="hover:text-foreground">
+            My Library
           </Link>
         </nav>
       </div>

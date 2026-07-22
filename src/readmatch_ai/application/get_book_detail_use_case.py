@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from readmatch_ai.application.book_detail import BookDetail
-from readmatch_ai.application.book_presentation import BookPresentation
 from readmatch_ai.application.generate_semantic_recommendation_use_case import (
     GenerateSemanticRecommendationUseCase,
 )
@@ -34,19 +33,17 @@ class GetBookDetailUseCase:
         similar_items = self._semantic_use_case.execute(
             book_id=book_id, limit=limit
         ).recommendation.items
+        # One batch presentation lookup for every similar book, not one
+        # BookMetadataRepository round-trip per item.
+        presentations = self._book_presentation_use_case.execute_many(
+            [item.book for item in similar_items]
+        )
         similar_books = [
             HomeFeedItem(
-                book=self._presentation_for(str(item.book.id.value)),
+                book=presentations[str(item.book.id.value)],
                 score=item.score,
                 source=item.source,
             )
             for item in similar_items
         ]
         return BookDetail(book=presentation, similar_books=similar_books)
-
-    def _presentation_for(self, book_id: str) -> BookPresentation:
-        presentation = self._book_presentation_use_case.execute(book_id)
-        # The id just came from a live semantic-recommendation result, so
-        # the book is guaranteed to still exist in the same repository.
-        assert presentation is not None
-        return presentation

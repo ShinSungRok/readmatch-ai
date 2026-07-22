@@ -64,6 +64,19 @@ class PostgreSQLBookMetadataRepository(BookMetadataRepository):
 
         return self._row_to_metadata(row) if row is not None else None
 
+    def get_by_book_ids(self, book_ids: list[BookId]) -> dict[BookId, BookMetadata]:
+        if not book_ids:
+            return {}
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_SELECT_COLUMNS} "
+                "FROM book_metadata WHERE book_id = ANY(%s)",
+                ([book_id.value for book_id in book_ids],),
+            )
+            rows = cursor.fetchall()
+        metadata_list = [self._row_to_metadata(row) for row in rows]
+        return {metadata.book_id: metadata for metadata in metadata_list}
+
     @staticmethod
     def _row_to_metadata(row: tuple[Any, ...]) -> BookMetadata:
         (

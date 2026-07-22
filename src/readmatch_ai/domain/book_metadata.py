@@ -33,3 +33,12 @@ class BookMetadataRepository(ABC):
     @abstractmethod
     def get_by_book_id(self, book_id: BookId) -> BookMetadata | None:
         """Return the recorded metadata for a book, or None if never recorded."""
+
+    @abstractmethod
+    def get_by_book_ids(self, book_ids: list[BookId]) -> dict[BookId, BookMetadata]:
+        """Batch lookup: one round-trip instead of one per book_id.
+
+        Returns only entries that exist -- a book_id with no recorded
+        metadata is simply absent from the result (never a None value),
+        matching get_by_book_id's "no metadata recorded" case.
+        """

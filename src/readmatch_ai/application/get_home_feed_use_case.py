@@ -10,7 +10,6 @@ from readmatch_ai.application.generate_semantic_recommendation_use_case import (
 from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
 from readmatch_ai.application.home_feed import HomeFeed, HomeFeedItem, HomeFeedSection
-from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.recommendation import RecommendationItem
 
 _MINIMUM_BOOKS_PER_CATEGORY = 2
@@ -65,16 +64,25 @@ class GetHomeFeedUseCase:
             book_id=hero_book_id, limit=limit
         ).recommendation.items
 
+        # One batch presentation lookup for every book this feed will ever
+        # reference (hero + every section, including category groupings,
+        # which only regroup these same three item lists) -- one
+        # BookMetadataRepository round-trip total, not one per item.
+        all_items = popularity_items + hybrid_items + semantic_items
+        presentations = self._book_presentation_use_case.execute_many(
+            [item.book for item in all_items]
+        )
+
         sections = [
             HomeFeedSection(
                 id="popular",
                 title="Popular books",
-                items=self._to_home_feed_items(popularity_items),
+                items=self._to_home_feed_items(popularity_items, presentations),
             ),
             HomeFeedSection(
                 id="recommended",
                 title="Recommended picks",
-                items=self._to_home_feed_items(hybrid_items),
+                items=self._to_home_feed_items(hybrid_items, presentations),
             ),
         ]
         if semantic_items:
@@ -85,37 +93,37 @@ class GetHomeFeedUseCase:
                 HomeFeedSection(
                     id="similar-to-hero",
                     title=f"Similar to {hero_item.book.title.value}",
-                    items=self._to_home_feed_items(semantic_items),
+                    items=self._to_home_feed_items(semantic_items, presentations),
                 )
             )
         sections.extend(
-            self._build_category_sections([popularity_items, hybrid_items, semantic_items])
+            self._build_category_sections(
+                [popularity_items, hybrid_items, semantic_items], presentations
+            )
         )
 
         hero = HomeFeedItem(
-            book=self._presentation_for(hero_item.book.id),
+            book=presentations[hero_book_id],
             score=hero_item.score,
             source=hero_item.source,
         )
         return HomeFeed(hero=hero, sections=sections)
 
-    def _to_home_feed_items(self, items: list[RecommendationItem]) -> list[HomeFeedItem]:
+    @staticmethod
+    def _to_home_feed_items(
+        items: list[RecommendationItem], presentations: dict[str, BookPresentation]
+    ) -> list[HomeFeedItem]:
         return [
             HomeFeedItem(
-                book=self._presentation_for(item.book.id), score=item.score, source=item.source
+                book=presentations[str(item.book.id.value)], score=item.score, source=item.source
             )
             for item in items
         ]
 
-    def _presentation_for(self, book_id: BookId) -> BookPresentation:
-        presentation = self._book_presentation_use_case.execute(str(book_id.value))
-        # The id just came from a live recommendation result, so the book is
-        # guaranteed to still exist in the same repository.
-        assert presentation is not None
-        return presentation
-
     def _build_category_sections(
-        self, item_lists: list[list[RecommendationItem]]
+        self,
+        item_lists: list[list[RecommendationItem]],
+        presentations: dict[str, BookPresentation],
     ) -> list[HomeFeedSection]:
         """Group already-ranked items by category for display.
 
@@ -138,7 +146,7 @@ class GetHomeFeedUseCase:
             HomeFeedSection(
                 id=f"category-{_slugify(category)}",
                 title=f"More in {category}",
-                items=self._to_home_feed_items(items),
+                items=self._to_home_feed_items(items, presentations),
             )
             for category, items in sorted(items_by_category.items())
             if len(items) >= _MINIMUM_BOOKS_PER_CATEGORY

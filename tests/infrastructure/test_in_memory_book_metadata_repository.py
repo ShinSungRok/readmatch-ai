@@ -31,3 +31,20 @@ def test_record_upserts_existing_book_id() -> None:
     repository.record(BookMetadata(book_id, publisher="New"))
 
     assert repository.get_by_book_id(book_id) == BookMetadata(book_id, publisher="New")
+
+
+def test_get_by_book_ids_returns_only_recorded_entries() -> None:
+    repository = InMemoryBookMetadataRepository()
+    recorded_id, unrecorded_id = BookId.generate(), BookId.generate()
+    metadata = BookMetadata(recorded_id, publisher="Publisher")
+    repository.record(metadata)
+
+    result = repository.get_by_book_ids([recorded_id, unrecorded_id])
+
+    assert result == {recorded_id: metadata}
+
+
+def test_get_by_book_ids_returns_empty_dict_for_empty_input() -> None:
+    repository = InMemoryBookMetadataRepository()
+
+    assert repository.get_by_book_ids([]) == {}

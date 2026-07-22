@@ -1877,7 +1877,7 @@ while exercising the real stack.
   - `git status`/`git diff` reviewed before staging: only `docker-compose.yml`
     touched; the pre-existing, unrelated `docs/agent/architecture/*`
     deletion left untouched and unstaged
-- Commit: (recorded after this entry is committed)
+- Commit: 88de240
 - Notes: No architecture change — the single-`app`-service decision from
   Sprint 6 stands; PostgreSQL is validated as a separate, explicitly-started
   container, the same pattern this repo's own tests already use, not a new

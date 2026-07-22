@@ -178,6 +178,50 @@ def test_find_similar_ranks_by_cosine_distance_ascending(
     ]
 
 
+def test_constructor_rejects_an_unknown_similarity_metric() -> None:
+    """No live database needed: the constructor validates similarity_metric
+    before touching the connection at all (register_vector() is called
+    after, never reached here), so this runs even where the module-scoped
+    postgres_connection fixture (and the Docker daemon it needs) is
+    unavailable.
+    """
+    with pytest.raises(ValueError, match="similarity_metric"):
+        PostgreSQLBookEmbeddingRepository(None, similarity_metric="euclidean")  # type: ignore[arg-type]
+
+
+def test_find_similar_ranks_by_inner_product_when_configured(
+    postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
+) -> None:
+    """Chosen so cosine and inner-product ranking *disagree*, proving
+    similarity_metric="inner_product" actually changes which operator is
+    used, not just repeating the cosine case with different numbers.
+    same_direction has a smaller magnitude but is perfectly aligned with
+    the query (cosine similarity 1.0, dot product 0.5); higher_dot points
+    in a different direction but has a larger raw dot product with the
+    query (cosine similarity ~0.707, dot product 0.6).
+    """
+    same_direction = _embedding_with_vector(
+        _add_book(postgres_connection, "978-3-16-148410-0").id, _vector(0.5, 0.0)
+    )
+    higher_dot = _embedding_with_vector(
+        _add_book(postgres_connection, "0-306-40615-2").id, _vector(0.6, 0.6)
+    )
+    inner_product_repository = PostgreSQLBookEmbeddingRepository(
+        postgres_connection, similarity_metric="inner_product"
+    )
+    inner_product_repository.save(same_direction)
+    inner_product_repository.save(higher_dot)
+
+    cosine_result = repository.find_similar(_vector(1.0, 0.0), limit=2)
+    inner_product_result = inner_product_repository.find_similar(_vector(1.0, 0.0), limit=2)
+
+    assert [e.book_id for e in cosine_result] == [same_direction.book_id, higher_dot.book_id]
+    assert [e.book_id for e in inner_product_result] == [
+        higher_dot.book_id,
+        same_direction.book_id,
+    ]
+
+
 def test_find_similar_truncates_to_limit(
     postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
 ) -> None:

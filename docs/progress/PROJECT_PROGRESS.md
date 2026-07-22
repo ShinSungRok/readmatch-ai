@@ -3,11 +3,11 @@
 ## Current State
 
 - Current Phase: Phase 7 of 8 — Recommendation Evaluation (Sprint 61-64) — in progress
-- Current Sprint: Sprint 62 of 68 — Recommendation Metrics — Complete
-- Last Completed Task: Sprint 62 / Task 1 — Recommendation Metrics
-- Last Commit: (recorded after commit; Sprint 62)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (239 source files); `pytest -q` (full suite) — 851 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint)
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-6 are complete. Phase 7 (offline recommendation evaluation) is in progress: an unusually mature pre-existing evaluation framework (Precision/Recall/MAP/NDCG/HitRate@K, multi-engine comparison, Markdown/CSV reports, regression gating) was found already in place; this Phase closes the genuine remaining gaps on top of it -- train/validation/test dataset splitting (Sprint 61, done) and independent metric classes (Sprint 62, done).
+- Current Sprint: Sprint 63 of 68 — Engine Comparison — Complete
+- Last Completed Task: Sprint 63 / Task 1 — Engine Comparison
+- Last Commit: (recorded after commit; Sprint 63)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (240 source files); `pytest -q` (full suite) — 852 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint)
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-6 are complete. Phase 7 (offline recommendation evaluation) is in progress: an unusually mature pre-existing evaluation framework (Precision/Recall/MAP/NDCG/HitRate@K, multi-engine comparison, Markdown/CSV reports, regression gating) was found already in place; this Phase closes the genuine remaining gaps on top of it -- train/validation/test dataset splitting (Sprint 61, done), independent metric classes (Sprint 62, done), and confirmed engine comparison already satisfied Sprint 63's requirements (done, tests only). Sprint 64 (JSON evaluation-runner output) next.
 
 ## Task Log
 
@@ -1709,8 +1709,25 @@ Goal: build an offline recommendation evaluation framework for the existing reco
   - `python3 -m pytest -q tests/domain/test_evaluation_metrics.py -v` — 52 passed (32 pre-existing + 20 new: each class's `compute()` matches its underlying function exactly (regression, parametrized over all 5), each class's `name` matches `EvaluationResult`'s corresponding field name, `STANDARD_METRICS` is independently iterable and produces exactly the 5 expected metric names, and results are deterministic across repeated calls)
   - `python3 -m pytest -q` (full suite) — 851 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
   - `git status`/`git diff` reviewed before staging: only `domain/evaluation_metrics.py` and its test file touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: d07ea6e
 - Notes: No architecture change, public-contract break, or destructive operation was required. `EvaluateRecommendationEngineUseCase`'s "reusable evaluation API" requirement was already satisfied before this Sprint; this Sprint adds a second, class-based, independently-usable surface over the same underlying calculations, not a competing evaluation pipeline. `diversity_at_k`/`catalog_coverage`/`novelty_at_k` (extra metrics beyond this Sprint's explicit list of five) were deliberately left as functions only, matching "implement only genuine gaps" -- adding classes for metrics this Sprint doesn't name would be scope creep.
+
+## Sprint 63 — Engine Comparison
+
+### Task 1 — Engine Comparison
+
+- Status: Done
+- Summary: Reviewed the existing comparison capability first and found this Sprint's entire requirement list already satisfied by pre-existing (Sprint 30-era) work: `scripts/demo_fixtures.build_comparison_engines()` already builds real Popularity/Semantic/ALS/Hybrid engines (plus two extra Hybrid variants and a re-ranked one -- a superset, not a gap); `GenerateRecommendationQualityReportUseCase` already evaluates every named engine against one shared dataset and aggregates directly comparable results (per-metric best-engine selection with deterministic tie-breaking, baseline deltas); `MarkdownRecommendationQualityReporter`/`CsvRecommendationQualityReporter` already render the comparison as a report; and `tests/test_generate_quality_report.py::test_main_evaluates_all_six_comparison_engines` already proves all of this end-to-end against the real pipeline (not fakes). No source-code gap was found against this Sprint's literal requirements ("Evaluate: Popularity, Semantic, ALS, Hybrid. Generate comparable evaluation results. Do not modify recommendation engines. Add comparison report generation.") -- all four are already true.
+  - **`tests/application/test_engine_comparison.py`** (new, 1 test): the one genuinely new contribution -- confirms the comparison pipeline works with Sprint 61's `split_dataset()` consuming it directly (evaluating on a held-out `test` split, not the whole dataset, following ML evaluation practice) and explicitly names the four required categories together (`popularity`, `semantic`, `als`, `hybrid`) in one assertion, built from real `ApplicationContext`/`demo_fixtures` engines (reusing the existing recommendation pipeline, per this Sprint's "reuse" instruction) rather than the fakes `test_generate_recommendation_quality_report_use_case.py` already uses for its own, lower-level comparison-logic tests. This is additive test coverage connecting two pieces (the new split + the existing comparison use case) that hadn't been exercised together before, not a re-test of either in isolation.
+  - **No production code changed**: `git diff --stat` confirms zero changes to any recommendation engine, ranking strategy, or the comparison/report use cases and adapters themselves.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (240 source files)
+  - `python3 -m pytest -q tests/application/test_engine_comparison.py -v` — 1 passed
+  - `python3 -m pytest -q` (full suite) — 852 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
+  - `git status`/`git diff` reviewed before staging: only one new test file touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required -- this Sprint added one test file only, no source changes anywhere in `src/`, matching the established, honest "found nearly everything already built" pattern from this project's own Sprint 52/53/55 precedent. `scripts/generate_quality_report.py`'s existing, calibrated default regression thresholds (evaluated against the full dataset) were deliberately left unchanged -- the new split-based evaluation lives only in this Sprint's own additive test, not swapped into that script's default behavior.
 
 ## Current Constraints
 

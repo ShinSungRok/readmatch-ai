@@ -2,12 +2,12 @@
 
 ## Current State
 
-- Current Phase: Phase 6 of 8 — Data4Library Import Pipeline (extended: Sprint 58-60, production data refresh flow) — in progress
-- Current Sprint: Sprint 59 of 68 — Selective Embedding Refresh — Complete
-- Last Completed Task: Sprint 59 / Task 1 — Selective Embedding Refresh
-- Last Commit: (recorded after commit; Sprint 59)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (235 source files); `pytest -q` (full suite) — 825 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint); `python scripts/run_demo.py` — pass, deterministic; `git diff --stat` confirms zero changes to any recommendation-engine or ranking-strategy file
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-5 are complete. Phase 6 (Data4Library import pipeline) originally completed at Sprint 57 and has now been extended (Sprint 58-60) to add the production data-refresh flow: incremental synchronization (Sprint 58, done) and selective embedding refresh (Sprint 59, done), with popularity refresh/orchestration (Sprint 60) next.
+- Current Phase: Phase 6 of 8 — Data4Library Import Pipeline (extended: Sprint 58-60, production data refresh flow) — Complete
+- Current Sprint: Sprint 60 of 68 — Popularity Refresh and Orchestration — Complete (Sprint 58-60 complete)
+- Last Completed Task: Sprint 60 / Task 1 — Popularity Refresh and Orchestration
+- Last Commit: (recorded after commit; Sprint 60)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (239 source files); `pytest -q` (full suite) — 831 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this work); `pytest tests/api/` — 112 passed (REST/recommendation compatibility confirmed); `python scripts/run_demo.py` / `validate_release.py` / `validate_runtime.py` / `validate_deployment.py` — all pass, deterministic; `git diff --stat` confirms zero changes to any recommendation-engine or ranking-strategy file across Sprint 58-60
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-5 are complete. Phase 6 (Data4Library import pipeline), originally completed at Sprint 57, is now fully extended (Sprint 58-60) with the production data-refresh flow: incremental synchronization, selective embedding refresh, and orchestrated (staged, not atomic) popularity refresh, exposed via `scripts/refresh_recommendation_data.py`.
 
 ## Task Log
 
@@ -1648,8 +1648,33 @@ Use this format:
   - `python3 -m pytest -q` (full suite) — 825 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
   - `python scripts/run_demo.py` — run twice, diffed with timing noise excluded — identical
   - `git status`/`git diff` reviewed before staging: only `application_context.py` (wiring) plus this Sprint's two new files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 58ab6e9
 - Notes: No architecture change, public-contract break, or destructive operation was required -- no recommendation engine or ranking contract was touched. `DeterministicFakeBookEmbeddingGenerator`'s behavior is unchanged (not modified this Sprint at all). "Connecting" synchronization results to this pipeline is completed by Sprint 60's orchestration use case, which calls `RefreshBookEmbeddingsUseCase.execute()` after `SynchronizeBooksUseCase.execute()` -- this Sprint builds and unit-tests the embedding-refresh stage in isolation; Sprint 60 wires the full flow together.
+
+## Sprint 60 — Popularity Refresh and Orchestration
+
+### Task 1 — Popularity Refresh and Orchestration
+
+- Status: Done
+- Summary: Reviewed the existing pipeline first and found popularity refresh already functionally complete: `ImportBooksUseCase` (Sprint 57-58) already (re)records each reconciled book's `loan_count` -- the only popularity field Data4Library's `loanItemSrch` response actually provides; no other statistic was ever invented -- via the existing `BookPopularityRepository.record()` upsert, inline during reconciliation. That upsert is already deterministic and idempotent (re-recording the same `(book_id, loan_count, period)` is a no-op change in stored state), and `get_by_book_id()` already distinguishes "never recorded" (`None`) from an explicit zero. Building a second, separate popularity-recording pass would have duplicated that existing, correct behavior -- explicitly disallowed ("do not create duplicate... popularity engines"). The genuine gap was purely the orchestration layer: nothing composed sync -> embedding refresh -> popularity visibility -> one combined result, and nothing exposed that as a runnable pipeline.
+  - **`RefreshRecommendationDataUseCase`** (new, `application/refresh_recommendation_data_use_case.py`): the one Application-layer orchestration use case this Sprint adds. Calls `SynchronizeBooksUseCase.execute()` (stage 1: sync + book upsert/change detection + inline popularity recording, all pre-existing), then `RefreshBookEmbeddingsUseCase.execute()` (stage 2, Sprint 59, reused unmodified). "Popularity refresh" is not re-executed as a third write -- `DataRefreshResult.popularity_refreshed_book_ids` reports which books (imported + updated + unchanged) had their popularity (re)recorded by stage 1, giving the pipeline's four named stages (sync, embedding refresh, popularity refresh, result) full visibility in one returned object without duplicating work.
+  - **Staged, not atomic, documented explicitly** (per this Sprint's own requirement) in the class docstring: stage 1 commits book/popularity changes per record and only advances the sync checkpoint after it returns successfully; if the `BookDataSource` raises, the exception propagates unchanged and neither the checkpoint nor stage 2 runs, so nothing from that run claims completion and a caller can safely retry. Stage 2 (`RefreshBookEmbeddingsUseCase`) never raises by construction (Sprint 59) -- a real failure there is reported via its own `failed` tuple, not fatal to the whole run. Earlier stages' already-committed work is never rolled back if a later stage fails, mirroring `ImportBooksUseCase`'s own established per-record-commit behavior rather than inventing a new transactional guarantee nothing else in this codebase provides.
+  - **`scripts/refresh_recommendation_data.py`** (new): the smallest CLI entry point for the complete pipeline, mirroring `scripts/import_books.py`/`scripts/sync_books.py`'s exact composition-root structure. Prints per-stage counts (sync: created/updated/unchanged/invalid/failed; embeddings: requested/generated/skipped/failed; popularity: refreshed-book count).
+  - **REST/recommendation compatibility**: `tests/api/` (112 tests, including the PostgreSQL-backed semantic/hybrid REST tests) re-run unchanged and pass -- this Sprint added no source changes to any recommendation engine, ranking strategy, or REST route/schema.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (239 source files)
+  - `python3 -m pytest -q tests/application/test_refresh_recommendation_data_use_case.py -v` — 3 passed (fixture-based: full pipeline for a new book; repeated/idempotent run reports `unchanged` + skips embedding regeneration + no duplicate book; sync failure leaves checkpoint untouched and stage 2 never runs)
+  - `python3 -m pytest -q tests/test_refresh_recommendation_data_runtime.py -v` — 3 passed, against a real PostgreSQL instance (Docker reachable in this sandbox, as in Sprints 58-59): full pipeline persists book + embedding + popularity + checkpoint via `PostgreSQLBookRepository`/`PostgreSQLBookEmbeddingRepository`/`PostgreSQLBookPopularityRepository`/`PostgreSQLSyncCheckpointRepository`; a second, identical run creates no duplicate book and advances the checkpoint; a simulated `BookDataSource` failure leaves the checkpoint at `None`
+  - Manual smoke test of `scripts/refresh_recommendation_data.py` (in-process, fake `BookDataSource`): first run creates 1 book, generates 1 embedding, refreshes popularity for 1 book; second identical run reports 0 created, 1 unchanged, 0 embeddings generated (1 skipped), popularity still refreshed for 1 book -- confirms the CLI's full stage-by-stage output, not just the unit/integration tests
+  - `python3 -m pytest -q tests/api/` — 112 passed (REST/recommendation compatibility explicitly verified)
+  - `python3 -m pytest -q` (full suite) — 831 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
+  - `python scripts/run_demo.py` — run twice, diffed with timing noise excluded — identical
+  - `python scripts/validate_release.py` / `validate_runtime.py` / `validate_deployment.py` — all valid
+  - `git diff --stat` confirms zero changes to any embedding-generation or recommendation-engine file across Sprint 58-60
+  - `git status`/`git diff` reviewed before staging: only this Sprint's four new files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. No job framework, scheduler, or queue was added -- `scripts/refresh_recommendation_data.py` is a plain, manually-invoked CLI script. **Execution model, stated explicitly per this Sprint's own requirement**: staged and partially recoverable, not atomic -- see `RefreshRecommendationDataUseCase`'s own docstring for the exact per-stage commit/rollback boundaries. This completes Sprint 58-60, extending Phase 6 (Data4Library Import Pipeline) with the full production data-refresh flow: incremental synchronization, selective embedding refresh, and orchestrated popularity refresh, on top of the Sprint 56-57 connector/import foundation.
 
 ## Current Constraints
 

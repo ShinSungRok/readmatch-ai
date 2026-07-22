@@ -5,7 +5,7 @@
 - Current Phase: Phase 6 of 8 — Data4Library Import Pipeline (extended: Sprint 58-60, production data refresh flow) — Complete
 - Current Sprint: Sprint 60 of 68 — Popularity Refresh and Orchestration — Complete (Sprint 58-60 complete)
 - Last Completed Task: Sprint 60 / Task 1 — Popularity Refresh and Orchestration
-- Last Commit: (recorded after commit; Sprint 60)
+- Last Commit: 5c4017f
 - Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (239 source files); `pytest -q` (full suite) — 831 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this work); `pytest tests/api/` — 112 passed (REST/recommendation compatibility confirmed); `python scripts/run_demo.py` / `validate_release.py` / `validate_runtime.py` / `validate_deployment.py` — all pass, deterministic; `git diff --stat` confirms zero changes to any recommendation-engine or ranking-strategy file across Sprint 58-60
 - Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-5 are complete. Phase 6 (Data4Library import pipeline), originally completed at Sprint 57, is now fully extended (Sprint 58-60) with the production data-refresh flow: incremental synchronization, selective embedding refresh, and orchestrated (staged, not atomic) popularity refresh, exposed via `scripts/refresh_recommendation_data.py`.
 
@@ -1673,7 +1673,7 @@ Use this format:
   - `python scripts/validate_release.py` / `validate_runtime.py` / `validate_deployment.py` — all valid
   - `git diff --stat` confirms zero changes to any embedding-generation or recommendation-engine file across Sprint 58-60
   - `git status`/`git diff` reviewed before staging: only this Sprint's four new files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 5c4017f
 - Notes: No architecture change, public-contract break, or destructive operation was required. No job framework, scheduler, or queue was added -- `scripts/refresh_recommendation_data.py` is a plain, manually-invoked CLI script. **Execution model, stated explicitly per this Sprint's own requirement**: staged and partially recoverable, not atomic -- see `RefreshRecommendationDataUseCase`'s own docstring for the exact per-stage commit/rollback boundaries. This completes Sprint 58-60, extending Phase 6 (Data4Library Import Pipeline) with the full production data-refresh flow: incremental synchronization, selective embedding refresh, and orchestrated popularity refresh, on top of the Sprint 56-57 connector/import foundation.
 
 ## Current Constraints

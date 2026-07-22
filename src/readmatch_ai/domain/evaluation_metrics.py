@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 
 from readmatch_ai.domain.book import BookId
@@ -148,3 +149,83 @@ def novelty_at_k(
 def _require_positive_k(k: int) -> None:
     if k <= 0:
         raise ValueError(f"k must be positive, got {k!r}")
+
+
+class RecommendationMetric(ABC):
+    """Independent, named Top-K ranking metric, usable polymorphically.
+
+    Each concrete metric below wraps exactly one of this module's existing
+    pure functions -- never reimplements a calculation -- so there remains
+    exactly one source of truth per metric. This class only adds a
+    uniform `name`/`compute()` surface a caller can iterate over generically
+    (e.g. "run every metric in this list against this case's recommended
+    list"), which the plain functions above don't provide on their own;
+    EvaluateRecommendationEngineUseCase is unaffected and continues calling
+    the functions directly, since it has no such need for polymorphism.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """This metric's stable identifier (matches EvaluationResult's field names)."""
+
+    @abstractmethod
+    def compute(self, recommended: Sequence[BookId], relevant: frozenset[BookId], k: int) -> float:
+        """Compute this metric's value for one case's recommended list against its relevant set."""
+
+
+class PrecisionAtK(RecommendationMetric):
+    @property
+    def name(self) -> str:
+        return "precision_at_k"
+
+    def compute(self, recommended: Sequence[BookId], relevant: frozenset[BookId], k: int) -> float:
+        return precision_at_k(recommended, relevant, k)
+
+
+class RecallAtK(RecommendationMetric):
+    @property
+    def name(self) -> str:
+        return "recall_at_k"
+
+    def compute(self, recommended: Sequence[BookId], relevant: frozenset[BookId], k: int) -> float:
+        return recall_at_k(recommended, relevant, k)
+
+
+class HitRateAtK(RecommendationMetric):
+    @property
+    def name(self) -> str:
+        return "hit_rate_at_k"
+
+    def compute(self, recommended: Sequence[BookId], relevant: frozenset[BookId], k: int) -> float:
+        return hit_rate_at_k(recommended, relevant, k)
+
+
+class MeanAveragePrecisionAtK(RecommendationMetric):
+    @property
+    def name(self) -> str:
+        return "map_at_k"
+
+    def compute(self, recommended: Sequence[BookId], relevant: frozenset[BookId], k: int) -> float:
+        return average_precision_at_k(recommended, relevant, k)
+
+
+class NdcgAtK(RecommendationMetric):
+    @property
+    def name(self) -> str:
+        return "ndcg_at_k"
+
+    def compute(self, recommended: Sequence[BookId], relevant: frozenset[BookId], k: int) -> float:
+        return ndcg_at_k(recommended, relevant, k)
+
+
+# Fixed, deterministic order -- mirrors generate_recommendation_quality_report_use_case's
+# own _METRIC_NAMES ordering for the metrics it shares, independent of
+# instantiation/dict order.
+STANDARD_METRICS: tuple[RecommendationMetric, ...] = (
+    PrecisionAtK(),
+    RecallAtK(),
+    MeanAveragePrecisionAtK(),
+    NdcgAtK(),
+    HitRateAtK(),
+)

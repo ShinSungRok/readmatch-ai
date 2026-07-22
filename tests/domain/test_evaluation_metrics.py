@@ -5,6 +5,12 @@ import pytest
 
 from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.evaluation_metrics import (
+    STANDARD_METRICS,
+    HitRateAtK,
+    MeanAveragePrecisionAtK,
+    NdcgAtK,
+    PrecisionAtK,
+    RecallAtK,
     average_precision_at_k,
     catalog_coverage,
     diversity_at_k,
@@ -234,3 +240,75 @@ def test_novelty_at_k_truncates_to_k() -> None:
     assert novelty_at_k([10, 20, 30], catalog_total_popularity=100, k=1) == pytest.approx(
         novelty_at_k([10], catalog_total_popularity=100, k=1)
     )
+
+
+# --- Sprint 62: independent metric classes -- each is a thin wrapper around
+# the function it shares a name with above; these are regression tests
+# proving the class delegates to (never reimplements) that same function.
+
+
+@pytest.mark.parametrize(
+    ("metric_class", "expected_function"),
+    [
+        (PrecisionAtK, precision_at_k),
+        (RecallAtK, recall_at_k),
+        (MeanAveragePrecisionAtK, average_precision_at_k),
+        (NdcgAtK, ndcg_at_k),
+        (HitRateAtK, hit_rate_at_k),
+    ],
+)
+def test_metric_class_matches_its_underlying_function(
+    metric_class: type, expected_function: _RankingMetric
+) -> None:
+    relevant = frozenset({A, B})
+    recommended = [A, X, B, Y, Z]
+
+    metric = metric_class()
+
+    assert metric.compute(recommended, relevant, k=5) == pytest.approx(
+        expected_function(recommended, relevant, 5)
+    )
+
+
+@pytest.mark.parametrize(
+    ("metric_class", "expected_name"),
+    [
+        (PrecisionAtK, "precision_at_k"),
+        (RecallAtK, "recall_at_k"),
+        (MeanAveragePrecisionAtK, "map_at_k"),
+        (NdcgAtK, "ndcg_at_k"),
+        (HitRateAtK, "hit_rate_at_k"),
+    ],
+)
+def test_metric_class_name_matches_evaluation_result_field(
+    metric_class: type, expected_name: str
+) -> None:
+    assert metric_class().name == expected_name
+
+
+def test_standard_metrics_are_independently_iterable() -> None:
+    relevant = frozenset({A})
+    recommended = [A, X, Y]
+
+    results = {
+        metric.name: metric.compute(recommended, relevant, k=3) for metric in STANDARD_METRICS
+    }
+
+    assert set(results) == {
+        "precision_at_k",
+        "recall_at_k",
+        "map_at_k",
+        "ndcg_at_k",
+        "hit_rate_at_k",
+    }
+    assert all(isinstance(value, float) for value in results.values())
+
+
+def test_standard_metrics_are_deterministic_across_repeated_calls() -> None:
+    relevant = frozenset({A, B})
+    recommended = [B, X, A, Y, Z]
+
+    first = [metric.compute(recommended, relevant, k=5) for metric in STANDARD_METRICS]
+    second = [metric.compute(recommended, relevant, k=5) for metric in STANDARD_METRICS]
+
+    assert first == second

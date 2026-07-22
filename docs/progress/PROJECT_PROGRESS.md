@@ -3,11 +3,11 @@
 ## Current State
 
 - Current Phase: Phase 7 of 8 — Recommendation Evaluation (Sprint 61-64) — in progress
-- Current Sprint: Sprint 61 of 68 — Offline Evaluation Dataset — Complete
-- Last Completed Task: Sprint 61 / Task 1 — Offline Evaluation Dataset
-- Last Commit: (recorded after commit; Sprint 61)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (239 source files); `pytest -q` (full suite) — 839 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint)
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-6 are complete. Phase 7 (offline recommendation evaluation) is in progress: an unusually mature pre-existing evaluation framework (Precision/Recall/MAP/NDCG/HitRate@K, multi-engine comparison, Markdown/CSV reports, regression gating) was found already in place; this Phase closes the genuine remaining gaps on top of it, starting with train/validation/test dataset splitting (Sprint 61, done).
+- Current Sprint: Sprint 62 of 68 — Recommendation Metrics — Complete
+- Last Completed Task: Sprint 62 / Task 1 — Recommendation Metrics
+- Last Commit: (recorded after commit; Sprint 62)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (239 source files); `pytest -q` (full suite) — 851 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint)
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-6 are complete. Phase 7 (offline recommendation evaluation) is in progress: an unusually mature pre-existing evaluation framework (Precision/Recall/MAP/NDCG/HitRate@K, multi-engine comparison, Markdown/CSV reports, regression gating) was found already in place; this Phase closes the genuine remaining gaps on top of it -- train/validation/test dataset splitting (Sprint 61, done) and independent metric classes (Sprint 62, done).
 
 ## Task Log
 
@@ -1693,8 +1693,24 @@ Goal: build an offline recommendation evaluation framework for the existing reco
   - `python3 -m pytest -q tests/domain/test_evaluation.py -v` — 15 passed (7 new: exact partitioning with no overlap/drops, ratio-respecting split sizes, determinism given a fixed seed, different seeds can differ, rejects ratios not summing to 1.0, rejects a non-positive ratio, rejects a dataset too small for a non-empty split; plus a regression check pinning the real 8-case demo dataset's size against the default ratios)
   - `python3 -m pytest -q` (full suite) — 839 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
   - `git status`/`git diff` reviewed before staging: only `domain/evaluation.py` and its test file touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: f7c6a62
 - Notes: No architecture change, public-contract break, or destructive operation was required. `EvaluationDataset`/`EvaluationCase`/`EvaluateRecommendationEngineUseCase` are all unmodified -- `split_dataset()` is a pure, additive function operating on the existing dataset model, not a rewrite of it. `scripts/generate_quality_report.py`'s default, already-calibrated regression thresholds are deliberately left evaluating the full dataset, unchanged by this Sprint; Sprint 63 demonstrates `split_dataset()` consuming the real demo fixtures in a new, additive test rather than altering that existing, calibrated script.
+
+## Sprint 62 — Recommendation Metrics
+
+### Task 1 — Recommendation Metrics
+
+- Status: Done
+- Summary: Reviewed `domain/evaluation_metrics.py` first and found Precision@K, Recall@K, MAP (`average_precision_at_k`), NDCG, and HitRate@K already implemented as pure, deterministic, dependency-free functions, already exercised by `EvaluateRecommendationEngineUseCase` (the existing reusable evaluation API) and already covered by 20+ existing regression-style tests. The one genuine gap against this Sprint's explicit requirement list: **no independent metric classes** -- only plain functions, with no common, polymorphic interface a caller could iterate over generically.
+  - **`RecommendationMetric` ABC + 5 concrete classes** (`domain/evaluation_metrics.py`, same file -- metrics stay in one place, not split across a new module): `PrecisionAtK`, `RecallAtK`, `MeanAveragePrecisionAtK`, `NdcgAtK`, `HitRateAtK`. Each class is a thin wrapper exposing a `name` property and a `compute(recommended, relevant, k)` method that delegates to -- never reimplements -- the function it shares a name with. `STANDARD_METRICS` is a fixed-order tuple of one instance of each, so a caller can do `for metric in STANDARD_METRICS: metric.compute(...)` generically. `EvaluateRecommendationEngineUseCase` is untouched: it has no need for this polymorphism (it already calls each function directly, once per case) and continuing to do so avoids a behavior-risking rewrite of already-correct, thoroughly-tested code -- the class-based API is purely additive, standing alongside the functions, not replacing their only caller.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (239 source files)
+  - `python3 -m pytest -q tests/domain/test_evaluation_metrics.py -v` — 52 passed (32 pre-existing + 20 new: each class's `compute()` matches its underlying function exactly (regression, parametrized over all 5), each class's `name` matches `EvaluationResult`'s corresponding field name, `STANDARD_METRICS` is independently iterable and produces exactly the 5 expected metric names, and results are deterministic across repeated calls)
+  - `python3 -m pytest -q` (full suite) — 851 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
+  - `git status`/`git diff` reviewed before staging: only `domain/evaluation_metrics.py` and its test file touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. `EvaluateRecommendationEngineUseCase`'s "reusable evaluation API" requirement was already satisfied before this Sprint; this Sprint adds a second, class-based, independently-usable surface over the same underlying calculations, not a competing evaluation pipeline. `diversity_at_k`/`catalog_coverage`/`novelty_at_k` (extra metrics beyond this Sprint's explicit list of five) were deliberately left as functions only, matching "implement only genuine gaps" -- adding classes for metrics this Sprint doesn't name would be scope creep.
 
 ## Current Constraints
 

@@ -19,6 +19,9 @@ class InMemoryBookEmbeddingRepository(BookEmbeddingRepository):
     def get_by_book_id(self, book_id: BookId) -> BookEmbedding | None:
         return self._embeddings.get(book_id)
 
+    def delete(self, book_id: BookId) -> None:
+        self._embeddings.pop(book_id, None)
+
     def find_similar(self, vector: tuple[float, ...], limit: int) -> list[BookEmbedding]:
         scored = [
             (self._cosine_similarity(vector, embedding.vector), embedding)

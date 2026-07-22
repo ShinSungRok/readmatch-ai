@@ -24,3 +24,15 @@ class BookEmbeddingRepository(ABC):
     @abstractmethod
     def find_similar(self, vector: tuple[float, ...], limit: int) -> list[BookEmbedding]:
         """Return up to `limit` stored embeddings most similar to `vector`, most similar first."""
+
+    @abstractmethod
+    def delete(self, book_id: BookId) -> None:
+        """Remove a book's stored embedding, if one exists.
+
+        A no-op (never raises) if the book has no stored embedding --
+        idempotent, mirroring InteractionRepository.clear's convention
+        (Sprint 44). An embedding is a derived signal a book may or may not
+        currently have, not an aggregate root whose absence is an error
+        condition, unlike BookRepository.remove (which does raise
+        BookNotFoundError).
+        """

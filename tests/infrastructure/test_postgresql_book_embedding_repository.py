@@ -130,6 +130,23 @@ def test_save_upserts_existing_book_id(
     _assert_embeddings_almost_equal(repository.get_by_book_id(book.id), updated)
 
 
+def test_delete_removes_a_stored_embedding(
+    postgres_connection: psycopg.Connection, repository: PostgreSQLBookEmbeddingRepository
+) -> None:
+    book = _add_book(postgres_connection)
+    repository.save(_embedding(book.id))
+
+    repository.delete(book.id)
+
+    assert repository.get_by_book_id(book.id) is None
+
+
+def test_delete_is_a_no_op_when_nothing_was_stored(
+    repository: PostgreSQLBookEmbeddingRepository,
+) -> None:
+    repository.delete(BookId.generate())
+
+
 def test_find_similar_returns_empty_list_when_no_embeddings_stored(
     repository: PostgreSQLBookEmbeddingRepository,
 ) -> None:

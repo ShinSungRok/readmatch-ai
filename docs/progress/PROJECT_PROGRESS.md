@@ -2,12 +2,12 @@
 
 ## Current State
 
-- Current Phase: Phase 4 of 8 — Real AI Embeddings and Semantic Recommendation (in progress)
-- Current Sprint: Sprint 51 of 68 — Semantic Recommendation Runtime — Complete (Sprint 48-51 / Phase 4 complete)
-- Last Completed Task: Sprint 51 / Task 1 — Semantic Recommendation Runtime
-- Last Commit: (recorded after commit; Sprint 51)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (222 source files); `pytest -q` — pass (742 passed, up from 738; same 44 pre-existing, unrelated Docker-dependent PostgreSQL-test errors); `python scripts/run_demo.py` re-run — deterministic, diversity@k acceptable (semantic 0.750, hybrid_reranked 1.000, popularity 1.000); real-model download re-attempted (a second, independent attempt from Sprint 49's) and again confirmed environmental, not implementation-related (see Sprint 51 Notes) -- "real embeddings integrated end-to-end" instead verified directly via 4 new API-level regression tests driving the actual `SentenceTransformerBookEmbeddingGenerator`/`SemanticRecommendationEngine`/REST path together (only the model layer mocked)
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2 and 3 (frontend experience, user interaction/feedback) are complete. Phase 4 (this Phase) is now complete: real embedding generation, batch pipeline, and semantic recommendation runtime, layered on top of all three.
+- Current Phase: Phase 5 of 8 — PostgreSQL, pgvector, Vector Indexing, and Production Retrieval (in progress)
+- Current Sprint: Sprint 52 of 68 — PostgreSQL Embedding Repository — Complete
+- Last Completed Task: Sprint 52 / Task 1 — PostgreSQL Embedding Repository
+- Last Commit: (recorded after commit; Sprint 52)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (222 source files); `pytest -q` — pass (745 passed, up from 742; 46 pre-existing, unrelated Docker-dependent PostgreSQL-test errors -- 2 more than before, both this Sprint's own new `delete` Postgres tests hitting the same pre-existing environmental Docker gap); `python scripts/run_demo.py` re-run — deterministic, unchanged
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2, 3, and 4 (frontend experience, user interaction/feedback, real embeddings) are complete. Phase 5 (this Phase) is a new, in-progress production-vector-persistence capability layered on top of all three.
 
 ## Task Log
 
@@ -1478,8 +1478,28 @@ Use this format:
   - `python scripts/run_demo.py` — re-run; deterministic (same pattern as every prior Sprint's check); diversity@k figures cited above
   - `git diff --stat` against `als_recommendation_engine.py`, `popularity_recommendation_engine.py`, `hybrid_recommendation_engine.py`, `ranking_strategies.py`, `ranking_strategy.py`, `recommendation_engine.py`, and `semantic_recommendation_engine.py` across the entire Phase 4 commit range (`f9d5101~1..HEAD`) — empty, confirming "do not modify ALS, Popularity, Hybrid Fusion, or recommendation scoring architecture" holds for the whole Phase, not just this Sprint
   - `git status`/`git diff` reviewed before staging: only this Sprint's one new test file touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 3d921f8
 - Notes: No architecture change, public-contract break, or destructive operation was required -- this Sprint added tests only, no source changes anywhere in `src/`. This completes Sprint 48-51 / Phase 4 (Real AI Embeddings and Semantic Recommendation). Known limitation carried into the Phase Completion Report: a live, real-model-weights numeric fake-vs-real recommendation-quality comparison could not be produced in this sandbox (confirmed environmental across two independent attempts); the real adapter's correctness is instead established by 18 total tests across Sprints 49 and 51 that exercise every code path except the literal act of downloading model weights from the network.
+
+## Sprint 52 — PostgreSQL Embedding Repository
+
+### Task 1 — PostgreSQL Embedding Repository
+
+- Status: Done
+- Summary: Reviewed the existing PostgreSQL/pgvector implementation before writing anything, per this Phase's own explicit "review the complete repository... do not rebuild capabilities that already exist" instruction -- and found nearly everything Sprint 52 asks for already built, in earlier Sprints (the migration comments reference Sprint 12-19-era work): `PostgreSQLBookEmbeddingRepository` already persists the vector, `model_name`, `model_version` (Sprint 48), `content_hash` (Sprint 48), and `dimensions`; `save()` is already an atomic upsert (`ON CONFLICT (book_id) DO UPDATE`); `get_by_book_id`/`find_similar` (lookup) already exist; the repository contract is already exercised by 9 existing tests in `tests/infrastructure/test_postgresql_book_embedding_repository.py`. The one genuine gap against this Sprint's explicit requirement list: **no delete**.
+  - **`domain/book_embedding_repository.py`**: added `delete(book_id: BookId) -> None` to the port -- a no-op (never raises) when the book has no stored embedding, mirroring `InteractionRepository.clear`'s idempotent-delete convention (Sprint 44) rather than `BookRepository.remove`'s raise-if-missing one: an embedding is a derived signal a book may or may not currently have, not an aggregate root whose absence is an error.
+  - **`infrastructure/in_memory_book_embedding_repository.py`**: `delete()` is `self._embeddings.pop(book_id, None)`.
+  - **`infrastructure/postgresql_book_embedding_repository.py`**: `delete()` is `DELETE FROM book_embeddings WHERE book_id = %s`, wrapped in the same try/rollback/`BookEmbeddingPersistenceError`/commit pattern `save()` already uses -- no new error-handling shape introduced.
+  - Confirmed via `mypy --strict` that no other `BookEmbeddingRepository` subclass exists anywhere in the codebase (only these two) -- the new abstract method required no test-double updates, unlike Sprint 50's `BookRepository.list_all` addition.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (222 source files)
+  - `python3 -m pytest -q` — 745 passed (up from 742); 46 pre-existing, Docker-dependent PostgreSQL-test errors (2 more than Sprint 51's count, both this Sprint's own new `delete` tests against `PostgreSQLBookEmbeddingRepository` hitting the same pre-existing, environmental Docker gap -- not a regression)
+  - New tests (5): `tests/infrastructure/test_in_memory_book_embedding_repository.py` (+3 -- removes a stored embedding, no-op when nothing stored, only removes the targeted book) and `test_postgresql_book_embedding_repository.py` (+2 -- same two cases against the real adapter)
+  - `python scripts/run_demo.py` — re-run; deterministic, unchanged (no recommendation-path code touched)
+  - `git status`/`git diff` reviewed before staging: only this Sprint's files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. This Sprint's summary is unusually short relative to its title because most of "PostgreSQL Embedding Repository" was already complete -- the Progress Log states this explicitly rather than re-describing pre-existing work as new, per "Never claim validation without running it" and the general principle of accurate reporting.
 
 ## Current Constraints
 

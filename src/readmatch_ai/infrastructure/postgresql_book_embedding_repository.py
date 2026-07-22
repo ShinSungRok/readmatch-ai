@@ -91,6 +91,15 @@ class PostgreSQLBookEmbeddingRepository(BookEmbeddingRepository):
             rows = cursor.fetchall()
         return [self._row_to_embedding(row) for row in rows]
 
+    def delete(self, book_id: BookId) -> None:
+        try:
+            with self._connection.cursor() as cursor:
+                cursor.execute("DELETE FROM book_embeddings WHERE book_id = %s", (book_id.value,))
+        except psycopg.Error as exc:
+            self._connection.rollback()
+            raise BookEmbeddingPersistenceError(str(exc)) from exc
+        self._connection.commit()
+
     @staticmethod
     def _row_to_embedding(row: tuple[Any, ...]) -> BookEmbedding:
         book_id_value, vector, model_name, model_version, dimensions, content_hash = row

@@ -93,3 +93,12 @@ def test_generate_is_unaffected_by_metadata_with_no_description() -> None:
     with_empty_metadata = generator.generate(book, BookMetadata(book_id=book.id))
 
     assert with_empty_metadata.vector == without_metadata.vector
+
+
+def test_model_name_and_model_version_properties_reflect_configuration() -> None:
+    generator = DeterministicFakeBookEmbeddingGenerator(
+        model_name="custom-model", model_version="7"
+    )
+
+    assert generator.model_name == "custom-model"
+    assert generator.model_version == "7"

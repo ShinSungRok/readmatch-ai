@@ -1,7 +1,7 @@
 import pytest
 
 from readmatch_ai.application.readiness_check_service import ReadinessCheckService
-from readmatch_ai.domain.book import BookId
+from readmatch_ai.domain.book import Book, BookId
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.persistence_validation import (
     PersistenceRuntimeValidator,
@@ -40,6 +40,9 @@ class _FailingBookRepository(BookRepository):
         raise RuntimeError("db connection string: postgresql://user:pass@host/db")
 
     def get_by_isbn(self, isbn: object) -> None:
+        raise NotImplementedError
+
+    def list_all(self) -> list[Book]:
         raise NotImplementedError
 
     def update(self, book: object) -> None:

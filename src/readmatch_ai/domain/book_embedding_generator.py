@@ -22,6 +22,22 @@ class BookEmbeddingGenerator(ABC):
     a Book still compiles.
     """
 
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """The model/algorithm name this generator currently stamps onto every BookEmbedding."""
+
+    @property
+    @abstractmethod
+    def model_version(self) -> str:
+        """The pipeline version this generator currently stamps onto every BookEmbedding.
+
+        Exposed (Sprint 50) so the batch embedding pipeline can compare a
+        stored embedding's (model_name, model_version) against the
+        currently-configured generator's, to decide whether a book needs
+        regeneration -- without generating anything just to find out.
+        """
+
     @abstractmethod
     def generate(self, book: Book, metadata: BookMetadata | None = None) -> BookEmbedding:
         """Generate an embedding for the given book (and its optional metadata)."""

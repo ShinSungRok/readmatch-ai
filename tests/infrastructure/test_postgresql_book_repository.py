@@ -58,6 +58,21 @@ def test_get_by_id_missing_returns_none(repository: PostgreSQLBookRepository) ->
     assert repository.get_by_id(BookId.generate()) is None
 
 
+def test_list_all_returns_every_stored_book(repository: PostgreSQLBookRepository) -> None:
+    a = _make_book(isbn="978-3-16-148410-0")
+    b = _make_book(isbn="0-306-40615-2")
+    repository.add(a)
+    repository.add(b)
+
+    assert set(repository.list_all()) == {a, b}
+
+
+def test_list_all_returns_empty_list_when_no_books_stored(
+    repository: PostgreSQLBookRepository,
+) -> None:
+    assert repository.list_all() == []
+
+
 def test_get_by_isbn_returns_matching_book(repository: PostgreSQLBookRepository) -> None:
     book = _make_book()
     repository.add(book)

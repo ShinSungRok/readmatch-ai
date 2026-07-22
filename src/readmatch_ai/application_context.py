@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 import psycopg
 
+from readmatch_ai.application.batch_generate_book_embeddings_use_case import (
+    BatchGenerateBookEmbeddingsUseCase,
+)
 from readmatch_ai.application.clear_interaction_use_case import ClearInteractionUseCase
 from readmatch_ai.application.evaluate_recommendation_engine_use_case import (
     EvaluateRecommendationEngineUseCase,
@@ -162,6 +165,7 @@ class ApplicationContext:
     get_personal_library_use_case: GetPersonalLibraryUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
+    batch_generate_book_embeddings_use_case: BatchGenerateBookEmbeddingsUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
     generate_hybrid_recommendation_use_case: GenerateHybridRecommendationUseCase
     generate_als_recommendation_use_case: GenerateAlsRecommendationUseCase
@@ -322,6 +326,14 @@ class ApplicationContext:
         `explicit_interactions` with `book_presentation_use_case` -- the
         same two dependencies as `get_user_interactions_use_case`/
         `book_presentation_use_case` above, not a new store.
+
+        batch_generate_book_embeddings_use_case (Sprint 50) composes
+        `repository`/`metadata_repository`/`embedding_generator`/
+        `embedding_repository` -- the same four dependencies
+        get_book_presentation_use_case and generate_book_embedding_use_case
+        already use, not new ones -- to (re)generate embeddings only for
+        books whose stored embedding is missing, stale (model changed), or
+        out of date (content changed).
 
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
@@ -569,6 +581,9 @@ class ApplicationContext:
             get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository, metadata_repository
+            ),
+            batch_generate_book_embeddings_use_case=BatchGenerateBookEmbeddingsUseCase(
+                repository, metadata_repository, embedding_generator, embedding_repository
             ),
             generate_semantic_recommendation_use_case=semantic_use_case,
             generate_hybrid_recommendation_use_case=hybrid_use_case,

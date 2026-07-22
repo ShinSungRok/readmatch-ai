@@ -66,6 +66,15 @@ class PostgreSQLBookRepository(BookRepository):
             row = cursor.fetchone()
         return self._row_to_book(row) if row is not None else None
 
+    def list_all(self) -> list[Book]:
+        with self._connection.cursor() as cursor:
+            # ORDER BY id: PostgreSQL gives no row-order guarantee without
+            # one, and callers (the batch embedding pipeline) need a
+            # deterministic order across runs.
+            cursor.execute(f"SELECT {_SELECT_COLUMNS} FROM books ORDER BY id")
+            rows = cursor.fetchall()
+        return [self._row_to_book(row) for row in rows]
+
     def update(self, book: Book) -> None:
         try:
             with self._connection.cursor() as cursor:

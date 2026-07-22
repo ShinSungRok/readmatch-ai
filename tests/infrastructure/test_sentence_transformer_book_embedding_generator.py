@@ -247,3 +247,16 @@ def test_generators_with_different_model_names_load_separate_models(
     second = SentenceTransformerBookEmbeddingGenerator(model_name="model-b")
 
     assert first._model is not second._model  # noqa: SLF001
+
+
+def test_model_name_and_model_version_properties_reflect_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_sentence_transformers_module(monkeypatch, [0.0])
+
+    generator = SentenceTransformerBookEmbeddingGenerator(
+        model_name="custom-model", model_version="7"
+    )
+
+    assert generator.model_name == "custom-model"
+    assert generator.model_version == "7"

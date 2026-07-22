@@ -83,6 +83,14 @@ class SentenceTransformerBookEmbeddingGenerator(BookEmbeddingGenerator):
         self._expected_dimensions = expected_dimensions
         self._model: Any = self._load_model(model_name)
 
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def model_version(self) -> str:
+        return self._model_version
+
     @staticmethod
     def _load_model(model_name: str) -> Any:
         cached = _MODEL_CACHE.get(model_name)

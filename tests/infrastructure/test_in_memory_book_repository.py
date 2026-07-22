@@ -30,6 +30,22 @@ def test_get_by_id_missing_returns_none() -> None:
     assert repo.get_by_id(BookId.generate()) is None
 
 
+def test_list_all_returns_every_stored_book() -> None:
+    repo = InMemoryBookRepository()
+    a = _make_book(isbn="978-3-16-148410-0")
+    b = _make_book(isbn="0-306-40615-2")
+    repo.add(a)
+    repo.add(b)
+
+    assert set(repo.list_all()) == {a, b}
+
+
+def test_list_all_returns_empty_list_when_no_books_stored() -> None:
+    repo = InMemoryBookRepository()
+
+    assert repo.list_all() == []
+
+
 def test_get_by_isbn_returns_matching_book() -> None:
     repo = InMemoryBookRepository()
     book = _make_book()

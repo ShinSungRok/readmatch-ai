@@ -6,7 +6,7 @@ from readmatch_ai.api.dependencies import get_application_context
 from readmatch_ai.api.main import create_app
 from readmatch_ai.application.readiness_check_service import ReadinessCheckService
 from readmatch_ai.application_context import ApplicationContext
-from readmatch_ai.domain.book import BookId
+from readmatch_ai.domain.book import Book, BookId
 from readmatch_ai.domain.book_repository import BookRepository
 
 
@@ -18,6 +18,9 @@ class _FailingBookRepository(BookRepository):
         raise RuntimeError("connection lost")
 
     def get_by_isbn(self, isbn: object) -> None:
+        raise NotImplementedError
+
+    def list_all(self) -> list[Book]:
         raise NotImplementedError
 
     def update(self, book: object) -> None:

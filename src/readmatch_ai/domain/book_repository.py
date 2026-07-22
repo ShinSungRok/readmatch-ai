@@ -26,6 +26,15 @@ class BookRepository(ABC):
     def get_by_isbn(self, isbn: ISBN) -> Book | None: ...
 
     @abstractmethod
+    def list_all(self) -> list[Book]:
+        """Return every stored Book.
+
+        Added (Sprint 50) for the batch embedding pipeline, which needs to
+        enumerate the whole catalog to detect which books need a new
+        embedding -- no other existing capability required a full scan.
+        """
+
+    @abstractmethod
     def update(self, book: Book) -> None:
         """Update an existing Book; raises BookNotFoundError if it does not exist."""
 

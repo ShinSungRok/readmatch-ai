@@ -25,6 +25,9 @@ class InMemoryBookRepository(BookRepository):
     def get_by_isbn(self, isbn: ISBN) -> Book | None:
         return next((b for b in self._books.values() if b.isbn == isbn), None)
 
+    def list_all(self) -> list[Book]:
+        return list(self._books.values())
+
     def update(self, book: Book) -> None:
         if book.id not in self._books:
             raise BookNotFoundError(f"Book not found: {book.id}")

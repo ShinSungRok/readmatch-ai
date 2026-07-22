@@ -38,6 +38,14 @@ class DeterministicFakeBookEmbeddingGenerator(BookEmbeddingGenerator):
         self._model_name = model_name
         self._model_version = model_version
 
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def model_version(self) -> str:
+        return self._model_version
+
     def generate(self, book: Book, metadata: BookMetadata | None = None) -> BookEmbedding:
         text = build_embedding_text(book, metadata)
         digest = hashlib.sha256(text.encode("utf-8")).digest()

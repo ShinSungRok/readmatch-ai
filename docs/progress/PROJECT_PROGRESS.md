@@ -2,12 +2,12 @@
 
 ## Current State
 
-- Current Phase: Phase 7 of 8 — Recommendation Evaluation (Sprint 61-64) — in progress
-- Current Sprint: Sprint 63 of 68 — Engine Comparison — Complete
-- Last Completed Task: Sprint 63 / Task 1 — Engine Comparison
-- Last Commit: (recorded after commit; Sprint 63)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (240 source files); `pytest -q` (full suite) — 852 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Sprint)
-- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-6 are complete. Phase 7 (offline recommendation evaluation) is in progress: an unusually mature pre-existing evaluation framework (Precision/Recall/MAP/NDCG/HitRate@K, multi-engine comparison, Markdown/CSV reports, regression gating) was found already in place; this Phase closes the genuine remaining gaps on top of it -- train/validation/test dataset splitting (Sprint 61, done), independent metric classes (Sprint 62, done), and confirmed engine comparison already satisfied Sprint 63's requirements (done, tests only). Sprint 64 (JSON evaluation-runner output) next.
+- Current Phase: Phase 7 of 8 — Recommendation Evaluation (Sprint 61-64) — Complete
+- Current Sprint: Sprint 64 of 68 — Evaluation Runner — Complete (Sprint 61-64 complete)
+- Last Completed Task: Sprint 64 / Task 1 — Evaluation Runner
+- Last Commit: (recorded after commit; Sprint 64)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (242 source files); `pytest -q` (full suite) — 862 passed, 2 failed (same pre-existing, documented Sprint 54/55 HNSW-ranking flaky pair, unrelated to this Phase)
+- Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phases 2-6 are complete. Phase 7 (offline recommendation evaluation) is now complete: found an unusually mature pre-existing evaluation framework (Precision/Recall/MAP/NDCG/HitRate@K, multi-engine comparison, Markdown/CSV reports, regression gating, a CLI runner) already in place, and closed the genuine remaining gaps on top of it -- train/validation/test dataset splitting (Sprint 61), independent metric classes (Sprint 62), confirmed engine comparison already satisfied Sprint 63's requirements (tests only), and JSON evaluation-runner output (Sprint 64). No recommendation algorithm was modified anywhere in this Phase.
 
 ## Task Log
 
@@ -1726,8 +1726,29 @@ Goal: build an offline recommendation evaluation framework for the existing reco
   - `python3 -m pytest -q tests/application/test_engine_comparison.py -v` — 1 passed
   - `python3 -m pytest -q` (full suite) — 852 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
   - `git status`/`git diff` reviewed before staging: only one new test file touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
-- Commit: (recorded after commit)
+- Commit: 4707ea0
 - Notes: No architecture change, public-contract break, or destructive operation was required -- this Sprint added one test file only, no source changes anywhere in `src/`, matching the established, honest "found nearly everything already built" pattern from this project's own Sprint 52/53/55 precedent. `scripts/generate_quality_report.py`'s existing, calibrated default regression thresholds (evaluated against the full dataset) were deliberately left unchanged -- the new split-based evaluation lives only in this Sprint's own additive test, not swapped into that script's default behavior.
+
+## Sprint 64 — Evaluation Runner
+
+### Task 1 — Evaluation Runner
+
+- Status: Done
+- Summary: Reviewed the existing runner first and found `scripts/generate_quality_report.py` already implementing this Sprint's exact required flow -- Dataset (`demo_fixtures.build_evaluation_dataset`) -> Recommendation (the 6 real engines) -> Metric Calculation (`EvaluateRecommendationEngineUseCase`) -> Comparison (`GenerateRecommendationQualityReportUseCase`) -> Summary Report -- already as a CLI, already reusing every piece of existing runtime infrastructure (`ApplicationContext`, `demo_fixtures.py`), and already writing a Markdown report. The one genuine gap against this Sprint's explicit requirement list: **no JSON output** -- only Markdown and CSV reporters existed.
+  - **`JsonRecommendationQualityReporter`** (new, `infrastructure/json_recommendation_quality_reporter.py`): implements the existing `RecommendationQualityReporter` port (the same one Markdown/CSV already implement) -- no new port, no new report-generation logic, purely a third serialization adapter over the same, already-computed `RecommendationQualityReport`. Field order is fixed by explicit construction (never dict/dataclass iteration order), so repeated renders of an unchanged report are byte-identical. A metric/delta with no computed value serializes as JSON `null` -- reusing the domain model's own `float | None` "not computed" distinction natively, rather than CSV's empty-string convention.
+  - **`scripts/generate_quality_report.py`**: now also writes `quality_report.json` alongside the existing `.md`/`.csv`, and the printed summary reports its path too. This is the only change to the script -- it remains the one evaluation runner, not duplicated by a second script, matching "reuse existing runtime infrastructure."
+  - **Tests extended, not duplicated**: `tests/test_generate_quality_report.py`'s existing tests (writes-all-formats, evaluates-all-six-engines, prints-summary, deterministic-given-fixed-run-id) were extended in place to also assert the JSON file/content, rather than adding a parallel, redundant test file for the script itself.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (242 source files)
+  - `python3 -m pytest -q tests/infrastructure/test_json_recommendation_quality_reporter.py -v` — 10 passed (valid JSON, metadata fields, one summary per engine in order, metric values, `null` for a missing value, comparisons with deltas, `null` deltas when unavailable, limitations, empty-report handling, determinism)
+  - `python3 -m pytest -q tests/test_generate_quality_report.py -v` — 7 passed (all extended in place to also cover JSON)
+  - `python3 -m pytest -q` (full suite) — 862 passed, 2 failed; the 2 failures are the same, already-documented, pre-existing Sprint 54/55 HNSW-ranking flaky pair, untouched by this Sprint
+  - Manual smoke test: `python scripts/generate_quality_report.py --output-dir <tmp>` — writes `quality_report.json` (valid, pretty-printed JSON with all 6 engines, metadata, comparisons), alongside `.md`/`.csv`; regression check PASSED
+  - `git diff --stat` confirms zero changes to any recommendation engine, ranking strategy, embedding-generation, or import-pipeline file
+  - `git status`/`git diff` reviewed before staging: only the new reporter + its test, and the script + its existing test file (extended), touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. This completes Sprint 61-64 (Phase 7, Recommendation Evaluation). No recommendation algorithm, embedding generator, or import pipeline was modified across the whole Phase -- confirmed via `git diff --stat` at every Sprint. Known limitation carried into the Phase Completion Report: this Phase evaluates strictly offline, against the deterministic demo dataset only (as instructed, "Do not implement new recommendation algorithms" / evaluate the *existing* pipeline) -- no live production traffic or online A/B signal was used, consistent with `STANDARD_LIMITATIONS`' own, already-existing, honest disclosure baked into every report this framework generates.
 
 ## Current Constraints
 

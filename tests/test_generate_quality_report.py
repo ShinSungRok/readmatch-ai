@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -32,16 +33,21 @@ _generate_quality_report = _load_module("generate_quality_report")
 main = _generate_quality_report.main
 
 
-def test_main_succeeds_and_writes_markdown_and_csv_reports(tmp_path: Path) -> None:
+def test_main_succeeds_and_writes_json_markdown_and_csv_reports(tmp_path: Path) -> None:
     output_dir = tmp_path / "reports"
 
     exit_code = main(["--output-dir", str(output_dir)])
 
     assert exit_code == 0
+    json_path = output_dir / "quality_report.json"
     markdown_path = output_dir / "quality_report.md"
     csv_path = output_dir / "quality_report.csv"
+    assert json_path.exists()
     assert markdown_path.exists()
     assert csv_path.exists()
+    document = json.loads(json_path.read_text())
+    assert document["format_version"] == "1.0"
+    assert "hybrid_reranked" in [s["engine_name"] for s in document["engine_summaries"]]
     markdown_text = markdown_path.read_text()
     assert "# Recommendation Quality Report" in markdown_text
     assert "hybrid_reranked" in markdown_text
@@ -64,6 +70,8 @@ def test_main_evaluates_all_six_comparison_engines(tmp_path: Path) -> None:
 
     assert exit_code == 0
     csv_text = (tmp_path / "quality_report.csv").read_text()
+    document = json.loads((tmp_path / "quality_report.json").read_text())
+    json_engine_names = [s["engine_name"] for s in document["engine_summaries"]]
     for engine_name in (
         "popularity",
         "semantic",
@@ -73,6 +81,7 @@ def test_main_evaluates_all_six_comparison_engines(tmp_path: Path) -> None:
         "hybrid_reranked",
     ):
         assert engine_name in csv_text
+        assert engine_name in json_engine_names
 
 
 def test_main_prints_a_concise_execution_summary(
@@ -83,6 +92,7 @@ def test_main_prints_a_concise_execution_summary(
     output = capsys.readouterr().out
     assert "Recommendation Quality Report" in output
     assert "Regression check:" in output
+    assert "JSON:" in output
     assert str(tmp_path) in output
 
 
@@ -133,6 +143,9 @@ def test_repeated_report_generation_is_deterministic_given_a_fixed_run_id_and_ti
     assert main(_args(first_dir)) == 0
     assert main(_args(second_dir)) == 0
 
+    assert (first_dir / "quality_report.json").read_text() == (
+        second_dir / "quality_report.json"
+    ).read_text()
     assert (first_dir / "quality_report.md").read_text() == (
         second_dir / "quality_report.md"
     ).read_text()

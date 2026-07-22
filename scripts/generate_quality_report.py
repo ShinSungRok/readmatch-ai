@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Generates a recommendation quality report comparing all current
-recommendation engines against the deterministic demo dataset, writes it as
-Markdown and CSV, and runs a lightweight regression check suitable for CI.
+"""The offline recommendation-evaluation runner: dataset -> recommendation
+-> metric calculation -> comparison -> summary report. Evaluates all
+current recommendation engines against the deterministic demo dataset,
+writes the comparison as JSON, Markdown, and CSV, and runs a lightweight
+regression check suitable for CI.
 
 Contains no recommendation, metric, aggregation, or comparison logic itself
 -- that all lives in GenerateRecommendationQualityReportUseCase (Application)
@@ -9,8 +11,8 @@ and the Domain evaluation/quality_report/quality_regression modules. This
 script only composes the deterministic in-memory ApplicationContext + the
 standard 6-engine comparison set (both via scripts/demo_fixtures.py, shared
 with scripts/run_demo.py), invokes the reporting use case, delegates
-rendering to the Markdown/CSV adapters, writes the results to disk, and
-prints a summary.
+rendering to the JSON/Markdown/CSV adapters, writes the results to disk,
+and prints a summary.
 
 Usage:
     python scripts/generate_quality_report.py
@@ -43,6 +45,9 @@ from readmatch_ai.domain.quality_report import QualityReportRunConfig, Recommend
 from readmatch_ai.infrastructure.als_model import _DEFAULT_FACTORS, _DEFAULT_ITERATIONS
 from readmatch_ai.infrastructure.csv_recommendation_quality_reporter import (
     CsvRecommendationQualityReporter,
+)
+from readmatch_ai.infrastructure.json_recommendation_quality_reporter import (
+    JsonRecommendationQualityReporter,
 )
 from readmatch_ai.infrastructure.markdown_recommendation_quality_reporter import (
     MarkdownRecommendationQualityReporter,
@@ -81,15 +86,17 @@ def main(argv: list[str] | None = None) -> int:
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "quality_report.json"
     markdown_path = output_dir / "quality_report.md"
     csv_path = output_dir / "quality_report.csv"
+    json_path.write_text(JsonRecommendationQualityReporter().render(report))
     markdown_path.write_text(MarkdownRecommendationQualityReporter().render(report))
     csv_path.write_text(CsvRecommendationQualityReporter().render(report))
 
     regression_result = check_recommendation_quality_regressions(
         report, DEFAULT_REGRESSION_THRESHOLDS
     )
-    _print_summary(report, regression_result, markdown_path, csv_path)
+    _print_summary(report, regression_result, json_path, markdown_path, csv_path)
 
     return 0 if regression_result.passed else 1
 
@@ -135,6 +142,7 @@ def _build_run_config(
 def _print_summary(
     report: RecommendationQualityReport,
     regression_result: RegressionCheckResult,
+    json_path: Path,
     markdown_path: Path,
     csv_path: Path,
 ) -> None:
@@ -142,6 +150,7 @@ def _print_summary(
     print(f"  Dataset: {report.metadata.dataset_id} ({report.metadata.case_count} cases)")
     print(f"  Engines: {', '.join(report.metadata.engine_names)}")
     print(f"  K={report.metadata.k}  Baseline={report.metadata.baseline_engine}")
+    print(f"  JSON: {json_path}")
     print(f"  Markdown: {markdown_path}")
     print(f"  CSV: {csv_path}")
     print()

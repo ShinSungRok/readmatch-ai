@@ -1989,6 +1989,142 @@ while exercising the real stack.
   CASCADE`) before this Sprint's own load step so its results are honest.
   No architecture, recommendation engine, or API contract was touched.
 
+## Sprint 67 — Operational Scenarios
+
+### Task 1 — Operational Scenarios
+
+- Status: Done
+- Summary: Exercised all 7 required scenarios against the real
+  `readmatch-postgres` container, a real live `uvicorn` process, and the
+  real `next dev` frontend — not unit tests alone. Doing so surfaced one
+  genuine runtime defect, fixed with the smallest possible change; the
+  other 6 scenarios already behaved correctly.
+  - **Scenario 1 (empty database → initial load → recommendation)**:
+    reset to a genuinely empty database, loaded 3 deterministic fixture
+    books through `RefreshRecommendationDataUseCase` (the real, unmodified
+    pipeline), confirmed via `psql`. Recommendation-serving was already
+    proven end to end in Sprint 66; not re-demonstrated redundantly here.
+  - **Scenario 2 (repeated synchronization → no duplicates)**: ran the
+    identical sync request a second time — `created 0, unchanged 3`, book
+    count stayed 3. Already correct (`ImportBooksUseCase`'s existing
+    ISBN-reconciliation logic).
+  - **Scenario 3 (changed metadata → BookId preserved, embedding
+    refreshed)**: changed one book's title, re-ran sync — same `BookId`,
+    title updated, `book_embeddings.content_hash` changed (embedding
+    regenerated), no duplicate row. Already correct (`ImportBooksUseCase`'s
+    upsert-by-ISBN + `RefreshBookEmbeddingsUseCase`'s content-hash rule).
+  - **Scenario 4 (data source failure → retry, checkpoint preserved)**: a
+    `BookDataSource` that always raises left `sync_checkpoint` completely
+    unchanged (proven via `psql`, not just a mocked assertion); a
+    subsequent successful run advanced the checkpoint normally. Already
+    correct (`RefreshRecommendationDataUseCase`'s existing staged-commit
+    design, Sprint 60).
+  - **Scenario 5 (PostgreSQL unavailable → clear runtime failure)**:
+    stopped the real container. `scripts/validate_runtime.py` exited `1`
+    with a clear `postgresql_unreachable` violation (no hang);
+    `scripts/validate_deployment.py` failed fast with `startup_failed`
+    (no hang, no stack trace leaked to the caller); the *already-running*
+    server's `GET /readiness` correctly flipped to `ready:false` with a
+    per-check reason while `GET /health` correctly stayed `healthy:true`
+    (process-liveness vs. dependency-readiness, exactly as designed).
+    Already correct — no fix needed.
+  - **Scenario 6 (backend unavailable → frontend error handling)**:
+    stopped the backend; `GET http://localhost:3000/` still returned `200`
+    from Next.js's own error boundary (`frontend/src/app/error.tsx`,
+    pre-existing), which renders "We couldn't reach the ReadMatch AI
+    backend. Make sure the API is running." with a retry action — a real,
+    already-implemented graceful failure path, not a crash. Already
+    correct — no fix needed.
+  - **Scenario 7 (service restart → persisted data remains usable)**:
+    restarted the PostgreSQL container and, separately, the backend
+    process; all 4 previously-persisted books/embeddings (including
+    Scenario 3's metadata update) were still present and still served
+    correctly by `GET /recommendations/popularity` afterward. Already
+    correct — no fix needed.
+  - **Genuine defect found and fixed (surfaced by Scenario 1's own setup,
+    not by the scenario list itself)**: reproducing "empty database" via a
+    real `TRUNCATE` against `readmatch-postgres` hung indefinitely because
+    the *already-running* live backend server (started in Sprint 66, only
+    ever issuing read-only requests) held every PostgreSQL repository
+    connection open in `idle in transaction` state — `psycopg`'s
+    non-autocommit default means a read-only method
+    (`list_all`/`get_by_id`/etc., which never calls `.commit()`) never
+    ends its transaction, and `ApplicationContext` never closes or reuses
+    connections. An open, uncommitted transaction — even read-only — holds
+    a lock that blocks `TRUNCATE`/DDL against the same table indefinitely.
+    This is also the same root cause behind the "too many clients already"
+    burst logged by the container earlier (each short-lived script/test
+    invocation across Sprints 65-66 opened 5 new connections via
+    `ApplicationContext.create()` that were never explicitly closed).
+    - **Fix** (`src/readmatch_ai/application_context.py`, the 5
+      `psycopg.connect(config.database_url)` call sites): added
+      `autocommit=True`. Verified safe first, not assumed: every
+      PostgreSQL repository's write method (`add`/`update`/`remove`/
+      `save`/`record`/`advance`) already wraps exactly one SQL statement
+      per method with its own explicit `.commit()`/`.rollback()` — none
+      spans multiple statements needing cross-statement atomicity — and a
+      standalone check confirmed calling `.commit()`/`.rollback()` on an
+      already-autocommit connection is a safe no-op in psycopg3. No
+      repository file was touched.
+    - **New regression test**
+      (`tests/test_application_context_connection_lifecycle.py`, real
+      `pgvector/pgvector:pg16` testcontainer, via `ApplicationContext
+      .create()`'s own env-based wiring — not a caller-injected
+      connection, so it actually exercises the fixed code path): performs
+      one read on every PostgreSQL-backed repository, then proves a
+      second, independent connection can `TRUNCATE` the same tables
+      within a 2-second `lock_timeout`. Confirmed this test fails with
+      `psycopg.errors.LockNotAvailable` when temporarily reverted (`git
+      stash` the fix, rerun, `git stash pop`) — a real regression test,
+      not a tautology.
+  - No recommendation engine, embedding pipeline, ranking strategy, or API
+    contract was touched — this is purely a connection-lifecycle fix in
+    the composition root.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (243 source files)
+  - `python3 -m pytest -q tests/test_application_context_connection_lifecycle.py -v` —
+    1 passed; separately confirmed it fails (`LockNotAvailable`) without
+    the fix
+  - `python3 -m pytest -q` (full suite) — 863 passed, 2 failed; the 2
+    failures are the same, already-documented, pre-existing Sprint 54/55
+    HNSW-ranking pair, untouched (863 = Sprint 65's 862 baseline + this
+    Sprint's 1 new test)
+  - Scenario 1-4 harness (ad hoc, real `readmatch-postgres`, via each
+    script's own injectable `main(book_data_source=..., application_context=...)`)
+    — all assertions passed after the fix (before the fix, Scenario 1's
+    own setup step hung indefinitely against the live server, which is how
+    the defect was found)
+  - Scenario 5: `scripts/validate_runtime.py` (exit 1, clear violation),
+    `scripts/validate_deployment.py` (clear `startup_failed`, no hang),
+    live server `GET /readiness`/`GET /health` (correct true/false split) —
+    all against a really-stopped `readmatch-postgres` container
+  - Scenario 6: `GET http://localhost:3000/` (200, real `next dev`,
+    backend process really stopped) — response includes the real
+    `error.tsx` boundary's serialized error/message
+  - Scenario 7: `psql` book/embedding counts unchanged across a real
+    `docker stop`/`start` of `readmatch-postgres` and a real backend
+    process restart; `GET /recommendations/popularity` re-verified
+    afterward
+  - `git status`/`git diff` reviewed before staging: only
+    `application_context.py` and the new test file touched; the
+    pre-existing, unrelated `docs/agent/architecture/*` deletion left
+    untouched and unstaged
+- Commit: (recorded after this entry is committed)
+- Notes: No architecture change, public-contract break, or destructive
+  operation was required. No new framework was introduced for the
+  scenario checks — the ad hoc Scenario 1-4 harness reused each existing
+  script's own injectable `main()` seam rather than adding a new one; only
+  the one genuinely valuable, durable regression (the connection-lifecycle
+  test) was added to the permanent suite, per this Sprint's own "add
+  automated runtime checks only where they provide lasting value"
+  instruction. **Documented, unresolved environmental limitation**
+  (carried over from Sprint 66, still applicable): running the full test
+  suite with `BOOK_REPOSITORY_BACKEND=postgresql`/`DATABASE_URL` exported
+  writes to that real, shared database via any test using the default
+  `ApplicationContext.create()` — keep seeding/demo and test-running
+  shells separate.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

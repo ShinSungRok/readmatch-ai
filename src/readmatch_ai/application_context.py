@@ -684,7 +684,18 @@ def _build_book_repository() -> BookRepository:
     config = BookRepositoryConfig.from_env()
     if config.backend == POSTGRESQL_BACKEND:
         assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
-        connection = psycopg.connect(config.database_url)
+        # autocommit: each repository method already commits (or rolls
+        # back) around exactly one statement -- no method spans multiple
+        # statements needing cross-statement atomicity. Without this, a
+        # read-only method (list_all/get_by_id/etc.) leaves the session
+        # "idle in transaction" indefinitely (psycopg's default), which a
+        # long-lived process (the API server) never clears on its own --
+        # blocking concurrent DDL (e.g. TRUNCATE, a migration) against
+        # those tables and holding a connection slot for the process's
+        # entire lifetime. Reproduced directly: a live server serving only
+        # GET requests left multiple sessions "idle in transaction",
+        # blocking a later TRUNCATE against the same tables.
+        connection = psycopg.connect(config.database_url, autocommit=True)
         return PostgreSQLBookRepository(connection)
     return InMemoryBookRepository()
 
@@ -693,7 +704,18 @@ def _build_book_popularity_repository() -> BookPopularityRepository:
     config = BookRepositoryConfig.from_env()
     if config.backend == POSTGRESQL_BACKEND:
         assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
-        connection = psycopg.connect(config.database_url)
+        # autocommit: each repository method already commits (or rolls
+        # back) around exactly one statement -- no method spans multiple
+        # statements needing cross-statement atomicity. Without this, a
+        # read-only method (list_all/get_by_id/etc.) leaves the session
+        # "idle in transaction" indefinitely (psycopg's default), which a
+        # long-lived process (the API server) never clears on its own --
+        # blocking concurrent DDL (e.g. TRUNCATE, a migration) against
+        # those tables and holding a connection slot for the process's
+        # entire lifetime. Reproduced directly: a live server serving only
+        # GET requests left multiple sessions "idle in transaction",
+        # blocking a later TRUNCATE against the same tables.
+        connection = psycopg.connect(config.database_url, autocommit=True)
         return PostgreSQLBookPopularityRepository(connection)
     return InMemoryBookPopularityRepository()
 
@@ -702,7 +724,18 @@ def _build_book_embedding_repository() -> BookEmbeddingRepository:
     config = BookRepositoryConfig.from_env()
     if config.backend == POSTGRESQL_BACKEND:
         assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
-        connection = psycopg.connect(config.database_url)
+        # autocommit: each repository method already commits (or rolls
+        # back) around exactly one statement -- no method spans multiple
+        # statements needing cross-statement atomicity. Without this, a
+        # read-only method (list_all/get_by_id/etc.) leaves the session
+        # "idle in transaction" indefinitely (psycopg's default), which a
+        # long-lived process (the API server) never clears on its own --
+        # blocking concurrent DDL (e.g. TRUNCATE, a migration) against
+        # those tables and holding a connection slot for the process's
+        # entire lifetime. Reproduced directly: a live server serving only
+        # GET requests left multiple sessions "idle in transaction",
+        # blocking a later TRUNCATE against the same tables.
+        connection = psycopg.connect(config.database_url, autocommit=True)
         return PostgreSQLBookEmbeddingRepository(connection)
     return InMemoryBookEmbeddingRepository()
 
@@ -711,7 +744,18 @@ def _build_sync_checkpoint_repository() -> SyncCheckpointRepository:
     config = BookRepositoryConfig.from_env()
     if config.backend == POSTGRESQL_BACKEND:
         assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
-        connection = psycopg.connect(config.database_url)
+        # autocommit: each repository method already commits (or rolls
+        # back) around exactly one statement -- no method spans multiple
+        # statements needing cross-statement atomicity. Without this, a
+        # read-only method (list_all/get_by_id/etc.) leaves the session
+        # "idle in transaction" indefinitely (psycopg's default), which a
+        # long-lived process (the API server) never clears on its own --
+        # blocking concurrent DDL (e.g. TRUNCATE, a migration) against
+        # those tables and holding a connection slot for the process's
+        # entire lifetime. Reproduced directly: a live server serving only
+        # GET requests left multiple sessions "idle in transaction",
+        # blocking a later TRUNCATE against the same tables.
+        connection = psycopg.connect(config.database_url, autocommit=True)
         return PostgreSQLSyncCheckpointRepository(connection)
     return InMemorySyncCheckpointRepository()
 
@@ -736,7 +780,18 @@ def _build_user_book_interaction_repository() -> UserBookInteractionRepository:
     config = BookRepositoryConfig.from_env()
     if config.backend == POSTGRESQL_BACKEND:
         assert config.database_url is not None  # enforced by BookRepositoryConfig.from_env
-        connection = psycopg.connect(config.database_url)
+        # autocommit: each repository method already commits (or rolls
+        # back) around exactly one statement -- no method spans multiple
+        # statements needing cross-statement atomicity. Without this, a
+        # read-only method (list_all/get_by_id/etc.) leaves the session
+        # "idle in transaction" indefinitely (psycopg's default), which a
+        # long-lived process (the API server) never clears on its own --
+        # blocking concurrent DDL (e.g. TRUNCATE, a migration) against
+        # those tables and holding a connection slot for the process's
+        # entire lifetime. Reproduced directly: a live server serving only
+        # GET requests left multiple sessions "idle in transaction",
+        # blocking a later TRUNCATE against the same tables.
+        connection = psycopg.connect(config.database_url, autocommit=True)
         return PostgreSQLUserBookInteractionRepository(connection)
     return InMemoryUserBookInteractionRepository()
 

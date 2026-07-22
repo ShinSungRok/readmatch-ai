@@ -295,7 +295,8 @@ def test_indexed_and_sequential_retrieval_return_the_same_ranking(
         cursor.execute("SET LOCAL enable_indexscan = off")
         cursor.execute("SET LOCAL enable_bitmapscan = off")
         cursor.execute(
-            f"SELECT {_SELECT_COLUMNS} FROM book_embeddings ORDER BY vector <=> %s LIMIT %s",
+            f"SELECT {_SELECT_COLUMNS} FROM book_embeddings "
+            "ORDER BY vector <=> %s, book_id ASC LIMIT %s",
             (Vector(list(query)), 5),
         )
         sequential_rows = cursor.fetchall()

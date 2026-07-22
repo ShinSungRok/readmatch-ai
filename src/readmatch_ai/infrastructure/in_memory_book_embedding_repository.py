@@ -28,7 +28,7 @@ class InMemoryBookEmbeddingRepository(BookEmbeddingRepository):
             for embedding in self._embeddings.values()
             if len(embedding.vector) == len(vector)
         ]
-        scored.sort(key=lambda pair: pair[0], reverse=True)
+        scored.sort(key=lambda pair: (-pair[0], str(pair[1].book_id)))
         return [embedding for _, embedding in scored[:limit]]
 
     @staticmethod

@@ -117,7 +117,7 @@ class PostgreSQLBookEmbeddingRepository(BookEmbeddingRepository):
         with self._connection.cursor() as cursor:
             cursor.execute(
                 f"SELECT {_SELECT_COLUMNS} FROM book_embeddings "
-                f"ORDER BY vector {self._distance_operator} %s LIMIT %s",
+                f"ORDER BY vector {self._distance_operator} %s, book_id ASC LIMIT %s",
                 (Vector(list(vector)), limit),
             )
             rows = cursor.fetchall()

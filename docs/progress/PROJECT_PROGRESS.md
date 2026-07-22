@@ -3,10 +3,10 @@
 ## Current State
 
 - Current Phase: Phase 2 of 8 — Frontend Experience MVP (in progress)
-- Current Sprint: Sprint 40 of 68 — Frontend Foundation — Complete
-- Last Completed Task: Sprint 40 / Task 1 — Frontend Foundation
-- Last Commit: (recorded after commit; Sprint 40)
-- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass; `pytest -q` — pass (571 passed; 42 pre-existing errors, all in PostgreSQL-backed tests that require Docker, unavailable in this sandbox — unrelated to this Sprint, see Sprint 40 notes); frontend `npm run lint` — pass; `npx tsc --noEmit` — pass; `npm run build` — pass; manual end-to-end check against a live backend confirmed the health badge and empty state render correctly
+- Current Sprint: Sprint 41 of 68 — Recommendation Home — Complete
+- Last Completed Task: Sprint 41 / Task 1 — Recommendation Home
+- Last Commit: (recorded after commit; Sprint 41)
+- Validation: `ruff check src tests scripts` — pass; `mypy --strict src tests scripts` — pass (no backend source changed this Sprint); frontend `npm run lint` — pass (2 pre-existing `no-img-element` warnings, not errors); `npx tsc --noEmit` — pass; `npm run build` — pass; manual end-to-end check against a live, demo-seeded backend confirmed the hero, all four recommendation rows, rank badges, and cover placeholders render correctly
 - Release status: Phase 0-7 (the backend recommendation platform) remains **Release Candidate approved** — see [`docs/release/RELEASE_CANDIDATE.md`](../release/RELEASE_CANDIDATE.md). Phase 2 (this Phase) is a new, in-progress frontend/presentation capability layered on top of that unchanged backend.
 
 ## Task Log
@@ -1227,8 +1227,32 @@ Use this format:
   - `cd frontend && npm run build` — pass (Turbopack production build succeeded; one local `node_modules` artifact for an unused platform package, `@img/sharp-linuxmusl-x64`, had a corrupt/empty `package.json` from this sandbox's install and was removed — a local environment fix, not a code or dependency-tree change; `package.json`/`package-lock.json` are untouched)
   - Manual end-to-end check: started the real backend (`uvicorn`, in-memory/unseeded) and the frontend dev server against it — `/health` returned `healthy: true` with the `access-control-allow-origin: http://localhost:3000` CORS header present for the frontend's origin and absent for an unrecognised origin; the home page rendered the "Backend connected" badge and, since the backend was unseeded, the `EmptyState` ("No books have been registered yet.") — confirming the empty-state path end-to-end, not just via unit tests. Both processes stopped after the check.
   - `git status`/`git diff` reviewed before staging: only this Sprint's files (`frontend/`, `src/readmatch_ai/api/main.py`, `src/readmatch_ai/config.py`, `tests/api/test_cors.py`, `tests/test_config.py`) staged; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged, as every prior Sprint has preserved it
-- Commit: (recorded after commit)
+- Commit: e21626e
 - Notes: No architecture change, public-contract break, or destructive operation was required. `frontend/node_modules` and `frontend/.next` are untracked build artifacts (covered by `frontend/.gitignore`), not part of this commit.
+
+## Sprint 41 — Recommendation Home
+
+### Task 1 — Recommendation Home
+
+- Status: Done
+- Summary: Built the Netflix-style recommendation home experience entirely in the frontend, composing three existing, unmodified recommendation endpoints -- no new backend endpoint or ranking logic (that is Sprint 42's job). No user session exists yet (auth is out of Phase 2's scope), so nothing on this page claims to be "personalized" -- every section is anchored either to no book/user (`hybrid`, `popularity`) or to the hero book (`semantic`), and every reason label is derived directly from the recommendation's own `source` field, never invented.
+  - **`frontend/src/lib/api.ts`**: added `getHybridRecommendations()` (`GET /recommendations/hybrid`, no `book_id`/`user_id`) and `getSemanticRecommendations(bookId)` (`GET /recommendations/semantic/{book_id}`) alongside the existing `getPopularityRecommendations()`.
+  - **`frontend/src/lib/covers.ts`** (new): `deterministicCoverFallback(bookId)`, a client-side placeholder-cover mapping (same book id -> same one of 6 placeholder assets, every render/process). Mirrors the intent of the backend's `application.book_presentation.deterministic_cover_fallback` (Sprint 39), which is not yet reachable from any endpoint this page calls -- `cover_url` arrives over the wire starting with the Sprint 42 home feed, at which point the frontend will render the backend-provided URL directly instead.
+  - **`frontend/public/covers/placeholder-{0..5}.svg`** (new): 6 small, distinct static SVG cover placeholders (the assets `deterministic_cover_fallback`'s doc comment already anticipated the frontend providing).
+  - **`frontend/src/lib/recommendationReason.ts`** (new): maps each real `source` value (`popularity`/`semantic`/`als`/`hybrid`, matching `domain.recommendation`'s constants exactly) to a short human label.
+  - **`frontend/src/lib/categoryRows.ts`** (new): `buildCategoryRows` -- pure presentation grouping (dedup by book id, group by the existing `category` field, drop categories with fewer than 2 books, sort by name for a deterministic render order). Not a ranking algorithm; only reshapes already-ranked results for display.
+  - **Components** (new, all reusable): `BookCard` (cover, rank badge, title, author, reason), `RecommendationRow` (titled horizontal row of `BookCard`s; renders nothing for an empty/unavailable section), `Hero` (large featured card for the #1 popularity item), `RecommendationReason` (small reason pill, shared by `BookCard`/`Hero`).
+  - **`frontend/src/app/page.tsx`**: rewritten to fetch `popularity` (12) first; if empty, renders the existing `EmptyState` and stops (no wasted calls). Otherwise renders `Hero` (top popularity item), then rows: "Popular books" (popularity), "Recommended picks" (hybrid, no book/user id), "Similar to `<hero title>`" (semantic, anchored on the hero's book id -- omitted automatically by `RecommendationRow` if the hero book has no embedding yet), and one "More in `<category>`" row per category returned by `buildCategoryRows` across all three lists.
+- Validation:
+  - `python3 -m ruff check src tests scripts` — pass (no backend files changed)
+  - `python3 -m mypy --strict src tests scripts` — pass, 187 source files (no backend files changed)
+  - `cd frontend && npm run lint` — pass; 2 warnings (`@next/next/no-img-element` on `BookCard`/`Hero`'s plain `<img>` for the local SVG placeholders -- kept deliberately, since `next/image` blocks SVG by default and enabling it needs extra `next.config.ts` configuration this Sprint doesn't need), 0 errors
+  - `cd frontend && npx tsc --noEmit` — pass
+  - `cd frontend && npm run build` — pass (Turbopack production build)
+  - Manual end-to-end check: started the real backend seeded with `scripts/demo_fixtures.py`'s deterministic dataset (via a throwaway local script, not committed) and the frontend dev server against it. Confirmed via the rendered HTML: hero renders "Sapiens" (the #1 popularity book); "Popular books", "Recommended picks", "Similar to Sapiens", and three "More in `<category>`" rows (History/Science Fiction/Software Engineering) all render; rank badges `#1`-`#6` present; all 6 placeholder cover variants resolve `200` and multiple distinct variants appear across cards, confirming the hash-based fallback actually varies.
+  - `git status`/`git diff` reviewed before staging: only this Sprint's frontend files touched; the pre-existing, unrelated `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after commit)
+- Notes: No architecture change, public-contract break, or destructive operation was required. The "personalized"/`/recommendations/personalized/{user_id}` and "explained" endpoints were deliberately not used on this anonymous home page -- Phase 2 explicitly excludes authentication/user sessions, and inventing a demo user id here would misrepresent an anonymous visit as personalization.
 
 ## Current Constraints
 

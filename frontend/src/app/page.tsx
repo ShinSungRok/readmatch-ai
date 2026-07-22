@@ -1,48 +1,70 @@
 import { EmptyState } from "@/components/EmptyState";
-import { getHealth, getPopularityRecommendations } from "@/lib/api";
+import { Hero } from "@/components/Hero";
+import { RecommendationRow } from "@/components/RecommendationRow";
+import {
+  getHealth,
+  getHybridRecommendations,
+  getPopularityRecommendations,
+  getSemanticRecommendations,
+  type RecommendationItem,
+} from "@/lib/api";
+import { buildCategoryRows } from "@/lib/categoryRows";
 
 export default async function HomePage() {
-  const [health, recommendations] = await Promise.all([
+  const [health, popularity] = await Promise.all([
     getHealth(),
-    getPopularityRecommendations(6),
+    getPopularityRecommendations(12),
   ]);
+
+  const hero: RecommendationItem | undefined = popularity.items[0];
+
+  const [hybrid, similarToHero] = hero
+    ? await Promise.all([
+        getHybridRecommendations(12),
+        getSemanticRecommendations(hero.book.id, 12),
+      ])
+    : [{ items: [] as RecommendationItem[] }, { items: [] as RecommendationItem[] }];
+
+  const categoryRows = buildCategoryRows([popularity.items, hybrid.items, similarToHero.items]);
 
   return (
     <div className="flex flex-col gap-10">
-      <section>
-        <h1 className="text-2xl font-semibold tracking-tight">ReadMatch AI</h1>
-        <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-          A hybrid book recommendation experience.
-        </p>
-        <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-black/10 px-3 py-1 text-sm dark:border-white/15">
-          <span
-            aria-hidden
-            className={`h-2 w-2 rounded-full ${health.healthy ? "bg-green-500" : "bg-red-500"}`}
-          />
-          Backend {health.healthy ? "connected" : "unavailable"}
-        </div>
-      </section>
+      <div className="inline-flex w-fit items-center gap-2 rounded-full border border-black/10 px-3 py-1 text-sm dark:border-white/15">
+        <span
+          aria-hidden
+          className={`h-2 w-2 rounded-full ${health.healthy ? "bg-green-500" : "bg-red-500"}`}
+        />
+        Backend {health.healthy ? "connected" : "unavailable"}
+      </div>
 
-      <section>
-        <h2 className="text-lg font-semibold tracking-tight">Popular books</h2>
-        {recommendations.items.length === 0 ? (
-          <div className="mt-4">
-            <EmptyState message="No books have been registered yet." />
-          </div>
-        ) : (
-          <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-6">
-            {recommendations.items.map((item) => (
-              <li
-                key={item.book.id}
-                className="rounded-lg border border-black/10 p-3 text-sm dark:border-white/15"
-              >
-                <p className="font-medium">{item.book.title}</p>
-                <p className="text-zinc-500 dark:text-zinc-400">{item.book.author}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {!hero ? (
+        <EmptyState message="No books have been registered yet." />
+      ) : (
+        <>
+          <Hero item={hero} />
+          <RecommendationRow
+            title="Popular books"
+            description="Ranked by reader loan activity."
+            items={popularity.items}
+          />
+          <RecommendationRow
+            title="Recommended picks"
+            description="Blended popularity, semantic similarity, and collaborative signals."
+            items={hybrid.items}
+          />
+          <RecommendationRow
+            title={`Similar to ${hero.book.title}`}
+            items={similarToHero.items}
+          />
+          {categoryRows.map((row) => (
+            <RecommendationRow
+              key={row.category}
+              title={`More in ${row.category}`}
+              items={row.items}
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 }

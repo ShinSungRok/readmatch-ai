@@ -57,3 +57,29 @@ export function getHealth(): Promise<HealthResponse> {
 export function getPopularityRecommendations(limit = 10): Promise<RecommendationResponse> {
   return apiFetch<RecommendationResponse>(`/recommendations/popularity?limit=${limit}`);
 }
+
+/**
+ * GET /recommendations/hybrid -- see readmatch_ai.api.recommendations_router.
+ *
+ * Called with no book_id/user_id: blends popularity, semantic, and ALS
+ * signals without anchoring to a specific book or (out of Phase 2's scope)
+ * an authenticated user.
+ */
+export function getHybridRecommendations(limit = 10): Promise<RecommendationResponse> {
+  return apiFetch<RecommendationResponse>(`/recommendations/hybrid?limit=${limit}`);
+}
+
+/**
+ * GET /recommendations/semantic/{book_id} -- see readmatch_ai.api.recommendations_router.
+ *
+ * Returns an empty item list (not an error) if the source book has no
+ * embedding yet -- the caller decides whether to render the section at all.
+ */
+export function getSemanticRecommendations(
+  bookId: string,
+  limit = 10,
+): Promise<RecommendationResponse> {
+  return apiFetch<RecommendationResponse>(
+    `/recommendations/semantic/${encodeURIComponent(bookId)}?limit=${limit}`,
+  );
+}

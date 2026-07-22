@@ -68,6 +68,7 @@ from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.domain.recommendation_execution import CompositeRecommendationExecutionObserver
 from readmatch_ai.domain.reranker import DefaultRecommendationReranker, RecommendationReranker
 from readmatch_ai.domain.reranking_policies import (
+    ExplicitFeedbackPolicy,
     MMRDiversityPolicy,
     NoveltyBoostPolicy,
     PopularityPenaltyPolicy,
@@ -347,14 +348,19 @@ class ApplicationContext:
         reranked_recommendation_engine defaults to a
         RerankedRecommendationEngine wrapping the same (already-resolved)
         hybrid_recommendation_engine with a DefaultRecommendationReranker
-        composed of PopularityPenaltyPolicy, NoveltyBoostPolicy (both
-        reading from the already-resolved book_popularity_repository/
-        user_book_interaction_repository), and MMRDiversityPolicy, in that
-        order — score-adjusting policies run first, MMR's selection (which
-        performs the final, diversity-aware limit-truncation) runs last.
-        Re-ranking is implemented as this independent stage precisely so
-        HybridRecommendationEngine and every other RecommendationEngine
-        stay responsible for candidate generation/fusion only.
+        composed of ExplicitFeedbackPolicy, PopularityPenaltyPolicy,
+        NoveltyBoostPolicy (reading from the already-resolved
+        explicit_interactions/book_popularity_repository/
+        user_book_interaction_repository respectively), and
+        MMRDiversityPolicy, in that order — ExplicitFeedbackPolicy (Sprint
+        46) runs first since it can remove candidates entirely (disliked/
+        read books), so the remaining score-adjusting policies and MMR's
+        final, diversity-aware limit-truncation only ever operate on
+        candidates the user hasn't ruled out. Re-ranking is implemented as
+        this independent stage precisely so HybridRecommendationEngine and
+        every other RecommendationEngine stay responsible for candidate
+        generation/fusion only — explicit feedback conditions live in
+        exactly one place (this policy), not scattered across engines.
 
         The resolved engines are also exposed directly as fields
         (recommendation_engine, semantic_recommendation_engine,
@@ -480,7 +486,10 @@ class ApplicationContext:
             reranked_recommendation_engine
             if reranked_recommendation_engine is not None
             else RerankedRecommendationEngine(
-                hybrid_engine, _build_reranker(popularity_repository, interaction_repository)
+                hybrid_engine,
+                _build_reranker(
+                    popularity_repository, interaction_repository, explicit_interactions
+                ),
             )
         )
         explainer = (
@@ -663,9 +672,11 @@ def _build_ranking_strategy() -> RankingStrategy:
 def _build_reranker(
     popularity_repository: BookPopularityRepository,
     interaction_repository: UserBookInteractionRepository,
+    explicit_interaction_repository: InteractionRepository,
 ) -> RecommendationReranker:
     return DefaultRecommendationReranker(
         [
+            ExplicitFeedbackPolicy(explicit_interaction_repository),
             PopularityPenaltyPolicy(popularity_repository),
             NoveltyBoostPolicy(interaction_repository),
             MMRDiversityPolicy(),

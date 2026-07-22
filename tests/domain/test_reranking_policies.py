@@ -2,9 +2,11 @@ import pytest
 
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
 from readmatch_ai.domain.book_popularity import BookPopularity
+from readmatch_ai.domain.interaction import InteractionType, UserInteraction
 from readmatch_ai.domain.recommendation import RecommendationItem
 from readmatch_ai.domain.reranker import RerankingContext
 from readmatch_ai.domain.reranking_policies import (
+    ExplicitFeedbackPolicy,
     MMRDiversityPolicy,
     NoveltyBoostPolicy,
     PopularityPenaltyPolicy,
@@ -13,6 +15,9 @@ from readmatch_ai.domain.user import UserId
 from readmatch_ai.domain.user_book_interaction import UserBookInteraction
 from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
+)
+from readmatch_ai.infrastructure.in_memory_interaction_repository import (
+    InMemoryInteractionRepository,
 )
 from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
     InMemoryUserBookInteractionRepository,
@@ -95,6 +100,148 @@ def test_mmr_breaks_ties_deterministically_by_book_id() -> None:
 
     expected_order = sorted([a, b], key=lambda book: str(book.id.value))
     assert [item.book for item in result] == expected_order
+
+
+# --- ExplicitFeedbackPolicy ---
+
+
+def test_explicit_feedback_rejects_negative_boost() -> None:
+    with pytest.raises(ValueError, match="boost"):
+        ExplicitFeedbackPolicy(InMemoryInteractionRepository(), boost=-0.1)
+
+
+def test_explicit_feedback_is_a_noop_without_a_user_id() -> None:
+    book = _book("978-3-16-148410-0")
+    items = [_item(book, 1.0)]
+    policy = ExplicitFeedbackPolicy(InMemoryInteractionRepository())
+
+    result = policy.apply(items, limit=1, context=RerankingContext())
+
+    assert result == items
+
+
+def test_explicit_feedback_preserves_baseline_when_user_has_no_interactions() -> None:
+    a = _book("978-3-16-148410-0")
+    b = _book("0-306-40615-2")
+    items = [_item(a, 2.0), _item(b, 1.0)]
+    policy = ExplicitFeedbackPolicy(InMemoryInteractionRepository())
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=UserId.generate()))
+
+    assert result == items
+
+
+def test_explicit_feedback_boosts_a_liked_book() -> None:
+    liked = _book("978-3-16-148410-0", title="Liked")
+    other = _book("0-306-40615-2", title="Other")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, liked.id, InteractionType.LIKE))
+    # Liked starts with a lower raw score than Other.
+    items = [_item(other, 1.0), _item(liked, 0.9)]
+    policy = ExplicitFeedbackPolicy(interactions, boost=0.5)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [liked, other]
+
+
+def test_explicit_feedback_boosts_a_bookmarked_book() -> None:
+    bookmarked = _book("978-3-16-148410-0", title="Bookmarked")
+    other = _book("0-306-40615-2", title="Other")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, bookmarked.id, InteractionType.BOOKMARK))
+    items = [_item(other, 1.0), _item(bookmarked, 0.9)]
+    policy = ExplicitFeedbackPolicy(interactions, boost=0.5)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [bookmarked, other]
+
+
+def test_explicit_feedback_boosts_a_highly_rated_book() -> None:
+    rated = _book("978-3-16-148410-0", title="Rated")
+    other = _book("0-306-40615-2", title="Other")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, rated.id, InteractionType.RATING, value=5))
+    items = [_item(other, 1.0), _item(rated, 0.9)]
+    policy = ExplicitFeedbackPolicy(interactions, boost=0.5)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [rated, other]
+
+
+def test_explicit_feedback_excludes_a_disliked_book() -> None:
+    disliked = _book("978-3-16-148410-0")
+    other = _book("0-306-40615-2")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, disliked.id, InteractionType.DISLIKE))
+    items = [_item(disliked, 5.0), _item(other, 1.0)]
+    policy = ExplicitFeedbackPolicy(interactions)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [other]
+
+
+def test_explicit_feedback_excludes_a_read_book() -> None:
+    read = _book("978-3-16-148410-0")
+    other = _book("0-306-40615-2")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, read.id, InteractionType.READ))
+    items = [_item(read, 5.0), _item(other, 1.0)]
+    policy = ExplicitFeedbackPolicy(interactions)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [other]
+
+
+def test_explicit_feedback_excludes_a_poorly_rated_book() -> None:
+    rated = _book("978-3-16-148410-0")
+    other = _book("0-306-40615-2")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, rated.id, InteractionType.RATING, value=1))
+    items = [_item(rated, 5.0), _item(other, 1.0)]
+    policy = ExplicitFeedbackPolicy(interactions)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [other]
+
+
+def test_explicit_feedback_neutral_rating_neither_boosts_nor_excludes() -> None:
+    rated = _book("978-3-16-148410-0")
+    other = _book("0-306-40615-2")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, rated.id, InteractionType.RATING, value=3))
+    items = [_item(other, 2.0), _item(rated, 1.0)]
+    policy = ExplicitFeedbackPolicy(interactions, boost=0.5)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [other, rated]
+
+
+def test_explicit_feedback_click_interactions_have_no_effect() -> None:
+    clicked = _book("978-3-16-148410-0")
+    other = _book("0-306-40615-2")
+    user_id = UserId.generate()
+    interactions = InMemoryInteractionRepository()
+    interactions.record(UserInteraction(user_id, clicked.id, InteractionType.CLICK))
+    items = [_item(clicked, 2.0), _item(other, 1.0)]
+    policy = ExplicitFeedbackPolicy(interactions, boost=0.5)
+
+    result = policy.apply(items, limit=2, context=RerankingContext(user_id=user_id))
+
+    assert [item.book for item in result] == [clicked, other]
 
 
 # --- NoveltyBoostPolicy ---

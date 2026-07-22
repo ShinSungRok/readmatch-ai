@@ -4,6 +4,8 @@ from collections.abc import Callable
 
 from readmatch_ai.domain.book import Book, BookId
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
+from readmatch_ai.domain.interaction import InteractionType, UserInteraction
+from readmatch_ai.domain.interaction_repository import InteractionRepository
 from readmatch_ai.domain.recommendation import RecommendationItem
 from readmatch_ai.domain.reranker import RerankingContext, RerankingPolicy
 from readmatch_ai.domain.user_book_interaction_repository import UserBookInteractionRepository
@@ -11,6 +13,9 @@ from readmatch_ai.domain.user_book_interaction_repository import UserBookInterac
 _DEFAULT_MMR_LAMBDA = 0.5
 _DEFAULT_NOVELTY_BOOST = 0.1
 _DEFAULT_POPULARITY_PENALTY = 0.3
+_DEFAULT_FEEDBACK_BOOST = 0.15
+_POSITIVE_RATING_THRESHOLD = 4
+_NEGATIVE_RATING_THRESHOLD = 2
 
 
 def _same_category_similarity(a: Book, b: Book) -> float:
@@ -82,6 +87,85 @@ class MMRDiversityPolicy(RerankingPolicy):
             return relevance
         max_similarity = max(self._similarity(item.book, other.book) for other in selected)
         return self._lambda * relevance - (1.0 - self._lambda) * max_similarity
+
+
+class ExplicitFeedbackPolicy(RerankingPolicy):
+    """Applies a user's explicit interactions (Sprint 44) to candidate recommendations.
+
+    Positive signals -- like, bookmark, or a rating of
+    _POSITIVE_RATING_THRESHOLD or higher -- boost a candidate's score by
+    `boost`: the engine already surfaced this book as relevant, and the
+    user has also explicitly endorsed it, so it should rank higher, not
+    lower. Negative signals -- dislike, read, or a rating of
+    _NEGATIVE_RATING_THRESHOLD or lower -- exclude the candidate entirely.
+    `read` is treated as exclude-worthy (not merely neutral) because this
+    reranking stage exists for discovery-oriented recommendations
+    (personalized/reranked): a book the user has already read is not a
+    useful discovery, independent of how well it otherwise scores. A
+    rating strictly between the two thresholds affects neither score nor
+    membership. A no-op (returns items unchanged) when no user_id is
+    present, since explicit feedback is undefined without a user --
+    matching NoveltyBoostPolicy's existing convention -- so a user with no
+    recorded interactions sees exactly the baseline (pre-Sprint-46) ranked
+    output, unchanged. Reads InteractionRepository live, per call (like
+    NoveltyBoostPolicy reads UserBookInteractionRepository), so a feedback
+    change takes effect on the very next request -- no retraining or
+    rebuild step.
+    """
+
+    def __init__(
+        self,
+        interaction_repository: InteractionRepository,
+        boost: float = _DEFAULT_FEEDBACK_BOOST,
+    ) -> None:
+        if boost < 0.0:
+            raise ValueError(f"boost must be non-negative, got {boost!r}")
+        self._interaction_repository = interaction_repository
+        self._boost = boost
+
+    def apply(
+        self, items: list[RecommendationItem], limit: int, context: RerankingContext
+    ) -> list[RecommendationItem]:
+        if context.user_id is None or not items:
+            return items
+        interactions = self._interaction_repository.list_by_user(context.user_id)
+        excluded_book_ids = {
+            interaction.book_id
+            for interaction in interactions
+            if _is_negative_feedback(interaction)
+        }
+        boosted_book_ids = {
+            interaction.book_id
+            for interaction in interactions
+            if _is_positive_feedback(interaction)
+        }
+        surviving = [item for item in items if item.book.id not in excluded_book_ids]
+        adjusted = [
+            _with_score(
+                item,
+                item.score + self._boost if item.book.id in boosted_book_ids else item.score,
+            )
+            for item in surviving
+        ]
+        return _sorted_by_score_desc(adjusted)
+
+
+def _is_negative_feedback(interaction: UserInteraction) -> bool:
+    if interaction.interaction_type in (InteractionType.DISLIKE, InteractionType.READ):
+        return True
+    if interaction.interaction_type == InteractionType.RATING:
+        assert interaction.value is not None  # enforced by UserInteraction.__post_init__
+        return interaction.value <= _NEGATIVE_RATING_THRESHOLD
+    return False
+
+
+def _is_positive_feedback(interaction: UserInteraction) -> bool:
+    if interaction.interaction_type in (InteractionType.LIKE, InteractionType.BOOKMARK):
+        return True
+    if interaction.interaction_type == InteractionType.RATING:
+        assert interaction.value is not None  # enforced by UserInteraction.__post_init__
+        return interaction.value >= _POSITIVE_RATING_THRESHOLD
+    return False
 
 
 class NoveltyBoostPolicy(RerankingPolicy):

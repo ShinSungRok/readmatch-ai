@@ -1891,6 +1891,104 @@ while exercising the real stack.
   `readmatch-postgres` (the real Docker container used above) is left
   running, seeded only with schema (no data), for Sprint 66 to reuse.
 
+## Sprint 66 — End-to-End Runtime Flow
+
+### Task 1 — End-to-End Runtime Flow
+
+- Status: Done
+- Summary: Ran the complete real flow — data load, PostgreSQL persistence,
+  embedding generation, pgvector persistence, recommendation API, frontend
+  display — against the actual live services from Sprint 65 (the
+  `readmatch-postgres` container, a live `uvicorn` process, and the running
+  `next dev` frontend), not unit tests alone. No `DATA4LIBRARY_AUTH_KEY` is
+  available in this environment, so — per this Sprint's own instruction —
+  deterministic fixtures (`scripts/demo_fixtures.seed_demo_dataset`, shared
+  with `run_demo.py`/`generate_quality_report.py`) were loaded through the
+  same real, unmodified pipeline a live import would use: `book_repository
+  .add()`, `book_popularity_repository.record()`, and, critically,
+  `context.generate_book_embedding_use_case.execute()` — the real embedding
+  use case, persisting through `PostgreSQLBookEmbeddingRepository` into the
+  real pgvector column, not a fake/mocked repository. Before loading,
+  `readmatch-postgres` was reset to genuinely empty
+  (`TRUNCATE ... RESTART IDENTITY CASCADE`) — Sprint 65's own validation
+  runs had left demo/test rows in it (see Notes) — so this Sprint's load
+  step is honestly "empty database → real data", not additive on top of
+  leftover state.
+  - **Books in PostgreSQL**: confirmed via `psql` — `select count(*) from
+    books` → 8, matching `seed_demo_dataset`'s fixture set exactly.
+  - **Embeddings in pgvector**: confirmed via `psql` —
+    `select count(*), vector_dims(vector) from book_embeddings group by
+    vector_dims(vector)` → 8 rows, all dimension 384 (matches migration
+    0005/`SentenceTransformerBookEmbeddingGenerator`'s dimension).
+  - **Recommendation endpoints**: hit over real HTTP (not `TestClient`,
+    a real `uvicorn` process bound to `:8000`) — `GET
+    /recommendations/popularity`, `GET /recommendations/semantic/{book_id}`
+    (pgvector-backed nearest-neighbor), `GET
+    /recommendations/personalized/{user_id}` (Hybrid + re-ranking), and
+    `GET /recommendations/personalized/{user_id}/explained` all returned
+    real, non-empty, plausible results (e.g. semantic neighbors of "Clean
+    Code" ranked by real cosine similarity from the persisted 384-dim
+    vectors; personalized results carrying genuine evidence-gated reasons
+    referencing the seeded interactions).
+  - **Frontend consumes the real backend**: `GET http://localhost:3000/`
+    (real `next dev` server, real HTTP, not a component test) rendered the
+    "Backend connected" indicator (`bg-green-500`, from a live `GET /health`
+    call) and the real seeded titles ("Sapiens", "Dune", "Clean Code", ...)
+    via `GET /home-feed`; `GET http://localhost:3000/books/{id}` (a real
+    seeded book id) rendered that book's real title/author from `GET
+    /books/{id}`. Confirmed by inspecting the actual returned HTML, not by
+    asserting on the fetch call in isolation.
+- Validation:
+  - `docker exec readmatch-postgres psql -U readmatch -d readmatch -c
+    "select count(*) from books;"` → 8
+  - `... -c "select count(*), vector_dims(vector) from book_embeddings
+    group by vector_dims(vector);"` → 8 rows, dims=384
+  - `python3 scripts/validate_runtime.py` (postgresql backend, real
+    container, post-seed) — valid: `connectivity, required_tables,
+    pgvector_extension, vector_dimension, vector_index`
+  - `curl http://localhost:8000/recommendations/popularity?limit=3` /
+    `/recommendations/semantic/{book_id}?limit=3` /
+    `/recommendations/personalized/{user_id}?limit=3` /
+    `/recommendations/personalized/{user_id}/explained?limit=2` — all 200,
+    all non-empty, all sourced from the real persisted data (verified
+    against the same ids/titles queried directly from PostgreSQL above)
+  - `curl http://localhost:3000/` and `/books/{id}` — both 200; response
+    HTML confirmed to contain the real seeded titles, not
+    `"No books have been registered yet"` (the frontend's own empty-state
+    copy)
+  - No source file was changed — this Sprint's real, unmodified pipeline
+    (`ImportBooksUseCase`/`GenerateBookEmbeddingUseCase`/
+    `PostgreSQLBookRepository`/`PostgreSQLBookEmbeddingRepository`/REST
+    routes/frontend) worked correctly end to end on the first real run; no
+    genuine runtime defect was found during this flow
+  - `git status` reviewed before/after: no tracked file changed by this
+    Sprint (progress log entry only); the pre-existing, unrelated
+    `docs/agent/architecture/*` deletion left untouched and unstaged
+- Commit: (recorded after this entry is committed)
+- Notes: **Environmental limitation found and documented, not fixed**:
+  Sprint 65's `pytest -q` run had `BOOK_REPOSITORY_BACKEND=postgresql`/
+  `DATABASE_URL` (pointed at this same real, persistent
+  `readmatch-postgres` container) exported in its shell. Many `tests/api/*`
+  tests build their `application_context` fixture via the default
+  `ApplicationContext.create()` (no override), which — by design — reads
+  those same env vars, so that pytest run wrote real test-fixture rows
+  (e.g. "A Book"/"An Author", plus a `demo_fixtures`-seeded set) into the
+  same real, shared database instead of an isolated instance, alongside
+  the genuinely test-isolated `testcontainers`-backed suites. This did not
+  cause a test failure (each test's own assertions were unaffected), but it
+  is a real hazard for anyone running the full suite against a real,
+  persistent `DATABASE_URL`: **do not export `BOOK_REPOSITORY_BACKEND=
+  postgresql`/`DATABASE_URL` in the same shell used to run the test suite
+  unless intentionally accepting that the full suite will read/write that
+  real database.** Keep a seeding/demo shell and a test-running shell
+  separate. Not fixed — the fixtures deliberately use the default
+  composition to test realistic wiring (`tests/api/conftest.py`), and
+  making every such test hermetic against a real `DATABASE_URL` would be a
+  broad, unrelated refactor across dozens of tests, outside "fix only
+  genuine runtime defects." The database was reset (`TRUNCATE ...
+  CASCADE`) before this Sprint's own load step so its results are honest.
+  No architecture, recommendation engine, or API contract was touched.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

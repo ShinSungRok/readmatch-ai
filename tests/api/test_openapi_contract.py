@@ -176,6 +176,38 @@ def test_openapi_schema_declares_the_home_feed_response_model(client: TestClient
     }
 
 
+def test_openapi_schema_documents_the_interaction_endpoints(client: TestClient) -> None:
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/interactions" in paths
+    assert "post" in paths["/interactions"]
+    assert "delete" in paths["/interactions"]
+    assert "/interactions/{user_id}" in paths
+    assert "get" in paths["/interactions/{user_id}"]
+
+
+def test_openapi_schema_declares_the_interaction_response_models(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+
+    record_post = schema["paths"]["/interactions"]["post"]
+    response_schema = record_post["responses"]["201"]["content"]["application/json"]["schema"]
+    assert "InteractionResponse" in response_schema["$ref"]
+    interaction_schema = schema["components"]["schemas"]["InteractionResponse"]
+    assert set(interaction_schema["properties"]) == {
+        "user_id",
+        "book_id",
+        "interaction_type",
+        "value",
+    }
+    list_get = schema["paths"]["/interactions/{user_id}"]["get"]
+    list_response_schema = list_get["responses"]["200"]["content"]["application/json"]["schema"]
+    assert "InteractionListResponse" in list_response_schema["$ref"]
+    list_schema = schema["components"]["schemas"]["InteractionListResponse"]
+    assert set(list_schema["properties"]) == {"items"}
+
+
 def test_openapi_schema_documents_the_health_and_readiness_endpoints(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
 

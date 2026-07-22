@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import psycopg
 
+from readmatch_ai.application.clear_interaction_use_case import ClearInteractionUseCase
 from readmatch_ai.application.evaluate_recommendation_engine_use_case import (
     EvaluateRecommendationEngineUseCase,
 )
@@ -31,11 +32,13 @@ from readmatch_ai.application.get_book_detail_use_case import GetBookDetailUseCa
 from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
 from readmatch_ai.application.get_home_feed_use_case import GetHomeFeedUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
+from readmatch_ai.application.get_user_interactions_use_case import GetUserInteractionsUseCase
 from readmatch_ai.application.health_check_service import HealthCheckService
 from readmatch_ai.application.readiness_check_service import ReadinessCheckService
 from readmatch_ai.application.recommendation_metrics_collector import (
     RecommendationMetricsCollector,
 )
+from readmatch_ai.application.record_interaction_use_case import RecordInteractionUseCase
 from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
 from readmatch_ai.config import (
     POSTGRESQL_BACKEND,
@@ -53,6 +56,7 @@ from readmatch_ai.domain.book_metadata import BookMetadataRepository
 from readmatch_ai.domain.book_popularity import BookPopularityRepository
 from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.explainer import DefaultRecommendationExplainer, RecommendationExplainer
+from readmatch_ai.domain.interaction_repository import InteractionRepository
 from readmatch_ai.domain.ranking_strategies import (
     ReciprocalRankFusionStrategy,
     WeightedScoreFusionStrategy,
@@ -85,6 +89,9 @@ from readmatch_ai.infrastructure.in_memory_book_popularity_repository import (
     InMemoryBookPopularityRepository,
 )
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
+from readmatch_ai.infrastructure.in_memory_interaction_repository import (
+    InMemoryInteractionRepository,
+)
 from readmatch_ai.infrastructure.in_memory_user_book_interaction_repository import (
     InMemoryUserBookInteractionRepository,
 )
@@ -133,6 +140,7 @@ class ApplicationContext:
     book_popularity_repository: BookPopularityRepository
     book_embedding_repository: BookEmbeddingRepository
     book_metadata_repository: BookMetadataRepository
+    explicit_interaction_repository: InteractionRepository
     user_book_interaction_repository: UserBookInteractionRepository
     recommendation_engine: RecommendationEngine
     semantic_recommendation_engine: RecommendationEngine
@@ -146,6 +154,9 @@ class ApplicationContext:
     get_book_presentation_use_case: GetBookPresentationUseCase
     get_home_feed_use_case: GetHomeFeedUseCase
     get_book_detail_use_case: GetBookDetailUseCase
+    record_interaction_use_case: RecordInteractionUseCase
+    clear_interaction_use_case: ClearInteractionUseCase
+    get_user_interactions_use_case: GetUserInteractionsUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     generate_semantic_recommendation_use_case: GenerateSemanticRecommendationUseCase
@@ -170,6 +181,7 @@ class ApplicationContext:
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         book_metadata_repository: BookMetadataRepository | None = None,
+        explicit_interaction_repository: InteractionRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
@@ -205,6 +217,7 @@ class ApplicationContext:
                 book_embedding_repository=book_embedding_repository,
                 book_embedding_generator=book_embedding_generator,
                 book_metadata_repository=book_metadata_repository,
+                explicit_interaction_repository=explicit_interaction_repository,
                 semantic_recommendation_engine=semantic_recommendation_engine,
                 hybrid_recommendation_engine=hybrid_recommendation_engine,
                 user_book_interaction_repository=user_book_interaction_repository,
@@ -238,6 +251,7 @@ class ApplicationContext:
         book_embedding_repository: BookEmbeddingRepository | None = None,
         book_embedding_generator: BookEmbeddingGenerator | None = None,
         book_metadata_repository: BookMetadataRepository | None = None,
+        explicit_interaction_repository: InteractionRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
@@ -286,6 +300,20 @@ class ApplicationContext:
         book_presentation_use_case with semantic_use_case (the same
         similarity capability, not a new one) into one book-detail response
         (the book plus its similar books).
+
+        explicit_interaction_repository (Sprint 44) always defaults to
+        InMemoryInteractionRepository -- like book_metadata_repository, it
+        has no BookRepositoryConfig-driven PostgreSQL backend (out of
+        Phase 3's scope). Named "explicit" (rather than reusing
+        "interaction_repository", which this method's own local variable
+        below already uses for user_book_interaction_repository) to avoid
+        both a naming collision and any confusion with that unrelated,
+        pre-existing port: that one stores only the single aggregated
+        implicit signal ALS trains on; this one stores the explicit, typed
+        interactions (click/like/dislike/bookmark/read/rating) themselves.
+        record_interaction_use_case/clear_interaction_use_case/
+        get_user_interactions_use_case each pair it with `repository`
+        (record also validates the book exists) or use it directly.
 
         user_book_interaction_repository defaults via the same
         BookRepositoryConfig.from_env() as the other repositories.
@@ -424,6 +452,11 @@ class ApplicationContext:
             if user_book_interaction_repository is not None
             else _build_user_book_interaction_repository()
         )
+        explicit_interactions = (
+            explicit_interaction_repository
+            if explicit_interaction_repository is not None
+            else InMemoryInteractionRepository()
+        )
         als_engine = (
             als_recommendation_engine
             if als_recommendation_engine is not None
@@ -493,6 +526,7 @@ class ApplicationContext:
             book_popularity_repository=popularity_repository,
             book_embedding_repository=embedding_repository,
             book_metadata_repository=metadata_repository,
+            explicit_interaction_repository=explicit_interactions,
             user_book_interaction_repository=interaction_repository,
             recommendation_engine=engine,
             semantic_recommendation_engine=semantic_engine,
@@ -510,6 +544,9 @@ class ApplicationContext:
             get_book_detail_use_case=GetBookDetailUseCase(
                 book_presentation_use_case, semantic_use_case
             ),
+            record_interaction_use_case=RecordInteractionUseCase(explicit_interactions, repository),
+            clear_interaction_use_case=ClearInteractionUseCase(explicit_interactions),
+            get_user_interactions_use_case=GetUserInteractionsUseCase(explicit_interactions),
             get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository

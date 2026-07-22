@@ -12,6 +12,7 @@ from readmatch_ai.domain.explainer import (
     ExplanationReason,
 )
 from readmatch_ai.domain.health import ComponentCheck, HealthStatus, ReadinessStatus
+from readmatch_ai.domain.interaction import UserInteraction
 from readmatch_ai.domain.recommendation import RecommendationResult
 
 
@@ -216,6 +217,43 @@ class ExplainedRecommendationResponse(BaseModel):
                 for explained_item in result.items
             ]
         )
+
+
+class InteractionRequest(BaseModel):
+    """Request body for POST /interactions (Sprint 44)."""
+
+    user_id: str
+    book_id: str
+    interaction_type: str
+    value: int | None = None
+
+
+class InteractionResponse(BaseModel):
+    """API representation of a recorded UserInteraction."""
+
+    user_id: str
+    book_id: str
+    interaction_type: str
+    value: int | None = None
+
+    @classmethod
+    def from_domain(cls, interaction: UserInteraction) -> InteractionResponse:
+        return cls(
+            user_id=str(interaction.user_id.value),
+            book_id=str(interaction.book_id.value),
+            interaction_type=interaction.interaction_type.value,
+            value=interaction.value,
+        )
+
+
+class InteractionListResponse(BaseModel):
+    """API representation of GET /interactions/{user_id}: every interaction for that user."""
+
+    items: list[InteractionResponse]
+
+    @classmethod
+    def from_domain(cls, interactions: list[UserInteraction]) -> InteractionListResponse:
+        return cls(items=[InteractionResponse.from_domain(i) for i in interactions])
 
 
 class ComponentCheckResponse(BaseModel):

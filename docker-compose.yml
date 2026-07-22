@@ -5,7 +5,21 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./src:/app/src:ro
+    # Optional vars use bare-name form: Compose passes each through only if
+    # set in the shell running `docker compose`, and otherwise omits it
+    # entirely from the container. config.py distinguishes "unset" (None --
+    # its own documented default applies) from an empty string (a
+    # different, sometimes-invalid value), so these must stay absent rather
+    # than default to "".
     environment:
-      PYTHONUNBUFFERED: "1"
+      - PYTHONUNBUFFERED=1
+      - APPLICATION_MODE
+      - BOOK_REPOSITORY_BACKEND
+      - DATABASE_URL
+      - EMBEDDING_GENERATOR_BACKEND
+      - EMBEDDING_MODEL_NAME
+      - HYBRID_RANKING_STRATEGY
+      - ALS_MODEL_PATH
+      - CORS_ALLOWED_ORIGINS
     ports:
       - "8000:8000"

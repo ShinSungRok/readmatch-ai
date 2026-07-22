@@ -1750,6 +1750,147 @@ Goal: build an offline recommendation evaluation framework for the existing reco
 - Commit: ae290e5
 - Notes: No architecture change, public-contract break, or destructive operation was required. This completes Sprint 61-64 (Phase 7, Recommendation Evaluation). No recommendation algorithm, embedding generator, or import pipeline was modified across the whole Phase -- confirmed via `git diff --stat` at every Sprint. Known limitation carried into the Phase Completion Report: this Phase evaluates strictly offline, against the deterministic demo dataset only (as instructed, "Do not implement new recommendation algorithms" / evaluate the *existing* pipeline) -- no live production traffic or online A/B signal was used, consistent with `STANDARD_LIMITATIONS`' own, already-existing, honest disclosure baked into every report this framework generates.
 
+# Phase 8 — Production Validation (Sprint 65-68)
+
+Goal: prove the completed system actually runs end to end in a real local
+environment (Docker, PostgreSQL/pgvector, backend, frontend) — not just that
+its unit/integration test suite passes. No new recommendation algorithms,
+architecture changes, or UI redesign; fix only genuine runtime defects found
+while exercising the real stack.
+
+## Sprint 65 — Local Environment Startup
+
+### Task 1 — Local Environment Startup
+
+- Status: Done
+- Summary: Reviewed `docker-compose.yml`, `Dockerfile`, `config.py`, and
+  `docs/progress/PROJECT_PROGRESS.md`'s Sprint 6 entry first, which records a
+  deliberate prior decision: `docker-compose.yml` intentionally defines only
+  the `app` service ("No PostgreSQL, pgvector, or other external services
+  added, per Task instruction"). That decision is preserved here — no `db`
+  service was added. Instead, PostgreSQL/pgvector was validated the same way
+  this repository's own runtime tests already do it (`pgvector/pgvector:pg16`
+  as a real, separate container), and two genuine startup defects were found
+  and fixed by actually exercising the containerized app against it, not by
+  reasoning about the config in the abstract:
+  - **`docker-compose.yml` never forwarded any of the application's
+    documented configuration variables** (`BOOK_REPOSITORY_BACKEND`,
+    `DATABASE_URL`, `APPLICATION_MODE`, `EMBEDDING_GENERATOR_BACKEND`,
+    `EMBEDDING_MODEL_NAME`, `HYBRID_RANKING_STRATEGY`, `ALS_MODEL_PATH`,
+    `CORS_ALLOWED_ORIGINS`) into the container — only `PYTHONUNBUFFERED` was
+    set. Confirmed via `docker compose config`: exporting
+    `BOOK_REPOSITORY_BACKEND=postgresql`/`DATABASE_URL=...` in the host shell
+    before `docker compose up --build` (exactly as the README's Quick Start
+    documents) silently had no effect inside the container — it stayed on
+    the in-memory backend. Fixed using Compose's bare-name environment form
+    (`- VAR` with no value), which passes a variable through only when set
+    in the invoking shell and otherwise omits it from the container
+    entirely — verified directly (`docker compose run --rm app python3 -c
+    "import os; print(os.environ.get(...))"`) that every one of these prints
+    `None` inside the container when unset on the host, i.e. identical to
+    today's behavior, not merely "looks right" in `docker compose config`.
+  - **A second, more serious defect this same fix would otherwise have
+    reintroduced**: an earlier attempt using `${VAR:-default}`-style
+    interpolation (so every var is always set, defaulting to `""` when
+    absent) caused the containerized app to crash on every startup with
+    `PermissionError: [Errno 13] Permission denied: '.npz'` during ALS model
+    training. Root cause: `config.py` treats an unset `ALS_MODEL_PATH` as
+    `None` (skip persisting the trained model) but a present-but-empty
+    string `""` is not `None` and is treated as "persist to `.npz`" — which
+    the container's non-root `appuser` can't write in `/app` (owned by
+    root from the image build). The same `""`-vs-`None` distinction would
+    also have silently zeroed out `CORS_ALLOWED_ORIGINS` (an empty tuple —
+    no origins allowed — instead of the documented default
+    `http://localhost:3000`, breaking the frontend's cross-origin requests)
+    and mis-passed `EMBEDDING_MODEL_NAME=""` to the Sentence Transformers
+    loader. All three are avoided by the bare-name passthrough form instead,
+    which was verified to leave these vars genuinely absent, not empty.
+- Reproducible startup commands (validated by actually running each):
+  ```bash
+  # 1. PostgreSQL + pgvector (kept separate from docker-compose.yml,
+  #    matching this repo's own testcontainers pattern and Sprint 6's
+  #    documented decision not to bundle a db service)
+  docker run -d --name readmatch-postgres \
+    -e POSTGRES_USER=readmatch -e POSTGRES_PASSWORD=readmatch \
+    -e POSTGRES_DB=readmatch -p 5433:5432 pgvector/pgvector:pg16
+
+  # 2. Apply migrations in order
+  for f in migrations/000*.sql; do
+    PGPASSWORD=readmatch docker exec -i readmatch-postgres \
+      psql -U readmatch -d readmatch < "$f"
+  done
+
+  # 3. Backend (containerized, pointed at the postgres container via the
+  #    docker bridge gateway; in-memory works with no env vars at all)
+  export APPLICATION_MODE=development
+  export BOOK_REPOSITORY_BACKEND=postgresql
+  export DATABASE_URL=postgresql://readmatch:readmatch@172.17.0.1:5433/readmatch
+  docker compose up --build -d
+  curl http://localhost:8000/health
+  curl http://localhost:8000/readiness
+
+  # 4. Frontend
+  cd frontend && npm run dev   # http://localhost:3000
+  ```
+  Required env vars and safe local examples: `BOOK_REPOSITORY_BACKEND`
+  (`postgresql`, default `in_memory`), `DATABASE_URL`
+  (`postgresql://readmatch:readmatch@172.17.0.1:5433/readmatch` — a local
+  example only, never a real credential), `APPLICATION_MODE` (`development`,
+  default), `EMBEDDING_GENERATOR_BACKEND`/`HYBRID_RANKING_STRATEGY`/
+  `ALS_MODEL_PATH`/`CORS_ALLOWED_ORIGINS`/`EMBEDDING_MODEL_NAME` (all
+  optional, unchanged documented defaults apply when unset). `frontend/.env.example`
+  already documents `NEXT_PUBLIC_API_BASE_URL` (defaults to
+  `http://localhost:8000`) — no change needed there.
+- Validation:
+  - `docker compose config` — confirmed default case (no host env vars set)
+    resolves identically to before this change (`APPLICATION_MODE:
+    development`, `BOOK_REPOSITORY_BACKEND: in_memory`, etc.)
+  - `docker compose build` / `docker compose up -d` (default, in-memory) —
+    built and started; `GET /health` → 200, `GET /readiness` → 200
+    (`book_repository` check present, `persistence_runtime` absent, as
+    expected for in-memory)
+  - `docker compose up -d` with `BOOK_REPOSITORY_BACKEND=postgresql` +
+    `DATABASE_URL` pointed at the real `pgvector/pgvector:pg16` container —
+    built and started; `GET /health` → 200, `GET /readiness` → 200
+    including `persistence_runtime: available` — the actual defect
+    (container crash) was caught and fixed at this exact step
+  - `python3 scripts/validate_runtime.py` (postgresql backend, real
+    container) — valid: `connectivity, required_tables, pgvector_extension,
+    vector_dimension, vector_index` all checked
+  - `python3 scripts/validate_deployment.py` (in-memory) — valid
+  - `python3 scripts/validate_release.py` (postgresql backend, real
+    container, without `--include-tests`) — valid: `configuration,
+    persistence, deployment, operations`
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (242 source files)
+  - `python3 -m pytest -q` (full suite, real testcontainers-backed
+    PostgreSQL/pgvector) — 862 passed, 2 failed; re-ran the 2 failing tests
+    in isolation 3 times, deterministically reproducing the same,
+    already-documented, pre-existing Sprint 54/55 HNSW-ranking pair
+    (`test_indexed_and_sequential_retrieval_return_the_same_ranking`,
+    `test_in_memory_and_postgresql_repositories_rank_identically`) —
+    untouched, per this Sprint's explicit instruction not to modify them
+    absent a proven new regression; test count (862) matches the prior
+    Sprint 64 baseline exactly
+  - Frontend: `npm run dev` — `Ready` in ~1.5s, `GET http://localhost:3000/`
+    → 200
+  - `git status`/`git diff` reviewed before staging: only `docker-compose.yml`
+    touched; the pre-existing, unrelated `docs/agent/architecture/*`
+    deletion left untouched and unstaged
+- Commit: (recorded after this entry is committed)
+- Notes: No architecture change — the single-`app`-service decision from
+  Sprint 6 stands; PostgreSQL is validated as a separate, explicitly-started
+  container, the same pattern this repo's own tests already use, not a new
+  piece of infrastructure. No recommendation engine, ranking strategy, or
+  API contract was touched. The two fixed defects were both genuine
+  container-startup blockers reproduced by actually running the containers
+  end to end, not discovered by static inspection — the first
+  (env-forwarding gap) would have silently kept every containerized
+  PostgreSQL deployment on in-memory storage; the second (a bug in this
+  Sprint's own first-draft fix) would have crashed the container outright.
+  `readmatch-postgres` (the real Docker container used above) is left
+  running, seeded only with schema (no data), for Sprint 66 to reuse.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

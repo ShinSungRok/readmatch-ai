@@ -2110,7 +2110,7 @@ while exercising the real stack.
     `application_context.py` and the new test file touched; the
     pre-existing, unrelated `docs/agent/architecture/*` deletion left
     untouched and unstaged
-- Commit: (recorded after this entry is committed)
+- Commit: 5d87f27
 - Notes: No architecture change, public-contract break, or destructive
   operation was required. No new framework was introduced for the
   scenario checks — the ad hoc Scenario 1-4 harness reused each existing

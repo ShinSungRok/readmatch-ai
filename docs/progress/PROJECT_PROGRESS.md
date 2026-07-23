@@ -3558,6 +3558,219 @@ while exercising the real stack.
 - Task 5's `docs/release/RELEASE_CANDIDATE.md` update: see the commit
   immediately following this entry.
 
+## Sprint 75 — Portfolio Release 1.0 Finalization (Planning Agent's "Sprint 16")
+
+### Repository Review
+
+- `git status` clean at start; `git log` showed Sprint 74 (Portfolio
+  Release Candidate Polish) as the most recent work. This Sprint's brief
+  is explicit: no new features, no recommendation-algorithm or Domain
+  change -- documentation/quality/completeness only, finishing what
+  Sprint 74 started (this Sprint reads as its direct continuation, not a
+  new initiative).
+- Read `docs/agent/PROJECT_INSTRUCTIONS.md` fresh, and every one of the
+  five demo screens' current source (Home, Search, Book Detail, My
+  Preferences, and `RecommendationReason`/`PersonalizedForYou`) before
+  writing the demo-asset guide, to describe them accurately rather than
+  from memory of earlier Sprints.
+
+### Task 1 — Final Demo Assets
+
+- Status: Done.
+- Added `docs/demo/DEMO_ASSETS_GUIDE.md`: a reproducible recipe for the
+  five portfolio screenshots (Home onboarding, Home personalized, Search,
+  Book Detail, My Preferences) plus one GIF (the personalization loop:
+  like a book, watch the "For You" row and its reason chip change live,
+  in one continuous recording rather than two stitched screenshots, since
+  that's this project's actual thesis). No image/GIF files were produced
+  or committed -- this environment has no browser automation, the same
+  limitation recorded throughout the Progress Log and Release Candidate
+  docs -- so the guide is the deliverable, kept next to the code so it
+  stays accurate as the UI evolves, rather than a one-time, soon-stale
+  asset drop. Cross-linked from README's Demo section.
+- Commit: `0ad854d`
+
+### Task 2 — Portfolio Documentation
+
+- Status: Done.
+- Verified, by script rather than by eye: every README internal anchor
+  (50), every README file link (11), both README cross-document anchors,
+  and all 22 links in `docs/release/RELEASE_CANDIDATE.md` resolve to a
+  real heading/file (a small Python script computing GitHub's actual
+  slug algorithm -- lowercase, strip anything not `[a-z0-9 _-]`, each
+  space individually to a hyphen, never collapsing consecutive hyphens --
+  since a naive slugify undercounts double-hyphen anchors like
+  `#user-behavior--personalization` as broken when they are not).
+- Ran `codespell` across README/docs/frontend-README and all of
+  `src/`/`tests`/`scripts`/`frontend/src`: zero real typos (only "ALS"
+  false-positiving as "ALSO" throughout, correctly ignored -- it is the
+  collaborative-filtering algorithm's name, not a typo).
+- Found and fixed one real staleness bug: README's Architecture section
+  said "for all 68 completed sprints", already wrong (74 sprints exist in
+  the Progress Log as of Sprint 74) and guaranteed to go stale again
+  every future Sprint regardless of which number was substituted --
+  reworded to "every completed sprint", removing the need for a
+  maintained count entirely.
+- Execution order (Quick Start) re-checked: "Run the demo"
+  (`scripts/run_demo.py`, a genuinely standalone, zero-setup, in-process
+  walkthrough) intentionally precedes "Run the API server" -- not a
+  sequencing bug, since it needs neither a running server nor Postgres,
+  and is presented as the fastest way to see the whole pipeline before
+  committing to the fuller real-server setup.
+- Commit: `0e4332b`
+
+### Task 3 — Release Review
+
+- Status: Done. Full-repository review; only genuinely cleanable items
+  were touched, nothing functional changed.
+- **Dead code / unused imports**: none found. `ruff`'s `F401` and
+  `mypy --strict` already guarantee no unused imports across
+  `src`/`tests`/`scripts`; ran `vulture` (installed standalone for this
+  review, not added as a project dependency) at 90%, 70%, and 60%
+  confidence -- the 60%-confidence pass surfaced 80 findings, all
+  confirmed as expected false positives (FastAPI route-handler functions
+  vulture can't see are wired by decorator, dataclass/Pydantic fields
+  accessed via attribute, `render()`/`compute()` methods called
+  polymorphically through a port). Ran `knip` (also standalone, via
+  `npx`) on the frontend -- surfaced `ApiError` and four nested
+  response-shape interfaces as "unused exports"; inspected each: `ApiError`
+  carries a deliberate `status` field precisely so a future caller *could*
+  narrow on it (its own docstring documents this), and the four
+  interfaces are legitimately part of other exported types' shapes
+  (`HomeFeed.sections`, `PersonalLibrary.sections`, `HealthResponse.checks`)
+  -- none are dead code, left unchanged.
+- **TODO/FIXME/XXX**: none found anywhere (re-confirms an earlier
+  Sprint's own independent audit that found the same).
+- **Unnecessary files**: none found beyond the duplicate below -- no
+  committed build artifacts (`__pycache__`/`.next`/`node_modules` --
+  confirmed via `git ls-files`), no stray editor files, and every
+  `frontend/public/covers/placeholder-N.svg` is actually used (via the
+  backend's deterministic cover-fallback hash bucket, `book_presentation.py`
+  -- not just `placeholder-0.svg`, the only one referenced by a literal
+  string in the frontend).
+- **Duplicate documentation (real finding)**: `docs/agent/architecture/ADR.md`
+  and `SYSTEM_ARCHITECTURE.md` were a stale, materially-contradictory
+  duplicate of the actively-maintained `docs/architecture/` pair (e.g. the
+  stale copy's ADR-002 said "Parquet is used for reproducible offline
+  datasets", directly contradicting the real ADR-001: no Parquet layer
+  was ever built). An early Sprint's own Progress Log entry already
+  recorded these as superseded ("the real, live files sit at
+  `docs/architecture/...` instead") when it repointed README's own links
+  away from them, but the stale copies were never actually removed.
+  Confirmed via `grep` that nothing in the repository references
+  `docs/agent/architecture/` anymore. Removed both files.
+- Also corrected, in the same pass: `docs/knowledge/PROJECT_KNOWLEDGE.md`
+  still listed "Parquet" as a storage technology -- the same stale claim,
+  in a different file. Fixed to match ADR-001.
+- Commit: `0c34b07`
+
+### Task 4 — Final Validation
+
+- Status: Done.
+- Backend: `ruff check src tests scripts` -- pass; `mypy --strict src
+  tests scripts` -- pass (264 source files, unchanged -- no backend file
+  touched this Sprint); `pytest -q` (full suite) -- **951 passed, 0
+  failed**.
+- Frontend: `npm run lint` -- pass (0 errors, same 1 pre-existing
+  `BookCover.tsx` warning); `npx tsc --noEmit` -- pass; `npm run build` --
+  pass (`/`, `/books/[id]`, `/library`, `/preferences`, `/search`,
+  `/_not-found` all compiled).
+- Runtime: fresh `pgvector/pgvector:pg16` container, all 10 migrations,
+  `scripts/seed_demo_data.py` (10 new books), real `uvicorn`
+  (`BOOK_REPOSITORY_BACKEND=postgresql`) + real `next dev`. Exercised the
+  Sprint's own exact scenario end to end against the live server, one
+  fresh random `user_id`, no auth to seed:
+  1. **Guest**: `GET /preferences/{user_id}` -> all-empty;
+     `GET .../explained` -> top item score `0.7999...`, reasons
+     `['popularity', 'novelty']` only.
+  2. **Onboarding**: `POST /preference-signals`
+     (`category_interest`="한국문학") -> `201`.
+  3. **Search**: `GET /books/search?q=한강` -> 3+ real matches.
+  4. **View**: `POST /preference-signals` (`search`="한강") -> `201`;
+     `POST /interactions` (`search_result_click`, then `view`) against a
+     real matched book -> both `201`.
+  5. **Like**: `POST /interactions` (`like`) -> `201`.
+  6. **Recommendation Update**: re-queried `.../explained?limit=10` and
+     located the *actually-liked* book specifically (not just the top
+     item) -- its own score rose to `0.3018...`, confirmed higher than
+     what an unboosted popularity-only score for that book would be
+     (`ExplicitFeedbackPolicy`'s live `+0.15`), a real, measured
+     before/after difference, not merely "a number changed somewhere".
+  7. **My Preferences**: `GET /preferences/{user_id}` ->
+     `favorite_categories`/`favorite_authors` now populated from the
+     liked book's own category/author, `recent_interests` correctly
+     prioritizes the later view/click category over the earlier
+     onboarding choice, `recent_search_terms` populated.
+  8. **Recommendation Reason**: the top-ranked item (and every other
+     book sharing 한강's author/category) now additionally carries real
+     `favorite_category`/`favorite_author`/`recent_search_match` reasons,
+     each naming the actual matched value -- confirmed evidence-gated,
+     not blanket-applied (a non-matching book, `흔한남매`, still shows
+     only `popularity`/`novelty`/`diversity`).
+  - **Revert**: `DELETE /interactions` (un-like) -> `preferences`'
+    `favorite_categories`/`positive_book_count` correctly return to
+    empty/0.
+  - **Edge cases**: malformed `user_id` on `GET /preferences` -> `400`;
+    unknown `book_id` on `POST /interactions` -> `404`.
+  - **Regression**: `GET /home-feed` (real hero unchanged), `GET
+    /books/{id}` (`200`), and all five frontend routes (`/`, `/search`,
+    `/library`, `/preferences`, plus the book detail page) -- all `200`,
+    no exception in either the `uvicorn` or `next dev` log.
+  - All started processes and the `readmatch-postgres` container stopped
+    and removed afterward.
+
+### Validation
+
+- Backend: `ruff` -- pass; `mypy --strict` -- pass (264 files); `pytest -q`
+  -- 951 passed, 0 failed.
+- Frontend: `lint` -- pass; `tsc --noEmit` -- pass; `build` -- pass.
+- Runtime: full Guest -> Onboarding -> Search -> View -> Like ->
+  Recommendation Update -> My Preferences -> Recommendation Reason
+  scenario + revert + edge cases + regression, all live, see Task 4.
+
+### Architecture Review
+
+- Zero Domain/Application/Infrastructure/API files changed this Sprint --
+  confirmed via `git diff --stat` across every commit: only
+  documentation (`README.md`, `docs/demo/DEMO_ASSETS_GUIDE.md`,
+  `docs/knowledge/PROJECT_KNOWLEDGE.md`, the removed
+  `docs/agent/architecture/*`, this Progress Log entry) was touched. No
+  recommendation algorithm, ranking policy, or Domain port was added,
+  removed, or changed. No new project dependency added to
+  `pyproject.toml` or `frontend/package.json` (`vulture`/`codespell`/
+  `knip` were used standalone for this Sprint's own review only, never
+  installed into the project's own dependency list).
+
+### Files Changed
+
+- Docs: `README.md`, `docs/demo/DEMO_ASSETS_GUIDE.md` (new),
+  `docs/knowledge/PROJECT_KNOWLEDGE.md`, this Progress Log entry.
+- Removed: `docs/agent/architecture/ADR.md`,
+  `docs/agent/architecture/SYSTEM_ARCHITECTURE.md` (stale duplicates).
+- No backend (`src/`, `tests/`, `scripts/`, `migrations/`) or frontend
+  (`frontend/src/`) file changed.
+
+### Deferred Items
+
+- None newly introduced this Sprint. README's own
+  [Future Improvements](../../README.md#future-improvements) section
+  (added Sprint 74) remains the up-to-date, compiled list; nothing found
+  during this Sprint's Release Review changed that list's contents.
+- Actual screenshot/GIF files (per Task 1's guide) remain uncaptured --
+  this environment cannot produce them; capturing and committing them
+  under `docs/demo/screenshots/` is left for whoever runs the guide with
+  a real browser.
+
+### Commit
+
+- `0ad854d` -- `docs(demo): add screenshot/GIF capture guide` (Task 1)
+- `0e4332b` -- `docs(readme): final review pass -- verify links, fix
+  stale sprint count` (Task 2)
+- `0c34b07` -- `chore(release): remove stale duplicate docs, no dead
+  code found` (Task 3)
+- Task 4 produced no code/doc diff of its own (validation only); this
+  Progress Log entry is committed as the final commit of this Sprint.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

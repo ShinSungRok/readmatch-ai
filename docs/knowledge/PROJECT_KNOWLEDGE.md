@@ -13,7 +13,8 @@ Record only stable facts discovered during development.
 - Hybrid: Normalized weighted scoring
 - Diversity: MMR
 - Evaluation: Precision@10, Recall@10, NDCG@10, Coverage
-- Storage: PostgreSQL, pgvector, Parquet
+- Storage: PostgreSQL, pgvector (no separate Parquet/offline-file storage
+  layer was built — see ADR-001)
 
 ## Update Rule
 

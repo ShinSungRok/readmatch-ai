@@ -97,6 +97,8 @@ walkthroughs in [Try personalization](#try-personalization) and
 complete Guest → category interest → search → view → like/save →
 recommendation change → reason → My Preferences scenario), or the fuller
 [Manual Demo Walkthrough](docs/release/RELEASE_CANDIDATE.md#manual-demo-walkthrough).
+Screenshot/GIF capture steps for these five screens are documented in
+[`docs/demo/DEMO_ASSETS_GUIDE.md`](docs/demo/DEMO_ASSETS_GUIDE.md).
 
 ### Status note
 

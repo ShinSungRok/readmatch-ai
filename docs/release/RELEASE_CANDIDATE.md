@@ -142,6 +142,10 @@ configuration, and recommendation metrics — see README
 - The frontend (`frontend/`) is a thin REST consumer with no server-side
   framework/database of its own; it renders whatever the backend returns
   and has no independent data or business logic to validate beyond that.
+- There is no Search feature (no search endpoint, no search page/result
+  route) anywhere in this repository — confirmed by Sprint 69/70's audit,
+  not merely undocumented. Home (hero + recommendation rows) and Book
+  Detail (presentation + similar books) are the only browsing paths today.
 
 Each limitation above is documented in full, with rationale, in its
 corresponding README section.
@@ -156,20 +160,19 @@ browser, using deterministic fixtures (no `DATA4LIBRARY_AUTH_KEY` needed):
 docker run -d --name readmatch-postgres \
   -e POSTGRES_USER=readmatch -e POSTGRES_PASSWORD=readmatch \
   -e POSTGRES_DB=readmatch -p 5433:5432 pgvector/pgvector:pg16
-for f in migrations/000*.sql; do
+for f in migrations/0*.sql; do
   PGPASSWORD=readmatch docker exec -i readmatch-postgres \
     psql -U readmatch -d readmatch < "$f"
 done
 
-# 2. Seed the deterministic demo dataset through the real pipeline
-#    (book_repository.add + generate_book_embedding_use_case.execute --
-#    the same use cases a live import uses, not a mock)
+# 2. Seed real, reproducible demo data through the real pipeline
+#    (ImportBooksUseCase + generate_book_embedding_use_case.execute -- the
+#    same use case a live Data4Library import uses, not a mock, loading the
+#    committed data4library_popular_books_2025_sample.json fixture instead
+#    of calling the live API)
 export APPLICATION_MODE=development BOOK_REPOSITORY_BACKEND=postgresql \
   DATABASE_URL=postgresql://readmatch:readmatch@localhost:5433/readmatch
-PYTHONPATH=scripts python3 -c \
-  "from demo_fixtures import seed_demo_dataset; \
-   from readmatch_ai.application_context import ApplicationContext; \
-   seed_demo_dataset(ApplicationContext.create())"
+PYTHONPATH=src python3 scripts/seed_demo_data.py
 
 # 3. Backend (host process -- simplest; DATABASE_URL above is correct as-is)
 uvicorn readmatch_ai.api.main:app --reload
@@ -185,11 +188,43 @@ cd frontend && npm install && npm run dev
 ```
 
 Open `http://localhost:3000` — the home page shows a green "Backend
-connected" indicator and a real, seeded book catalog (Popular books,
-recommendation rows); clicking a book opens its detail page, rendered from
-`GET /books/{id}`. `http://localhost:8000/docs` gives the same data as
-interactive OpenAPI. This is the exact flow validated in the Progress
-Log's Sprint 65-66 entries.
+connected" indicator, a hero, and recommendation rows (Popular books,
+Recommended picks, Similar to \<hero\>, per-category rows) built from the
+real, seeded Data4Library titles/authors/covers; clicking a book opens its
+detail page, rendered from `GET /books/{id}`, with its own similar-books
+row. `http://localhost:8000/docs` gives the same data as interactive
+OpenAPI. `scripts/seed_demo_data.py` is safe to re-run at any point (upserts
+by ISBN/book id, never duplicates) if you want to confirm the data hasn't
+drifted. There is no Search feature in this repository yet — do not expect
+a search box or results page; see `docs/roadmap/PROJECT_ROADMAP.md` and the
+Progress Log for status.
+
+**Troubleshooting**:
+- `relation "book_metadata" does not exist` (or any other `does not exist`
+  from a fresh database): a migration was skipped. Re-run step 1 with the
+  `migrations/0*.sql` glob shown above (not `migrations/000*.sql`, which
+  silently excludes `0010_create_book_metadata_table.sql` and anything
+  `0010` or later).
+- Home page shows "Backend unavailable" (red indicator): the backend
+  isn't reachable at `NEXT_PUBLIC_API_BASE_URL` (default
+  `http://localhost:8000`) — confirm `uvicorn`/`docker compose` is
+  actually running and `GET http://localhost:8000/readiness` returns
+  `ready: true`.
+- Home page renders but every section is empty: no data has been seeded
+  yet — run step 2 (`scripts/seed_demo_data.py`) against the same
+  `DATABASE_URL` the backend is using.
+- A book's cover shows the local placeholder art instead of a real cover:
+  expected, working fallback behavior (see `BookCover.tsx`) for a
+  `cover_url` that failed to load client-side — not a bug to chase.
+- `notFound()`'s `/books/{unknown-id}` page renders correctly but the raw
+  HTTP status is `200`, not `404`: expected behavior of this Next.js
+  version's streamed responses (see `not-found.js` in
+  `frontend/node_modules/next/dist/docs/`) — the page still carries a
+  `<meta name="robots" content="noindex">` tag, and the backend's own
+  `GET /books/{unknown-id}` correctly returns `404`.
+
+This is the exact flow validated in the Progress Log's Sprint 65-66 and
+Sprint 69-70 entries.
 
 ## Release Readiness
 

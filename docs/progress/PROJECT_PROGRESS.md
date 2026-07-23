@@ -2380,6 +2380,196 @@ while exercising the real stack.
   guidance, since no backend file changed and validation/documentation
   were produced in the same pass as the UI change)
 
+## Sprint 70 — Demo Readiness and Existing Experience Audit (Planning Agent's "Sprint 11")
+
+### Task 1 — Existing Experience Audit
+
+- Status: Done, no code fix needed to Home/Book Detail themselves.
+- The brief assumed a Search feature already exists ("Search → Result →
+  Book Detail" flow to audit). Repository Review found this false:
+  `grep`-ing `src/readmatch_ai/api/` and `frontend/src/` for "search" finds
+  no route registered in `api/main.py` and no search page/component
+  anywhere in the frontend — Sprint 69's own log entry already recorded
+  "still no Search feature" independently. Per this Sprint's own "adjust
+  scope location, not the goal" rule and its explicit Out-of-Scope ban on
+  building Search, only the real Home -> Book Detail -> Similar Books flow
+  was audited; the Search half of the brief is recorded as a Roadmap
+  Reconciliation finding below, not fabricated.
+- Audited end to end against a real, freshly-seeded PostgreSQL instance
+  (see Task 3): `/` (Home) -> hero's `/books/{id}` link -> Book Detail's
+  own "Similar books" row, plus a full FeedbackControls round trip
+  (`POST /interactions` like + rating -> `GET /library/{user_id}` reflects
+  both under "Liked"/"Rated" sections) exercising `RecommendationReason`
+  and `FeedbackControls` for real. Every step returned real data, matched
+  `RecommendationReason`'s label table (`popularity`/`semantic`/`like`/
+  `rating` all covered, no unmapped source encountered), and produced no
+  server-side exception in either the `uvicorn` or `next dev` logs.
+- One finding, not a defect: `GET http://localhost:3000/books/{unknown-id}`
+  renders the correct `not-found.tsx` UI (verified by content, including
+  the `<meta name="robots" content="noindex">` tag) but the outer HTTP
+  status is `200`, not `404` — confirmed, by reading
+  `frontend/node_modules/next/dist/docs/.../not-found.md` (per
+  `frontend/AGENTS.md`'s "read the relevant guide before writing code"),
+  to be this Next.js version's documented streamed-response behavior
+  ("a `200` status code will be returned to signal the request was
+  successful... For example, when a 404 page is streamed to the client,
+  Next.js includes a `<meta name="robots" content="noindex">` tag"), not
+  a bug in this codebase. The backend's own `GET /books/{unknown-id}`
+  correctly returns `404`. Left unchanged (no fix needed) and documented
+  as a Troubleshooting entry (see Task 4) so it isn't mistaken for a
+  regression later.
+- No other Empty State/Error Handling/Metadata/Routing defect found. No
+  code change was made under this Task.
+
+### Task 2 — Demo Seed Capability
+
+- Status: Done.
+- Added `scripts/seed_demo_data.py`: loads the already-committed
+  `data/raw/data4library_popular_books_2025_sample.json` (10 real
+  Data4Library records) through the existing `ImportBooksUseCase` (the
+  same use case `scripts/import_books.py` uses for the live API), via a
+  small `SampleFileBookDataSource` implementing the existing
+  `BookDataSource` port -- no direct SQL insert anywhere, no new use case,
+  no new repository. `ApplicationContext.create()` is used exactly as
+  every other script uses it, so it works against whatever backend is
+  configured (in-memory or PostgreSQL). After import, generates an
+  embedding for every seeded book via the existing
+  `GenerateBookEmbeddingUseCase`, so Semantic/"Similar to ..." sections
+  have real data. Prints imported/updated/unchanged/invalid/failed counts.
+- Idempotency is inherited, not reimplemented: `ImportBooksUseCase`
+  reconciles by ISBN (`BookRepository.get_by_isbn`) and both
+  `BookPopularityRepository.record`/`BookMetadataRepository.record` are
+  already atomic upserts keyed by `book_id` (`ON CONFLICT (book_id) DO
+  UPDATE`, pre-existing, unmodified) -- re-running the same fixture
+  through the same pipeline was already guaranteed not to duplicate rows
+  before this Sprint; this Task only adds the runner, not new dedup logic
+  (matching the brief's "직접 SQL Insert를 사용하지 않는다" /
+  "기존 ... Pipeline을 재사용한다").
+- Verified live, not just asserted: ran the script twice against a fresh,
+  freshly-migrated PostgreSQL instance --
+  run 1: `Seeded 10 new, 0 updated, 0 unchanged`;
+  run 2: `Seeded 0 new, 0 updated, 10 unchanged` -- with `books`/
+  `book_popularity`/`book_metadata` row counts staying at 10/10/10 across
+  both runs (checked via `psql`).
+- Tests added (`tests/test_seed_demo_data_runtime.py`, real
+  `testcontainers` PostgreSQL, mirroring `tests/test_import_books_runtime.py`'s
+  established dynamic-module-load pattern for testing a script's `main()`):
+  persistence of book/popularity/metadata fields through a real database;
+  a two-run idempotency assertion (`book_repository.list_all()` count and
+  book-id set both unchanged after a second run); a schema/mapping guard
+  against the real committed sample file itself (10 records, valid
+  ISBN/title/author, author-prefix `"지은이: "` correctly stripped); and a
+  sanity check that `ApplicationContext.create()` still composes with the
+  default in-memory `BookMetadataRepository` when nothing is overridden
+  (so this script also works out of the box with no PostgreSQL at all).
+- Commit: 70aaa42
+
+### Task 3 — Runtime Validation
+
+- Status: Done, with the same browser-automation limitation already
+  recorded in Sprint 69 (still no Playwright/Puppeteer/equivalent
+  available in this environment).
+- Environment: fresh `pgvector/pgvector:pg16` container, all 10 migrations
+  applied, seeded via the new `scripts/seed_demo_data.py` (not a throwaway
+  script this time -- the real, committed, tested entry point), real
+  `uvicorn` (PostgreSQL backend) + real `next dev`.
+- `GET /readiness` -> `ready: true` (configuration, book_repository,
+  recommendation_composition, persistence_runtime all available).
+  `GET /home-feed?limit=6` -> real hero + 5 real sections (Popular books,
+  Recommended picks, Similar to \<hero\>, 2 category rows), matching
+  Sprint 69's own audit of the same composition logic.
+  `GET /books/{hero-id}` -> real presentation + 9 real similar books.
+  `POST /interactions` + `GET /library/{user_id}` -> round-tripped
+  correctly (see Task 1).
+- Runtime error check: `uvicorn`/`next dev` logs inspected directly (no
+  browser console available) -- no exception, no 500, across every route
+  exercised (`/`, `/books/{id}`, `/books/{unknown-id}`, `/library`).
+  Malformed book id (`/books/not-a-uuid`) correctly still returns `400`.
+- All started processes (`uvicorn`, `next dev`, the one-off `next start`
+  used only to re-confirm the not-found status-code finding against a
+  production build) and the `readmatch-postgres` container were
+  stopped/removed after validation.
+- Commit: 70aaa42 (seed capability exercised for this Task's validation);
+  documentation of the runtime walkthrough itself is in the docs commit
+  below.
+
+### Migration Validation
+
+- Applying `migrations/*.sql` in numeric order (0001-0010) against a fresh
+  `pgvector/pgvector:pg16` database succeeds cleanly end to end (verified
+  live via `psql \dt`: all 6 expected tables present, including
+  `book_metadata`).
+- **Real defect found and fixed** (not hypothetical): `docs/release/RELEASE_CANDIDATE.md`'s
+  own "Manual Demo Walkthrough" applied migrations via
+  `for f in migrations/000*.sql`, a glob that matches `0001`-`0009` but
+  **not** `0010` (`0010` starts with `001`, not `000`) -- silently
+  skipping `book_metadata`'s table. Following that walkthrough exactly as
+  written would leave `book_metadata` missing, and
+  `GetBookPresentationUseCase`'s (unconditional, every request)
+  `BookMetadataRepository` call would then raise a real
+  `relation "book_metadata" does not exist` error on the very first real
+  page load -- confirmed by reproducing the glob's actual match set
+  (`ls migrations/000*.sql`: 9 files, missing `0010`) rather than assumed.
+  Fixed to `migrations/0*.sql` (matches all 10; verified: `ls
+  migrations/0*.sql | wc -l` == `ls migrations/*.sql | wc -l` == 10).
+- Also corrected the same stale range in `README.md`'s Quick Start
+  (`0001-0009` -> `0001-0010`).
+
+### Documentation
+
+- `README.md`: added a "Seed demo data" subsection (Contents entry +
+  section, between "Run the API server" and "Run the frontend") documenting
+  `scripts/seed_demo_data.py`, including the "run it twice" idempotency
+  demonstration; added a table row + updated exit-code count (seven ->
+  eight) in "Operational Scripts Reference"; corrected the migration range
+  stated in Quick Start.
+- `docs/release/RELEASE_CANDIDATE.md`: "Manual Demo Walkthrough" now seeds
+  via `scripts/seed_demo_data.py` (real Data4Library data) instead of the
+  ad hoc `demo_fixtures.seed_demo_dataset` one-liner, fixed the migration
+  glob defect above, added a "no Search feature" note so a reader doesn't
+  go looking for one, and added a **Troubleshooting** subsection (missing
+  migration, backend-unavailable indicator, empty sections meaning
+  not-yet-seeded, the cover-fallback-is-expected note, and the
+  not-found-200-vs-404 Next.js behavior from Task 1). Added a "no Search
+  feature" bullet to "Known Limitations" for the same Roadmap
+  Reconciliation reason.
+- Progress Log: this entry.
+
+### Validation
+
+- Backend: `python3 -m ruff check src tests scripts` — pass;
+  `python3 -m mypy --strict src tests scripts` — pass (247 source files);
+  `python3 -m pytest -q` (full suite) — 879 passed (875 Sprint-69 baseline
+  + 4 new `test_seed_demo_data_runtime.py` tests).
+- Frontend: no frontend source file was touched this Sprint (only backend
+  script/test + Markdown docs); `npm run lint`/`npx tsc --noEmit`/`npm run
+  build` re-run anyway to confirm zero regression from doc-only/script-only
+  changes -- all pass (same 1 pre-existing `BookCover.tsx` warning as
+  Sprint 69).
+- Demo Seed re-run twice against a live database: see Task 2 (10 new ->
+  10 unchanged, stable row counts).
+- Migration re-verified against a completely fresh container (not reusing
+  Sprint 69's): all 10 apply cleanly, all 6 tables present.
+
+### Roadmap Reconciliation
+
+- Search (endpoint, page, autocomplete) does not exist anywhere in this
+  repository, despite being referenced as an existing feature to audit in
+  this Sprint's own brief. `docs/roadmap/PROJECT_ROADMAP.md`'s Phase 6
+  ("Product UI") never actually named Search either -- this looks like a
+  Planning Agent assumption drawn from the Sprint 10 brief's similarly
+  stale assumption that Book Detail didn't exist yet (Sprint 69), not
+  something dropped from an actual plan. No Search work was started, per
+  this Sprint's explicit Out-of-Scope list; recorded here instead, plus in
+  `docs/release/RELEASE_CANDIDATE.md`'s Known Limitations, so the next
+  Planning Agent pass has an accurate, current answer instead of a stale
+  assumption to repeat a third time.
+- Everything else audited (Home, Book Detail, Similar Books, `/library`,
+  `FeedbackControls`, `RecommendationReason`, the import pipeline) matches
+  the roadmap/progress log's existing account of what's built -- no other
+  discrepancy found.
+- Commit: (recorded after commit — see below)
+
 ## Current Constraints
 
 - Implement only approved Tasks.

@@ -42,6 +42,7 @@ that API directly over HTTP.
   - [Recommendation Quality Reports](#recommendation-quality-reports)
   - [Run the demo](#run-the-demo)
   - [Run the API server](#run-the-api-server)
+  - [Seed demo data](#seed-demo-data)
   - [Run the frontend](#run-the-frontend)
   - [Import real book data (optional)](#import-real-book-data-optional)
 - [API Reference](#api-reference)
@@ -166,7 +167,7 @@ PostgreSQL/pgvector instead, set:
 ```bash
 export BOOK_REPOSITORY_BACKEND=postgresql
 export DATABASE_URL=postgresql://user:pass@localhost:5432/readmatch
-# apply migrations/*.sql in order (0001-0009) against that database first
+# apply migrations/*.sql in order (0001-0010) against that database first
 ```
 
 The Hybrid engine's fusion algorithm is selected independently via:
@@ -386,6 +387,40 @@ combination of the two.
 # correctly (GET /health, GET /readiness, a real recommendation endpoint) --
 # see Deployment and Container Runtime Readiness below
 python scripts/validate_deployment.py
+```
+
+### Seed demo data
+
+The in-memory default backend starts empty; a PostgreSQL backend starts
+empty too until something is imported. To populate either one with a
+small, real, reproducible catalog for a demo (real Data4Library titles,
+authors, categories, publishers, and cover images — not synthetic
+placeholders) — so the frontend's Home page has a hero and full
+recommendation sections to show right away:
+
+```bash
+PYTHONPATH=src python3 scripts/seed_demo_data.py
+```
+
+This loads the committed `data/raw/data4library_popular_books_2025_sample.json`
+fixture through the same `ImportBooksUseCase` pipeline
+`scripts/import_books.py` uses for the real Data4Library API — persisting
+each book, its popularity (loan count), and its presentation metadata
+(cover URL, publisher, published date) via the configured repositories,
+never a direct SQL insert — then generates an embedding for every seeded
+book so the Semantic/"Similar to ..." sections have real data too. It
+prints how many books were newly imported/updated/left unchanged, plus
+any invalid or failed records.
+
+Safe to run more than once: it reconciles by ISBN and every write it makes
+is an upsert, so re-running against the same database leaves the same
+book/popularity/metadata row counts — no duplicates accumulate.
+
+```bash
+# run twice to see this for yourself: the first run reports N new,
+# the second reports 0 new / N unchanged
+PYTHONPATH=src python3 scripts/seed_demo_data.py
+PYTHONPATH=src python3 scripts/seed_demo_data.py
 ```
 
 ### Run the frontend
@@ -1194,23 +1229,28 @@ capability.
 
 ## Operational Scripts Reference
 
-Every script below is read-only and safe to run repeatedly against a local
-or non-production environment; each is documented in full, with example
-output, in its own section linked from the table.
+Every script below is safe to run repeatedly against a local or
+non-production environment (the two that write data, `import_books.py` and
+`seed_demo_data.py`, both reconcile/upsert rather than duplicate on a
+re-run); each is documented in full, with example output, in its own
+section linked from the table.
 
 | Script | Purpose | Documented in |
 |---|---|---|
 | `scripts/run_demo.py` | End-to-end walkthrough: seeds data, calls every recommendation endpoint, prints health/readiness/metrics and an evaluation report. | [Run the demo](#run-the-demo) |
 | `scripts/generate_quality_report.py` | Structured Markdown/CSV engine-comparison report with CI-suitable regression checks. | [Recommendation Quality Reports](#recommendation-quality-reports) |
 | `scripts/import_books.py` | Imports real book data from a public API into the configured repository. | [Import real book data](#import-real-book-data-optional) |
+| `scripts/seed_demo_data.py` | Imports the committed Data4Library sample fixture (real titles/covers/metadata) into the configured repository, via the same pipeline as `import_books.py`, for a reproducible, offline-friendly demo dataset. | [Seed demo data](#seed-demo-data) |
 | `scripts/validate_runtime.py` | Validates static configuration and, for PostgreSQL, the live persistence/pgvector runtime. No connection attempted if configuration is already invalid. | [Operational Configuration and Runtime Hardening](#operational-configuration-and-runtime-hardening), [Persistence and Vector Runtime Validation](#persistence-and-vector-runtime-validation) |
 | `scripts/validate_deployment.py` | Confirms the real application starts and `GET /health`/`GET /readiness`/a recommendation endpoint all respond, in-process. | [Deployment and Container Runtime Readiness](#deployment-and-container-runtime-readiness) |
 | `scripts/operations_report.py` | One aggregated, read-only operational status report from a real, running `ApplicationContext`. | [Production Operations and Runtime Automation](#production-operations-and-runtime-automation) |
 | `scripts/validate_release.py` | Orchestrates all of the above (plus, optionally, `ruff`/`mypy`/`pytest`) into one pre-release check. | [CI/CD and Release Automation](#cicd-and-release-automation) |
 
-All seven exit `0` on success and non-zero on failure, so any can be used
+All eight exit `0` on success and non-zero on failure, so any can be used
 directly as a CI or pre-commit gate. None require a network connection or
-production credentials unless a PostgreSQL backend is explicitly configured.
+production credentials unless a PostgreSQL backend is explicitly configured
+(`seed_demo_data.py` never needs network access at all — its dataset is the
+committed sample JSON file, not a live API call).
 
 ## Testing
 

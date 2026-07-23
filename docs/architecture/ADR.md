@@ -46,6 +46,22 @@
   only. No external monitoring platform (Prometheus, OpenTelemetry,
   Grafana, Datadog) is integrated.
 - ADR-012: Online learning and Learning to Rank remain out of scope.
+- ADR-013: Behavior-driven personalization (Sprint 13-14) is layered on top
+  of the recommendation pipeline, not inside it. Book-scoped behavior
+  events extend the existing `InteractionRepository` port (new event-like
+  `InteractionType` values: `view`/`search_result_click`/
+  `recommendation_click` — zero API-contract change); non-book-scoped
+  events (`category_interest`/`search`) use a new, additive
+  `PreferenceSignalRepository` port rather than forcing a book-shaped fit.
+  `GetUserPreferenceProfileUseCase` (Application layer) aggregates a
+  user's own events into a `UserPreferenceProfile` — pure counting/
+  ordering, never a ranking pass. That profile only ever *annotates* an
+  already-ranked item's explanation (`favorite_category`/
+  `favorite_author`/`recent_search_match`, added in the Application layer
+  specifically so `domain/explainer.py`'s existing Domain-only contract
+  and guarantees stay untouched) — it never changes `score` or ranking
+  order, and every stage degrades gracefully (all-empty/zero) for a
+  cold-start user rather than erroring.
 
 ## Historical note
 

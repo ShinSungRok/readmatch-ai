@@ -29,7 +29,7 @@ export function BookCard({ item, rank }: { item: HomeFeedItem; rank?: number }) 
         </div>
       </Link>
       <div className="mt-1.5 flex flex-col gap-1.5">
-        <RecommendationReason source={item.source} />
+        <RecommendationReason source={item.source} reasons={item.reasons} />
         <FeedbackControls bookId={book.id} />
       </div>
     </li>

@@ -24,6 +24,14 @@ function interactionKey(bookId: string, type: InteractionType): string {
 
 interface InteractionContextValue {
   userId: string | null;
+  /** Count of recorded interactions currently known for this user (cold-start signal). */
+  interactionCount: number;
+  /**
+   * Increments after every successful load/record/clear -- lets a
+   * personalized-recommendation consumer re-fetch exactly when this
+   * user's interaction history actually changed, without polling.
+   */
+  revision: number;
   /** The current value for a (book, type) pair, or undefined if not set. */
   getInteraction: (bookId: string, type: InteractionType) => Interaction | undefined;
   /** True while a record/clear call for this exact (book, type) is in flight. */
@@ -57,6 +65,7 @@ export function InteractionProvider({ children }: { children: ReactNode }) {
   const [interactions, setInteractions] = useState<Map<string, Interaction>>(new Map());
   const [pendingKeys, setPendingKeys] = useState<Set<string>>(new Set());
   const [errorKeys, setErrorKeys] = useState<Set<string>>(new Set());
+  const [revision, setRevision] = useState(0);
 
   const loadInteractions = useCallback((id: string) => {
     getPersonalLibrary(id)
@@ -73,6 +82,7 @@ export function InteractionProvider({ children }: { children: ReactNode }) {
           }
         }
         setInteractions(next);
+        setRevision((r) => r + 1);
       })
       .catch(() => {
         // The library failing to preload is not fatal -- controls simply
@@ -116,6 +126,7 @@ export function InteractionProvider({ children }: { children: ReactNode }) {
           const recorded = await recordInteraction(userId, bookId, type, value);
           setInteractions((prev) => new Map(prev).set(key, recorded));
         }
+        setRevision((r) => r + 1);
       } catch {
         setErrorKeys((prev) => new Set(prev).add(key));
       } finally {
@@ -132,12 +143,14 @@ export function InteractionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<InteractionContextValue>(
     () => ({
       userId,
+      interactionCount: interactions.size,
+      revision,
       getInteraction: (bookId, type) => interactions.get(interactionKey(bookId, type)),
       isPending: (bookId, type) => pendingKeys.has(interactionKey(bookId, type)),
       hasError: (bookId, type) => errorKeys.has(interactionKey(bookId, type)),
       toggle,
     }),
-    [userId, interactions, pendingKeys, errorKeys, toggle],
+    [userId, interactions, revision, pendingKeys, errorKeys, toggle],
   );
 
   return <InteractionContext.Provider value={value}>{children}</InteractionContext.Provider>;

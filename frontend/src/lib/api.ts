@@ -17,6 +17,14 @@ export interface HomeFeedItem {
   book: BookPresentation;
   score: number;
   source: string;
+  /** Present only on items from getExplainedPersonalizedRecommendations. */
+  reasons?: ExplanationReason[];
+}
+
+/** Mirrors readmatch_ai.api.schemas.ExplanationReasonResponse (Sprint 29). */
+export interface ExplanationReason {
+  type: string;
+  message: string;
 }
 
 export interface HomeFeedSection {
@@ -157,6 +165,26 @@ export function searchBooks(query: string, limit = 24): Promise<BookSearchResult
  */
 export function getPersonalLibrary(userId: string): Promise<PersonalLibrary> {
   return apiFetch<PersonalLibrary>(`/library/${encodeURIComponent(userId)}`);
+}
+
+/**
+ * GET /recommendations/personalized/{user_id}/explained -- see
+ * readmatch_ai.api.recommendations_router.
+ *
+ * Ranks the same way as the plain personalized endpoint (Hybrid + ALS +
+ * reranking policies), with each item additionally carrying zero or more
+ * real, evidence-based reasons -- never fabricated here. An unknown or
+ * brand-new user_id degrades gracefully to the popularity/semantic
+ * fallback (the backend's existing cold-start behaviour), not an error.
+ */
+export function getExplainedPersonalizedRecommendations(
+  userId: string,
+  limit = 10,
+): Promise<{ items: HomeFeedItem[] }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return apiFetch<{ items: HomeFeedItem[] }>(
+    `/recommendations/personalized/${encodeURIComponent(userId)}/explained?${params}`,
+  );
 }
 
 /**

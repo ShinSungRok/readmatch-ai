@@ -1,5 +1,6 @@
 import { EmptyState } from "@/components/EmptyState";
 import { Hero } from "@/components/Hero";
+import { PersonalizedForYou } from "@/components/PersonalizedForYou";
 import { RecommendationRow } from "@/components/RecommendationRow";
 import { getHealth, getHomeFeed } from "@/lib/api";
 
@@ -22,6 +23,7 @@ export default async function HomePage() {
         <>
           <Hero item={homeFeed.hero} />
           <div id="recommendations" className="flex scroll-mt-20 flex-col gap-10">
+            <PersonalizedForYou />
             {homeFeed.sections.map((section) => (
               <RecommendationRow key={section.id} title={section.title} items={section.items} />
             ))}

@@ -3009,6 +3009,351 @@ while exercising the real stack.
   own "재사용을 최대화" instruction; extending personalization to Book
   Detail as well was not requested and was not started.
 
+## Sprint 73 — Behavior-Driven Personalization Pipeline (Planning Agent's "Sprint 14")
+
+### Repository Review
+
+- `git status` clean at start; `git log` showed Sprint 72 (Personalization
+  Experience Audit and Gap Closure) as the most recent work, which had
+  already connected the Home page to `GET /recommendations/personalized/
+  {user_id}/explained` (a "For You" row) — this Sprint's brief explicitly
+  builds on that, not from scratch.
+- Read `domain/interaction.py` (6 existing `InteractionType` values, all
+  book-scoped), `domain/explainer.py` (`DefaultRecommendationExplainer`,
+  Domain-only, depends solely on `UserBookInteractionRepository`),
+  `domain/recommendation.py` (`RecommendationItem.book` is a full `Book`
+  domain object, with `.category`/`.author` already in hand -- no extra
+  lookup needed to compare against a profile), `application_context.py`'s
+  full composition (`explicit_interaction_repository` always defaults to
+  `InMemoryInteractionRepository`, confirmed still true and still
+  deliberate per Sprint 44's own docstring), and the Sprint 44-48
+  Progress Log entries (the original Interaction/Library/Feedback-Loop/
+  Feedback-UI work) for established conventions before writing anything.
+
+### Task 1 — User Behavior Event Collection
+
+- Status: Done.
+- Extended `InteractionType` (`domain/interaction.py`) with three new
+  event-like values: `view` (book detail page view), `search_result_click`,
+  `recommendation_click` -- all book-scoped, so they slot directly into
+  the existing `UserInteraction`/`InteractionRepository`/`POST /interactions`
+  contract with **zero schema or endpoint change** (`EVENT_LIKE_INTERACTION_TYPES`
+  extended to include them, so they accumulate like `CLICK` rather than
+  overwrite, and they're excluded from `GetPersonalLibraryUseCase`'s fixed
+  section list exactly like `CLICK` already was -- no change needed there
+  either).
+- Two behavior events are **not** book-scoped at all (initial category
+  selection, a submitted search query) and structurally cannot fit
+  `UserInteraction` (which requires a `book_id`). Added one small,
+  additive Domain concept instead of forcing a fit: `PreferenceSignalType`
+  (`category_interest`/`search`) + `UserPreferenceSignal` (`domain/
+  preference_signal.py`), a port (`preference_signal_repository.py`), an
+  in-memory adapter, `RecordPreferenceSignalUseCase`, and a new endpoint
+  `POST /preference-signals` -- deliberately a **new, additive** endpoint
+  rather than a change to `POST /interactions`'s existing request schema,
+  for the same reason Sprint 29 gave for a dedicated `/explained` endpoint:
+  keeps every existing contract's shape completely untouched.
+- No existing API contract changed. No new abstract method was added to
+  any existing port (`InteractionRepository`'s three methods are
+  unchanged).
+
+### Task 2 — User Preference Profile
+
+- Status: Done.
+- Added `UserPreferenceProfile` (`application/user_preference_profile.py`,
+  placed in Application alongside `PersonalLibrary`, not Domain, for the
+  same reason: a purpose-built aggregate over Domain entities, not a
+  Domain concept itself) and `GetUserPreferenceProfileUseCase`
+  (`application/get_user_preference_profile_use_case.py`): pure counting/
+  ordering over a user's own `InteractionRepository`/`PreferenceSignalRepository`
+  records plus a `BookRepository.get_by_id` lookup for category/author --
+  no ranking or scoring logic anywhere in it.
+  - `favorite_categories`/`favorite_authors`: from LIKE/BOOKMARK/READ/
+    RATING≥4 books, ranked by frequency (ties broken alphabetically for
+    determinism), capped at 5 each.
+  - `positive_book_ids`/`negative_book_ids`: LIKE/BOOKMARK/READ/RATING≥4
+    vs. DISLIKE/RATING≤2 (a RATING of 3 is neither).
+  - `recent_interests`: onboarding `category_interest` signals plus
+    categories of VIEW/SEARCH_RESULT_CLICK/RECOMMENDATION_CLICK-interacted
+    books, most-recent-first, deduplicated case-insensitively, capped at 5.
+    Neither signal carries a timestamp (matching this Domain's existing
+    minimalism -- no interaction/signal anywhere has one); recency is
+    instead read off each repository's own natural append order (an
+    event-like type's `list_by_user` already returns insertion order), and
+    onboarding choices are treated as the older tier (documented in-code)
+    so later real browsing behavior outranks the one-time initial pick
+    without needing a new field.
+  - `recent_search_terms`: from `search` signals, same recency/dedup
+    treatment, capped at 5.
+  - A book that no longer exists is skipped for category/author
+    derivation (mirrors `GetPersonalLibraryUseCase`'s existing "skip
+    missing book" convention) but its id is still counted in
+    positive/negative_book_ids.
+- API: `GET /preferences/{user_id}` (`api/preference_router.py`), a new
+  `UserPreferenceProfileResponse` exposing the aggregated signals plus
+  positive/negative *counts* (not book lists -- `GET /library/{user_id}`
+  already serves the actual books for the same ids, so this endpoint
+  doesn't re-resolve `BookPresentation` a second time for them). An
+  unknown-but-well-formed `user_id` returns an all-empty/zero profile, the
+  same cold-start convention as every other `user_id`-scoped endpoint.
+- `ApplicationContext`: added `preference_signal_repository` (defaults to
+  `InMemoryPreferenceSignalRepository`, mirroring `explicit_interaction_repository`'s
+  own default exactly -- deliberately no PostgreSQL adapter, for the same
+  reason Sprint 44 gave and this Sprint's own Out-of-Scope list repeats:
+  no new Infrastructure), `record_preference_signal_use_case`,
+  `get_user_preference_profile_use_case`.
+
+### Task 3 — Recommendation Pipeline
+
+- Status: Done.
+- `GenerateExplainedPersonalizedRecommendationUseCase` (Application layer)
+  now additionally injects `GetUserPreferenceProfileUseCase`: after the
+  existing `DefaultRecommendationExplainer` produces its Domain-only
+  reasons (popularity/semantic_similarity/collaborative_behavior/novelty/
+  diversity, completely unchanged), three more reasons are appended when
+  the evidence actually matches the *already-ranked* item's own `Book`
+  (`.category`/`.author`, already in hand -- no extra lookup):
+  `favorite_category`, `favorite_author`, `recent_search_match` (a
+  case-insensitive substring match of a recent search term against the
+  item's title/category). Every reason's `message` states the real,
+  specific value matched (e.g. "By 한강, one of your favorite authors.") --
+  never a generic label, and never fabricated (an item with no matching
+  evidence gets none of the three).
+- Deliberately implemented in the **Application** layer, not
+  `domain/explainer.py`: the Domain `RecommendationExplainer` port's
+  existing contract ("only inspect items + injected Domain ports") would
+  have to reach into an Application-layer `UseCase` to get the profile --
+  backwards dependency, a real Clean Architecture violation. Keeping
+  `domain/explainer.py` **completely untouched** means every one of its
+  existing tests/guarantees (deterministic reason ordering, no second
+  ranking pass, cold-start no-ops) still hold unconditionally; the new
+  reasons are concatenated *after* the Domain explainer's own reasons,
+  never reordering or replacing them.
+- Still zero ranking passes: `execute()` calls the same
+  `RecommendationEngine`/`RecommendationExplainer` exactly once each, same
+  as before this Sprint; the profile only annotates the resulting
+  `RecommendationExplanation` objects with more `ExplanationReason`s.
+  `score` is never touched by profile-matching (confirmed by a dedicated
+  test: a profile match changes an item's *reasons*, never its score).
+- No `user_id` -> profile lookup is skipped entirely (matches every other
+  cold-start convention in this pipeline).
+
+### Task 4 — Frontend
+
+- Status: Done.
+- `OnboardingCategoryPicker.tsx` (new): a dismissible Home-page card (not
+  a separate page/route -- no login/account, per this Sprint's own
+  constraint), a fixed list of 8 generic category labels, records one
+  `category_interest` `PreferenceSignal` per selection via the new
+  `POST /preference-signals`; "Skip" dismisses without recording anything.
+  Shown at most once per browser (`localStorage` flag, the same pattern
+  `anonymousUser.ts` already established) -- rendered via the "reveal
+  after mount" pattern (`dismissed` defaults `true` on both the server
+  render and the client's hydration pass, corrected in an effect right
+  after mount) rather than a lazy `useState` initializer, specifically
+  because — unlike `InteractionProvider`'s own `userId` (which never
+  changes *that* component's own rendered markup) — whether this card
+  renders at all *is* this component's markup, so a lazy initializer
+  reading `localStorage` would produce different output on the server vs.
+  the client's hydration pass. (One `eslint-disable-next-line
+  react-hooks/set-state-in-effect` needed, with an in-code comment
+  explaining why: this newer lint rule otherwise blocks the standard,
+  hydration-safe "reveal after mount" pattern outright.)
+- `frontend/src/app/preferences/page.tsx` (new, "My Preferences" in
+  Header): client-fetches `GET /preferences/{user_id}` (existing anonymous
+  id), renders favorite categories/authors/recent interests/recent
+  searches as tag lists plus positive/negative book counts; links to
+  `/library` for the actual books rather than re-resolving them.
+- `RecordBookView.tsx` (new): fires a `view` interaction once per Book
+  Detail mount (ref-guarded against a double-fire in dev). `SearchResultCard.tsx`/
+  `BookCard.tsx` fire `search_result_click`/`recommendation_click`
+  respectively on click, fire-and-forget, never blocking navigation --
+  `BookCard`'s new `recordsClickAs` prop is **omitted** (fires nothing) for
+  My Library's own row (mapped through the same `RecommendationRow`/
+  `BookCard`, Sprint 45), since clicking your own saved book is not a
+  "recommendation click"; it's set for Home's sections, the "For You" row,
+  and Book Detail's "Similar books" row. `SearchForm.tsx` records a
+  `search` `PreferenceSignal` on submit.
+- `RecommendationReason.tsx`/`api.ts` needed **no change** for the new
+  reasons to appear -- Sprint 72 already wired the real `reasons[].message`
+  display end to end; the new `favorite_category`/`favorite_author`/
+  `recent_search_match` messages simply flow through the same path.
+- No new frontend dependency; `HomeFeedItem`'s existing optional `reasons`
+  field (Sprint 72) needed no change either.
+
+### Task 5 — Runtime Validation
+
+- Status: Done, with the same browser-automation limitation recorded in
+  every prior Sprint (still no Playwright/Puppeteer/equivalent available)
+  -- substituted with direct API (`curl`) validation of the full pipeline,
+  plus `next dev`/`uvicorn` log and compiled-bundle inspection.
+- Environment: fresh `pgvector/pgvector:pg16` container, all 10 migrations
+  applied, seeded via `scripts/seed_demo_data.py` (10 real Data4Library
+  records), real `uvicorn` (`BOOK_REPOSITORY_BACKEND=postgresql`) + real
+  `next dev`.
+- Full scenario, a fresh random `user_id`, exercised live end to end:
+  1. `GET /preferences/{user_id}` -> all-empty (cold start).
+  2. `GET .../explained` -> generic popularity/novelty reasons only.
+  3. `POST /preference-signals` (`category_interest`="한국문학"),
+     `POST /preference-signals` (`search`="한강").
+  4. `POST /interactions` (`search_result_click`, `view`, `like`) against
+     a real book by 한강 in 문학 > 한국문학 > 소설.
+  5. `GET /library/{user_id}` -> the book appears under "Liked".
+  6. `GET /preferences/{user_id}` -> `favorite_categories`=["문학 >
+     한국문학 > 소설"], `favorite_authors`=["한강"], `recent_interests`=
+     ["문학 > 한국문학 > 소설", "한국문학"] (the later view/click category
+     correctly outranks the earlier onboarding choice for recency),
+     `recent_search_terms`=["한강"].
+  7. `GET .../explained` -> matching books now carry real
+     `favorite_category`/`favorite_author`/`recent_search_match` reasons
+     with the actual category/author/term named in the message; a
+     non-matching book still shows only the generic reasons -- confirmed
+     reasons are evidence-gated, not blanket-applied.
+  8. `DELETE /interactions` (un-like) -> `/library` empty again,
+     `/preferences`' `favorite_categories`/`favorite_authors` and
+     `positive_book_count` revert to empty/0, while `recent_interests`/
+     `recent_search_terms` correctly remain (they come from separate
+     view/search signals, unaffected by un-liking).
+- Edge cases confirmed live: malformed `user_id` on both
+  `POST /preference-signals` and `GET /preferences/{id}` (400), unknown
+  `signal_type` (400), blank `value` (400), malformed `book_id` on the new
+  `view`/`search_result_click`/`recommendation_click` interaction types
+  via the existing `POST /interactions` (400, same handler as every other
+  type).
+- Regression, same live server: `GET /home-feed`, `GET /books/{id}`,
+  `GET /books/search`, and the pre-existing `bookmark`/`like` interaction
+  + library flow all identical to Sprint 72's own results -- no
+  regression from this Sprint's additions.
+- Frontend: `next dev` served `/`, `/preferences`, `/search`,
+  `/books/{id}`, `/library` all `200`, no server-side exception in the log;
+  the compiled `/` bundle contains `OnboardingCategoryPicker` and
+  `PersonalizedForYou`; `/preferences` contains "My Preferences";
+  `/books/{id}` contains `RecordBookView`; the "My Preferences" header
+  link renders on every page -- confirming each new component is actually
+  wired into the shipped output, not dead code. The onboarding
+  card/preferences page's own *live client-rendered* content could not be
+  independently confirmed without a browser (the stated limitation); the
+  underlying API calls they make were instead verified directly (the
+  `curl` scenario above), and every new component was code-reviewed for
+  correctness against the same established patterns (`InteractionProvider`'s
+  lazy-initializer/SSR-guard conventions, `Library`/`Search` pages'
+  client-fetch-with-loading/error-state conventions).
+- All started processes (`uvicorn`, `next dev`) and the
+  `readmatch-postgres` container were stopped/removed after validation.
+- Documentation: added `POST /preference-signals`/`GET /preferences/{user_id}`
+  to README's API Reference; added a "Preference profile (Sprint 14)"
+  subsection to README's "Try personalization" (browser walkthrough +
+  browser-free `curl` equivalent, continuing directly from Sprint 13's own
+  "For You" walkthrough); cross-referenced both from `docs/release/
+  RELEASE_CANDIDATE.md`'s Manual Demo Walkthrough.
+
+### Validation
+
+- Backend: `python3 -m ruff check src tests scripts` — pass;
+  `python3 -m mypy --strict src tests scripts` — pass (264 source files,
+  up from Sprint 72's 249: +9 new domain/application/infrastructure/api
+  files for PreferenceSignal + UserPreferenceProfile); `python3 -m pytest -q`
+  (full suite) — 955 passed (904 Sprint-72 baseline + 51 new: domain
+  `PreferenceSignal`/`InteractionType` tests, `InMemoryPreferenceSignalRepository`/
+  `InMemoryInteractionRepository` tests, `RecordPreferenceSignalUseCase`/
+  `GetUserPreferenceProfileUseCase` tests, `GenerateExplainedPersonalizedRecommendationUseCase`'s
+  rewritten test file (now covering profile-based reasons), and
+  `preference-signals`/`preferences` router tests). Two unrelated,
+  transient `testcontainers`/Docker connection-refused errors were hit
+  mid-run (once each in `test_refresh_recommendation_data_runtime.py` and
+  `test_postgresql_persistence_runtime_validator.py`, neither file touched
+  this Sprint) -- both reproduced as passing cleanly in isolation,
+  confirming Docker resource contention from this Sprint's own concurrently
+  running manual `readmatch-postgres` container, not a real regression;
+  the final clean full-suite run (950/945 passed, 1/6 transient errors
+  respectively, both re-confirmed passing standalone) is the one reported
+  above.
+- Frontend: `npm run lint` — pass (0 errors, same 1 pre-existing
+  `BookCover.tsx` warning); `npx tsc --noEmit` — pass; `npm run build` —
+  pass (`/preferences` now a listed route alongside `/`, `/books/[id]`,
+  `/library`, `/search`).
+
+### Architecture Review
+
+- Clean Architecture boundaries preserved throughout: `PreferenceSignalRepository`
+  is a new Domain port (mirrors `InteractionRepository`'s existing shape),
+  implemented by one Infrastructure adapter (in-memory only, matching
+  `InteractionRepository`'s own precedent); `UserPreferenceProfile`/
+  `GetUserPreferenceProfileUseCase` are Application-layer, composed from
+  existing Domain ports only; `domain/explainer.py` (Domain) was not
+  modified at all -- the new profile-based reasons are added entirely in
+  the Application layer (`GenerateExplainedPersonalizedRecommendationUseCase`),
+  specifically to avoid a Domain -> Application backward dependency.
+- No recommendation algorithm, ranking policy, or scoring logic was added
+  or changed -- `RerankedRecommendationEngine`/`HybridRecommendationEngine`/
+  `ALSRecommendationEngine`/every `RecommendationReranker` policy are
+  byte-for-byte unchanged; the profile only annotates already-ranked
+  items' *explanations*.
+- No new AI/ML model, no new Framework, no new dependency added to
+  `pyproject.toml` or `frontend/package.json`.
+- No login, account system, or User Profile entity was added -- a
+  `UserPreferenceProfile` is a derived, stateless *read* over existing
+  Interaction/PreferenceSignal records, recomputed on every
+  `GET /preferences/{user_id}` call, not a persisted entity of its own.
+
+### Files Changed
+
+- Backend (Tasks 1-3, one Capability commit -- see below):
+  `domain/interaction.py`, `domain/preference_signal.py` (new),
+  `domain/preference_signal_repository.py` (new),
+  `infrastructure/in_memory_preference_signal_repository.py` (new),
+  `application/record_preference_signal_use_case.py` (new),
+  `application/user_preference_profile.py` (new),
+  `application/get_user_preference_profile_use_case.py` (new),
+  `application/generate_explained_personalized_recommendation_use_case.py`,
+  `application_context.py`, `api/schemas.py`, `api/main.py`,
+  `api/preference_signal_router.py` (new), `api/preference_router.py`
+  (new), plus 9 new/updated test files across `tests/domain`,
+  `tests/infrastructure`, `tests/application`, `tests/api`.
+- Frontend (Task 4): `lib/api.ts`, `components/BookCard.tsx`,
+  `components/Header.tsx`, `components/PersonalizedForYou.tsx`,
+  `components/RecommendationRow.tsx`, `components/SearchForm.tsx`,
+  `components/SearchResultCard.tsx`, `components/OnboardingCategoryPicker.tsx`
+  (new), `components/RecordBookView.tsx` (new), `app/page.tsx`,
+  `app/books/[id]/page.tsx`, `app/preferences/page.tsx` (new).
+- Docs: `README.md` (API Reference entries + "Preference profile (Sprint
+  14)" walkthrough), `docs/release/RELEASE_CANDIDATE.md` (walkthrough
+  cross-reference), this Progress Log entry.
+
+### Deferred Items
+
+- No PostgreSQL adapter for `PreferenceSignalRepository` (in-memory only,
+  same non-durability caveat already documented for
+  `InteractionRepository` since Sprint 44) -- explicitly out of this
+  Sprint's scope (new Infrastructure is banned by its own Out-of-Scope
+  list); the signals feeding `recent_interests`/`recent_search_terms`
+  inherit the same restart-loses-state limitation as everything else built
+  on `InteractionRepository`.
+- `GetPersonalLibraryUseCase`'s pre-existing N+1 (flagged, not fixed, in
+  Sprint 72) and `ALSRecommendationEngine`'s own N+1 -- unrelated to this
+  Sprint's own additions, still deferred for the same reasons Sprint 72
+  recorded.
+- Onboarding's fixed 8-category list is a coarse, hardcoded UX affordance
+  for eliciting an initial signal -- deliberately not matched 1:1 against
+  the seeded catalog's own granular category strings (e.g. "문학 >
+  한국문학 > 소설"); it only ever feeds `recent_interests` (display-only),
+  never `favorite_categories`/reason-matching, so this mismatch has no
+  correctness impact, only a cosmetic one a future Sprint could refine.
+- Real timestamps on `UserInteraction`/`UserPreferenceSignal` -- "recency"
+  is approximated via each repository's own natural append order instead
+  (see Task 2); a future Sprint could add one if precise cross-signal
+  recency ever becomes a real requirement, but none of this Sprint's own
+  requirements needed it.
+
+### Commit
+
+- `e92e955` — `feat(personalization): behavior event collection and
+  preference profile` (Tasks 1-3, backend, bundled per the Architecture
+  Review above)
+- `6ddf84e` — `feat(frontend): onboarding, preference view, and behavior
+  instrumentation` (Task 4)
+- Documentation commit: see the commit immediately following this entry.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

@@ -497,6 +497,49 @@ interactions recorded afterward through the live API — only the
 `ExplicitFeedbackPolicy` boost/exclusion (what the walkthrough above
 demonstrates) reacts live, per request.
 
+#### Preference profile (Sprint 14)
+
+Continuing from the same browser session:
+
+1. Refresh `http://localhost:3000` — a first-time browser sees a
+   dismissible **"What are you interested in?"** card. Pick a couple of
+   categories and click "Save preferences" (or "Skip" — either dismisses
+   it for good, via a `localStorage` flag).
+2. Search for something (Header → Search, or `/search?q=...`), then click
+   a result. This records a `search` preference signal plus a
+   `search_result_click` and `view` interaction (Book Detail records the
+   view on mount) — all fire-and-forget, never blocking navigation.
+3. Like or bookmark that book, or one from a recommendation row (a
+   `recommendation_click` is recorded the moment you click through).
+4. Open `/preferences` ("My Preferences" in the header): **Favorite
+   categories**/**Favorite authors** now show the liked book's own
+   category/author; **Recent interests** shows the categories you
+   actually viewed/clicked (ranked above your initial onboarding pick);
+   **Recent searches** shows your query.
+5. Back on Home, the "For You" row's reason chip for a matching book now
+   reads something like *"You've recently engaged with several
+   Software Engineering books. · By Robert C. Martin, one of your
+   favorite authors. · Related to your recent search for 'clean code'."*
+   — real evidence from the profile in step 4, not the generic label.
+6. Un-like the book: `/preferences`' favorite categories/authors count
+   drops accordingly (recent interests/searches are unaffected — they
+   come from separate view/search signals, not the like itself).
+
+Verify the same profile change without a browser:
+
+```bash
+USER_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+BOOK_ID=<any seeded book id>
+
+curl "http://localhost:8000/preferences/$USER_ID" | python3 -m json.tool   # all-empty, cold start
+
+curl -X POST http://localhost:8000/interactions -H "Content-Type: application/json" \
+  -d "{\"user_id\":\"$USER_ID\",\"book_id\":\"$BOOK_ID\",\"interaction_type\":\"like\"}"
+
+curl "http://localhost:8000/preferences/$USER_ID" | python3 -m json.tool   # favorite_categories/authors now populated
+curl "http://localhost:8000/recommendations/personalized/$USER_ID/explained?limit=1" | python3 -m json.tool  # reasons include favorite_category/favorite_author
+```
+
 ### Import real book data (optional)
 
 ```bash
@@ -736,6 +779,59 @@ Results are ordered by title (no relevance scoring). The frontend's
 `/search` page (`?q=...`, e.g. `/search?q=clean+code` — kept in the URL so
 a search is shareable/refreshable) consumes this endpoint directly; see the
 Manual Demo Walkthrough below for a worked example.
+
+### `POST /preference-signals`
+
+Records a behavior signal that isn't scoped to a single book (Sprint 14):
+an onboarding category choice (`category_interest`) or a submitted search
+query (`search`). Book-scoped events (a view, a click from search results
+or a recommendation row, a like/bookmark/rating/...) go through the
+existing `POST /interactions` instead.
+
+| Field         | Type   | Constraints |
+|---------------|--------|-------------|
+| `user_id`     | string | Must be a valid UUID |
+| `signal_type` | string | `category_interest` or `search` |
+| `value`       | string | Non-empty after trimming |
+
+```bash
+curl -X POST http://localhost:8000/preference-signals -H "Content-Type: application/json" \
+  -d '{"user_id": "<uuid>", "signal_type": "search", "value": "healing novel"}'
+```
+
+Returns `201` with the recorded signal, or `400` for a malformed user id,
+an unknown `signal_type`, or a blank `value`.
+
+### `GET /preferences/{user_id}`
+
+A user's aggregated User Preference Profile (Sprint 14) — favorite
+categories/authors (from the user's own like/bookmark/read/rating≥4
+books), recent interests (onboarding category choices plus recently
+viewed/clicked book categories), recent search terms, and positive/negative
+book counts. Built entirely from the user's own recorded interactions and
+preference signals; no ranking or scoring logic.
+
+```bash
+curl "http://localhost:8000/preferences/<uuid>"
+```
+
+```json
+{
+  "favorite_categories": ["Software Engineering"],
+  "favorite_authors": ["Robert C. Martin"],
+  "recent_interests": ["Software Engineering"],
+  "recent_search_terms": ["healing novel"],
+  "positive_book_count": 1,
+  "negative_book_count": 0
+}
+```
+
+An unknown-but-well-formed `user_id`, or a user with no qualifying
+signals yet, returns an all-empty/zero profile — not an error, the same
+cold-start convention as `GET /library/{user_id}`. This profile is also
+what `GET /recommendations/personalized/{user_id}/explained` uses to add
+`favorite_category`/`favorite_author`/`recent_search_match` reasons (see
+above); the frontend's `/preferences` page renders it directly.
 
 ### `GET /health`
 

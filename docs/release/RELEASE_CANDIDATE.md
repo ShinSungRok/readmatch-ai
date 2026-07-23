@@ -210,6 +210,15 @@ shows the backend's real evidence instead of the generic per-source label.
 [README's "Try personalization"](../../README.md#try-personalization)
 section has the full walkthrough plus a browser-free `curl` equivalent.
 
+A first-time visitor also sees a dismissible category-interest onboarding
+card (Sprint 14); picking a few and saving, then searching/viewing/liking
+a book, populates `/preferences` ("My Preferences" in the header) with
+real favorite categories/authors, recent interests, and recent searches —
+which the "For You" row's reason chips then reflect directly (e.g. "By
+한강, one of your favorite authors."). See the README's ["Preference
+profile (Sprint 14)"](../../README.md#preference-profile-sprint-14)
+subsection for the full walkthrough.
+
 **Troubleshooting**:
 - `relation "book_metadata" does not exist` (or any other `does not exist`
   from a fresh database): a migration was skipped. Re-run step 1 with the

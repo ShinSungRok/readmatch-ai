@@ -2568,7 +2568,7 @@ while exercising the real stack.
   `FeedbackControls`, `RecommendationReason`, the import pipeline) matches
   the roadmap/progress log's existing account of what's built -- no other
   discrepancy found.
-- Commit: (recorded after commit — see below)
+- Commit: 0b00e9a
 
 ## Current Constraints
 

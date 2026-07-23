@@ -202,8 +202,8 @@ layer rather than blurring that boundary:
 For the architecture decision record and system diagram, see
 [`docs/architecture/ADR.md`](docs/architecture/ADR.md) and
 [`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md).
-Sprint-by-sprint implementation history (what was built, why, and how it was
-validated, for all 68 completed sprints) is in
+Sprint-by-sprint implementation history (what was built, why, and how it
+was validated, for every completed sprint) is in
 [`docs/progress/PROJECT_PROGRESS.md`](docs/progress/PROJECT_PROGRESS.md). For
 a release-readiness summary (implemented capabilities, prerequisites,
 validation workflow, known limitations), see

@@ -227,12 +227,14 @@ readmatch-ai/
 │   └── release_automation.py     # release validation pipeline
 ├── tests/                  # mirrors src/ layout; one test module per production module
 ├── scripts/                 # operator CLIs — see Operational Scripts Reference
-├── migrations/              # numbered, ordered PostgreSQL/pgvector SQL migrations (0001-0009)
+├── migrations/              # numbered, ordered PostgreSQL/pgvector SQL migrations (0001-0010)
 ├── frontend/                 # Next.js/TypeScript web experience — see frontend/README.md
+│   └── Dockerfile            # containerized `next dev`, for Docker Compose
 ├── docs/
 │   ├── architecture/        # ADR.md, SYSTEM_ARCHITECTURE.md
 │   └── progress/            # PROJECT_PROGRESS.md — sprint-by-sprint build log
-├── Dockerfile / docker-compose.yml
+├── Dockerfile / docker-compose.yml   # backend image / full-stack orchestration
+├── .env.example             # runtime config template — cp to .env for Docker Compose
 └── pyproject.toml
 ```
 

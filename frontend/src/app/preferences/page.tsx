@@ -34,6 +34,15 @@ function TagList({ label, values }: { label: string; values: string[] }) {
   );
 }
 
+function StatTile({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex-1 rounded-lg border border-black/10 p-4 dark:border-white/15">
+      <p className="text-2xl font-semibold tracking-tight">{count}</p>
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
+    </div>
+  );
+}
+
 export default function PreferencesPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
@@ -62,11 +71,17 @@ export default function PreferencesPage() {
   }
 
   const { profile } = state;
-  const hasAnySignal =
+  // Every signal this profile can carry -- book counts included, unlike
+  // before, when a user who had only disliked a book (no favorites/
+  // interests/searches yet) would incorrectly see the cold-start message
+  // with their own dislike count never shown anywhere on the page.
+  const hasAnyActivity =
     profile.favorite_categories.length > 0 ||
     profile.favorite_authors.length > 0 ||
     profile.recent_interests.length > 0 ||
-    profile.recent_search_terms.length > 0;
+    profile.recent_search_terms.length > 0 ||
+    profile.positive_book_count > 0 ||
+    profile.negative_book_count > 0;
 
   return (
     <div className="flex flex-col gap-8">
@@ -82,17 +97,19 @@ export default function PreferencesPage() {
         </p>
       </div>
 
-      {!hasAnySignal ? (
+      {!hasAnyActivity ? (
         <EmptyState message="Not enough activity yet. Like, bookmark, rate, or search for a book to build your preference profile." />
       ) : (
-        <div className="flex flex-col gap-6">
-          <TagList label="Favorite categories" values={profile.favorite_categories} />
-          <TagList label="Favorite authors" values={profile.favorite_authors} />
-          <TagList label="Recent interests" values={profile.recent_interests} />
-          <TagList label="Recent searches" values={profile.recent_search_terms} />
-          <div className="flex gap-6 text-sm text-zinc-500 dark:text-zinc-400">
-            <span>{profile.positive_book_count} book(s) you liked</span>
-            <span>{profile.negative_book_count} book(s) you disliked</span>
+        <div className="flex flex-col gap-8">
+          <div className="flex gap-4">
+            <StatTile label="Book(s) you liked" count={profile.positive_book_count} />
+            <StatTile label="Book(s) you disliked" count={profile.negative_book_count} />
+          </div>
+          <div className="flex flex-col gap-6">
+            <TagList label="Favorite categories" values={profile.favorite_categories} />
+            <TagList label="Favorite authors" values={profile.favorite_authors} />
+            <TagList label="Recent interests" values={profile.recent_interests} />
+            <TagList label="Recent searches" values={profile.recent_search_terms} />
           </div>
         </div>
       )}

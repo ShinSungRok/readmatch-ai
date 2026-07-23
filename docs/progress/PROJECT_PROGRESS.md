@@ -2223,6 +2223,160 @@ while exercising the real stack.
   implementation. The two pre-existing Sprint 54/55 HNSW-ranking test
   failures remain untouched throughout, exactly as instructed.
 
+## Sprint 69 — Netflix-Style Recommendation Home (Planning Agent's "Sprint 10")
+
+### Task 1 — Home Experience Capability
+
+- Status: Done
+- Summary: The Planning Agent's brief for this Sprint assumed a plain
+  recommendation list and a not-yet-built Book Detail page; Repository
+  Review found both assumptions stale — `GetHomeFeedUseCase` (Sprint 42)
+  already composes Popularity/Hybrid/Semantic into distinct sections plus
+  category groupings, and `/books/[id]` (Sprint 43) already exists and is
+  already linked from the Hero/BookCard. Per this Sprint's own "adjust
+  implementation location, not scope" rule, no new recommendation
+  logic/endpoint/detail page was built; this Sprint is a visual/UX
+  transformation of the existing, already-functional Home experience into
+  a Netflix-style layout, reusing every existing API and component.
+  - `Header.tsx`: made a client component (`usePathname`) to show which nav
+    item is active ("Home 상태 표시"); sticky + backdrop-blur for
+    persistent identity. Still only Home/My Library — no Search link was
+    added (still no Search feature; an unnecessary/dead link is exactly
+    what this Sprint's own principles forbid).
+  - `Hero.tsx`: rebuilt as a full-bleed section — a blurred/darkened
+    `background-image: url(cover_url)` backdrop (a broken/external cover
+    URL there simply paints nothing extra, no broken-image icon, so no
+    separate fallback is needed for the backdrop specifically) with a
+    top/side gradient overlay, a crisp poster (hidden below `sm:` so text
+    and image never overlap on mobile), and two working CTAs: "View book
+    details" (the existing, already-shipped `/books/{id}` route) and
+    "Explore recommendations" (`#recommendations` anchor scroll to the
+    section list below — no nonexistent route). `RecommendationReason`/
+    `FeedbackControls` are wrapped in a light frosted panel inside the
+    dark Hero so their existing (light-surface-designed) color classes
+    stay legible regardless of the Hero's own forced-dark backdrop and
+    the site's own light/dark theme — the two are independent.
+  - `RecommendationRow.tsx`: made a client component; added a
+    `scrollbar-hide` utility (plain CSS, no plugin) so the native
+    horizontal scroll (still keyboard/trackpad/touch-usable) isn't
+    fighting a visible scrollbar, plus small hover-revealed left/right
+    scroll buttons (`pointer-events-none` until hovered, so they never
+    block card clicks) — no carousel library added.
+  - `BookCard.tsx`: added a contained hover-scale on the cover only
+    (`transform`, which never reflows layout, so neighboring cards are
+    never "pushed"); untouched otherwise (existing rank badge, title/
+    author/publisher-or-date density, Fallback via the existing
+    `BookCover`, existing `FeedbackControls`/`RecommendationReason`).
+  - `Footer.tsx` (new, small): project/portfolio description + Data4Library
+    attribution, wired into `layout.tsx` below `<main>` (already `flex-1`
+    in a flex-column body), so the page never ends abruptly on a short
+    viewport.
+  - `page.tsx`: wrapped the section list in `id="recommendations"` (the
+    Hero's second CTA's scroll target) with `scroll-mt-20` to clear the
+    now-sticky header.
+  - `globals.css`: added the `.scrollbar-hide` utility only.
+- Reused as-is (no changes): `BookCover.tsx` (existing cover-fallback
+  policy), `GetHomeFeedUseCase`/`/home-feed` (existing Popularity/Hybrid/
+  Semantic/category sections), `BookPresentationResponse` (existing
+  `cover_url`/`publisher`/`published_date`/`category` fields), the
+  existing `/books/[id]` route, `InteractionProvider`/`FeedbackControls`/
+  `RecommendationReason`, `EmptyState`/`ErrorState`/`LoadingState`/
+  `error.tsx`/`loading.tsx`/`not-found.tsx`.
+- Section composition: unchanged from the existing backend — Popular
+  books (popularity), Recommended picks (hybrid), Similar to {hero title}
+  (semantic, omitted if the hero has no embedding), plus one row per
+  category with >= 2 books. No frontend-side splitting/de-duplication
+  logic was added since the backend already returns distinct, non-trivial
+  sections per Sprint 42's own de-duplication (`seen_book_ids`).
+- No backend file was touched; no new dependency was added
+  (`frontend/package.json` unchanged).
+
+### Task 2 — Runtime Integration and Browser Validation
+
+- Status: Done, with a stated limitation (no browser-automation tool
+  available in this environment — see below).
+- Environment: fresh `pgvector/pgvector:pg16` container (`readmatch-postgres`,
+  port 5433) with all 10 migrations applied; the real, already-committed
+  `data/raw/data4library_popular_books_2025_sample.json` (10 real Korean
+  books, real Data4Library `cover_url`s) loaded through the existing,
+  unmodified `ImportBooksUseCase`/`BookDataSource` port via a throwaway,
+  uncommitted seeding script (same pattern as Sprint 67's ad hoc scenario
+  harness: reuses an existing use case/port, adds no new script to the
+  repo) — not the deterministic `demo_fixtures.py` dataset, specifically
+  so real external cover images/publishers/categories would be exercised
+  end to end. `uvicorn` (backend, `BOOK_REPOSITORY_BACKEND=postgresql`)
+  and `next dev` (frontend, `NEXT_PUBLIC_API_BASE_URL` pointed at it) run
+  as real local processes, not mocked.
+- API check: `GET /readiness` → `ready: true` (configuration, book_repository,
+  recommendation_composition, persistence_runtime all available).
+  `GET /home-feed?limit=6` returned a real hero (한강, "소년이 온다") plus 5
+  sections (`popular`, `recommended`, `similar-to-hero`, 2 `category-*`
+  rows) with real, distinct item sets — not the same array relabeled.
+- Real Metadata: confirmed in the raw API response and in the rendered
+  page HTML — real titles/authors/categories/publishers/published_date,
+  and real `image.aladin.co.kr`/`bookthumb-phinf.pstatic.net` cover URLs
+  (75 occurrences across the rendered Home HTML, i.e. reused across
+  sections, not duplicated into one section only).
+- Desktop/Tablet/Mobile: **not** verified via an actual rendered viewport
+  screenshot — no browser-automation tool (Playwright/Puppeteer or
+  equivalent) is available in this environment. Verified instead, via the
+  server-rendered HTML fetched with `curl` at `http://localhost:3000/`:
+  every intended responsive class is actually present and unminified in
+  the shipped markup (`hidden ... sm:block` on the Hero poster, `scrollbar-hide`,
+  `snap-x`, `aspect-[2/3]`, the Hero's `min-h-[480px] sm:min-h-[460px]`,
+  `group-hover:scale-[1.06]`, `sticky top-0`), i.e. the responsive/hover
+  behavior is wired into the actual output, not merely written in source
+  and silently dropped by the build. This is necessarily a static-markup
+  check, not a live-viewport/visual confirmation — flagged here as the
+  Sprint's own required limitation statement, per its explicit fallback
+  instruction ("Browser 자동화 도구가 없다면 ... 한계를 Sprint Report에
+  명시하라").
+- Fallback: code-reviewed (`BookCover`'s `onError` swap to
+  `/covers/placeholder-0.svg`, unchanged) rather than triggered live,
+  since every seeded book here had a resolvable cover URL; not
+  independently exercised against a deliberately-broken URL in this run.
+- Browser console: not directly observable (no browser automation);
+  the Next.js dev server log was inspected instead and shows only the
+  expected `GET / 200`/`GET /books/{id} 200`/`GET /library 200`/
+  `GET /books/{unknown-uuid} 200` (real not-found page, not a crash) lines
+  — no compile errors, no server-side render exceptions.
+- No route to a nonexistent page: confirmed by grep — the only `href`s
+  introduced are `/`, `/library`, `/books/{id}` (existing), and the
+  `#recommendations` in-page anchor.
+- All started processes (`uvicorn`, `next dev`) and the `readmatch-postgres`
+  container were stopped/removed after validation.
+
+### Task 3 — Documentation and Validation
+
+- Backend Validation:
+  - `python3 -m ruff check src tests scripts` — pass
+  - `python3 -m mypy --strict src tests scripts` — pass (245 source files)
+  - `python3 -m pytest -q` (full suite, default in-memory) — 875 passed
+  - No backend file was changed by this Sprint; run to confirm this
+    Sprint's frontend-only change left the backend exactly as green as
+    Sprint 68 left it.
+- Frontend Validation (`frontend/package.json` scripts):
+  - `npm run lint` — pass (0 errors; the same 1 pre-existing
+    `no-img-element` warning on `BookCover.tsx`, a file this Sprint did
+    not touch)
+  - `npx tsc --noEmit` — pass
+  - `npm run build` — pass (Turbopack production build; `/`, `/books/[id]`,
+    `/library`, `/_not-found` all compiled)
+- No repo-wide combined validation command exists beyond running the
+  backend and frontend commands above separately (confirmed against
+  `pyproject.toml` and `frontend/package.json`; none was invented).
+- Intentionally excluded from this Sprint (unchanged/out of scope, per
+  the brief): Book Detail Page/Search/detail_url/User domain/LLM/RAG/new
+  ranking algorithm/new state-management or carousel library/design-system
+  build-out. None of these were touched.
+- Follow-up noted for a future Sprint: the newly-committed
+  `data/raw/data4library_popular_books_2025_sample.json` (Sprint 9, commit
+  `629b94f`) still has no permanent import/seed script wiring it into a
+  demo/dev environment — this Sprint's own runtime validation had to load
+  it via a throwaway, uncommitted script reusing `ImportBooksUseCase`
+  rather than a documented, repeatable command.
+- Commit: (recorded after commit — see below)
+
 ## Current Constraints
 
 - Implement only approved Tasks.

@@ -8,9 +8,9 @@ export function BookCard({ item, rank }: { item: HomeFeedItem; rank?: number }) 
   const { book } = item;
   const publisherLine = [book.publisher, book.published_date].filter(Boolean).join(" · ");
   return (
-    <li className="w-40 flex-none snap-start sm:w-44">
+    <li className="group w-40 flex-none snap-start sm:w-44">
       <Link href={`/books/${book.id}`} className="block">
-        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-black/10 dark:border-white/15">
+        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-black/10 transition-transform duration-200 ease-out group-hover:z-10 group-hover:scale-[1.06] group-hover:shadow-xl dark:border-white/15">
           <BookCover key={book.cover_url} coverUrl={book.cover_url} />
           {rank ? (
             <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-xs font-semibold text-white">

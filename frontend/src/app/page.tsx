@@ -21,9 +21,11 @@ export default async function HomePage() {
       ) : (
         <>
           <Hero item={homeFeed.hero} />
-          {homeFeed.sections.map((section) => (
-            <RecommendationRow key={section.id} title={section.title} items={section.items} />
-          ))}
+          <div id="recommendations" className="flex scroll-mt-20 flex-col gap-10">
+            {homeFeed.sections.map((section) => (
+              <RecommendationRow key={section.id} title={section.title} items={section.items} />
+            ))}
+          </div>
         </>
       )}
     </div>

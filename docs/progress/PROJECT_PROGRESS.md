@@ -3354,6 +3354,210 @@ while exercising the real stack.
   instrumentation` (Task 4)
 - Documentation commit: see the commit immediately following this entry.
 
+## Sprint 74 — Portfolio Release Candidate Polish (Planning Agent's "Sprint 15")
+
+### Repository Review
+
+- `git status` clean at start; `git log` showed Sprint 73 (Behavior-Driven
+  Personalization Pipeline) as the most recent work. This Sprint's own
+  brief is explicit: no new features, no architecture/algorithm change --
+  UX, documentation, demo completeness, and polish only.
+- Read every frontend page/component (`page.tsx`, `Hero.tsx`,
+  `RecommendationReason.tsx`, `preferences/page.tsx`, `Header.tsx`,
+  `globals.css`, all Empty/Loading/Error state components) end to end
+  before writing anything, specifically looking for concrete, in-scope
+  polish defects rather than a stylistic rewrite.
+
+### Task 1 — UI Polish
+
+- Status: Done. Four concrete, pre-existing issues found and fixed (no
+  new component, no new dependency):
+  - `globals.css`'s `body` rule hardcoded the stock `create-next-app`
+    Arial/Helvetica fallback stack, silently overriding the Geist font
+    already loaded in `layout.tsx` (`--font-geist-sans`, exposed as
+    `--font-sans` via `@theme inline`) -- every page had been rendering in
+    the browser's default font this entire project, unnoticed because
+    nothing ever visually compared it against the intended typeface.
+    Fixed to `font-family: var(--font-sans), Arial, Helvetica, sans-serif;`
+    -- confirmed in the compiled build CSS (`font-family:Geist`).
+  - `RecommendationReason.tsx` joined every reason into one string inside
+    a single `rounded-full` pill (`reasons.map(r => r.message).join(" · ")`).
+    Harmless with 1-2 short reasons, but Sprint 14's profile-based reasons
+    can attach up to 5 to one item -- the pill stretched across several
+    lines and lost its badge shape, reading as one run-on sentence. Now
+    renders one chip per reason (`flex-wrap`), capped at 2 visible.
+    **Found and fixed a second issue while verifying this fix live**: capping
+    at the array's original (canonical/evidence) order meant the two
+    near-universal generic reasons (popularity/novelty) silently crowded
+    out the specific, personalized ones (favorite_category/favorite_author/
+    recent_search_match) on almost every item, since those are always
+    appended *after* the generic ones -- defeating the entire point of
+    Sprint 14's own work. Added a display-only priority reorder (most
+    specific first) purely in this component; the backend's own reason
+    order/content is completely unchanged.
+  - `preferences/page.tsx`'s "not enough activity yet" check
+    (`hasAnySignal`) didn't include `positive_book_count`/`negative_book_count`
+    -- a user who had only disliked a book (no favorites/interests/
+    searches yet) saw the cold-start empty state, with their own dislike
+    count never rendered anywhere on the page at all (it lived inside the
+    same conditional it was supposed to be an alternative to). Book counts
+    are now part of the check and rendered as a persistent stat-tile row
+    whenever any activity exists.
+  - `Header.tsx`'s four nav links plus the logo had no `flex-wrap` --
+    could overflow/scroll horizontally on a narrow phone viewport. Both
+    the header row and the nav itself now wrap gracefully.
+- Not changed: `BookCover.tsx`'s `no-img-element` ESLint warning (a
+  deliberate, already-documented choice, not a defect); Home's raw
+  "Backend connected/unavailable" diagnostic badge (a genuine demo
+  strength for a portfolio reviewer, not a defect to remove); the
+  Hero/FeedbackControls/RecommendationReason panel layout (already
+  consistent, no change needed once RecommendationReason's own chip
+  wrapping was fixed).
+
+### Task 2 — Demo Scenario
+
+- Status: Done, no additional code change needed beyond Task 1's fixes
+  (which is exactly what this Task's verification caught -- see the
+  RecommendationReason priority-reorder finding above).
+- Re-ran the full Guest -> category interest -> search -> view -> like/
+  save -> recommendation change -> reason -> My Preferences -> revert
+  scenario live against a fresh seeded PostgreSQL instance (same
+  environment/process as Task 5's final validation, not a separate spin-up):
+  confirmed the reason-priority fix actually surfaces
+  `favorite_category`/`favorite_author`/`recent_search_match` chips
+  instead of them being crowded out by generic ones, confirmed
+  `/preferences`' stat-tile row now always renders when any activity
+  exists, and confirmed un-liking correctly reverts favorites while
+  recent interests/searches (separate signals) persist -- identical
+  behavior to Sprint 73's own validation, this Sprint's UI changes caused
+  no functional regression.
+
+### Task 3 — README
+
+- Status: Done.
+- Restructured the top of `README.md` into a portfolio-scannable pitch:
+  a tightened Overview, a new **Core Features** bulleted list, a new
+  **Tech Stack** table, a **Demo** section (honestly noting no static
+  screenshots/GIFs are included -- no browser automation available in
+  this environment -- and describing each real screen instead, cross-
+  referencing the existing runnable walkthroughs), and a new
+  **Future Improvements** section compiling the legitimate, already-known
+  gaps scattered across the Progress Log's per-sprint "Deferred Items"
+  and the Release Candidate's Known Limitations into one place.
+- Added a **User Behavior & Personalization** section (a conceptual
+  pipeline summary: Action -> Behavior Event -> Preference Aggregation ->
+  Profile -> Recommendation Engine (unchanged) -> Recommendation Reason ->
+  Frontend), distinct from the existing "Try personalization"/"Preference
+  profile" walkthroughs (which stay as the hands-on how-to-run-it guides).
+- The existing deep technical reference material (API Reference,
+  Observability, Operational Configuration, Persistence Validation,
+  Deployment Readiness, Production Operations, CI/CD, Operational
+  Scripts, Testing) is **entirely unchanged** -- reused, not rewritten;
+  only the Contents list was updated with the new section anchors.
+- Minor accuracy fix while in the Architecture section: added
+  `InteractionRepository`/`PreferenceSignalRepository` to the listed
+  Domain ports (previously undocumented there, despite existing since
+  Sprint 44/Sprint 14 respectively).
+- Commit: `e3a99dc`
+
+### Task 4 — Architecture Documentation
+
+- Status: Done.
+- Added four Mermaid diagrams to `docs/architecture/SYSTEM_ARCHITECTURE.md`:
+  **System Structure** (the four Hexagonal layers + frontend + composition
+  root, dependency direction), **Recommendation Flow** (Popularity/
+  Semantic/ALS -> Hybrid -> Re-rank -> Explain, entirely unchanged by this
+  or any personalization work), **User Behavior Data Flow** (Sprint
+  13-14's Interaction/PreferenceSignal -> Preference Aggregation -> Profile
+  -> enriched Recommendation Reason -> Frontend), and **User Preference
+  Profile Generation** (`GetUserPreferenceProfileUseCase`'s own aggregation
+  steps: load -> classify -> book lookup -> favorites/recency, in detail).
+  Used `<br/>`-separated node labels throughout (not raw newlines inside
+  quoted strings) for maximum Mermaid-renderer compatibility, since this
+  environment cannot render Mermaid locally to verify pixel-for-pixel.
+- Added **ADR-013** to `docs/architecture/ADR.md`, documenting the
+  personalization architecture decision this Sprint's diagrams describe:
+  additive Domain ports (no existing port/contract changed), Application-
+  layer-only reason enrichment (specifically to keep `domain/explainer.py`'s
+  existing Domain-only contract untouched), no ranking/scoring change, and
+  cold-start-safe at every stage.
+- `frontend/README.md`'s "Layout" section had gone stale since an early
+  sprint -- it named none of the routes/components added since (Search,
+  Book Detail, My Library, My Preferences, `InteractionProvider`,
+  `FeedbackControls`, `RecommendationReason`, `PersonalizedForYou`,
+  `OnboardingCategoryPicker`, `RecordBookView`, `anonymousUser.ts`).
+  Refreshed to name every current route/component actually in `src/`.
+- Commit: `69fc6de`
+
+### Task 5 — Release Candidate
+
+- Status: Done.
+- Backend: `python3 -m ruff check src tests scripts` -- pass;
+  `python3 -m mypy --strict src tests scripts` -- pass (264 source files,
+  unchanged count from Sprint 73 -- no backend file touched this Sprint);
+  `python3 -m pytest -q` (full suite) -- **951 passed, 0 failed**.
+- Frontend: `npm run lint` -- pass (0 errors, same 1 pre-existing
+  `BookCover.tsx` warning); `npx tsc --noEmit` -- pass; `npm run build` --
+  pass (`/`, `/books/[id]`, `/library`, `/preferences`, `/search`,
+  `/_not-found` all compiled, unchanged route list from Sprint 73).
+- Runtime: fresh `pgvector/pgvector:pg16` container, all 10 migrations,
+  `scripts/seed_demo_data.py`, real `uvicorn` + `next dev` -- the full
+  demo scenario (Task 2) plus a Home/Search/Book-Detail/Library regression
+  pass, all confirmed live; all started processes/containers stopped and
+  removed afterward.
+- `docs/release/RELEASE_CANDIDATE.md`: refreshed the "Release Readiness"
+  table, which had gone stale since an earlier sprint (`243` source files,
+  `863 passed, 2 failed` with a carried-forward "do not modify" caveat
+  about a pre-existing HNSW approximate-ranking flake). That flake **no
+  longer reproduces** -- the full suite passes clean at 951/951 -- so the
+  stale caveat was corrected rather than mechanically repeated again.
+  Also added the missing "Behavior-Driven Personalization" capability
+  bullet (Sprint 13-14 was never reflected in this document's Implemented
+  Capabilities list) and fixed the Frontend bullet's stale Sprint range.
+
+### Validation
+
+- Backend: `ruff` -- pass; `mypy --strict` -- pass (264 files); `pytest -q`
+  -- 951 passed, 0 failed.
+- Frontend: `lint` -- pass; `tsc --noEmit` -- pass; `build` -- pass.
+- Runtime: full demo scenario + regression, live, see Task 5 above.
+
+### Architecture Review
+
+- Zero Domain/Application/Infrastructure/API files changed this Sprint --
+  confirmed by `git diff --stat` across every commit: only `frontend/src/`
+  (4 files, all presentation-layer) and documentation (`README.md`,
+  `docs/architecture/*.md`, `docs/release/RELEASE_CANDIDATE.md`,
+  `frontend/README.md`) were touched. No recommendation algorithm,
+  ranking policy, or Domain port was added, removed, or changed. No new
+  dependency added to `pyproject.toml` or `frontend/package.json`.
+
+### Files Changed
+
+- Frontend: `app/globals.css`, `app/preferences/page.tsx`,
+  `components/Header.tsx`, `components/RecommendationReason.tsx`.
+- Docs: `README.md`, `docs/architecture/SYSTEM_ARCHITECTURE.md`,
+  `docs/architecture/ADR.md`, `docs/release/RELEASE_CANDIDATE.md`,
+  `frontend/README.md`, this Progress Log entry.
+- No backend (`src/`, `tests/`, `scripts/`, `migrations/`) file changed.
+
+### Deferred Items
+
+- None newly introduced this Sprint. See README's own new
+  [Future Improvements](../../README.md#future-improvements) section
+  (added this Sprint) for the compiled, up-to-date list of every
+  legitimate gap already known from prior sprints.
+
+### Commit
+
+- `4898d0b` -- `polish(frontend): UI consistency and readability fixes`
+  (Task 1; Task 2 needed no code of its own)
+- `e3a99dc` -- `docs(readme): portfolio-focused restructure` (Task 3)
+- `69fc6de` -- `docs(architecture): add system, pipeline, and
+  behavior-flow diagrams` (Task 4)
+- Task 5's `docs/release/RELEASE_CANDIDATE.md` update: see the commit
+  immediately following this entry.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

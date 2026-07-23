@@ -2,7 +2,7 @@
 
 - Project: ReadMatch AI
 - Version: `0.1.0` (`pyproject.toml`)
-- Status: **Release Candidate — validated 2026-07-22**
+- Status: **Release Candidate — validated 2026-07-23**
 - Scope: this document summarizes release readiness for operators and
   repository reviewers. It does not restate implementation detail already
   covered in [`README.md`](../../README.md) — every claim below links to
@@ -22,6 +22,16 @@
   deterministic, evidence-gated structured explanations for why a book was
   recommended. See README
   [Explainable Recommendations](../../README.md#explainable-recommendations).
+- **Behavior-Driven Personalization** (Sprint 13-14) — book-scoped
+  (view/search-result-click/recommendation-click/like/dislike/bookmark/
+  read/rating) and non-book-scoped (category-interest/search) user
+  behavior is aggregated into a User Preference Profile (favorite
+  categories/authors, recent interests, recent searches), which visibly
+  changes both a personalized recommendation's ranking (live
+  like/bookmark/rating feedback) and its stated reasons
+  (favorite_category/favorite_author/recent_search_match, added only when
+  the profile actually matches) — never a second ranking pass. See README
+  [User Behavior & Personalization](../../README.md#user-behavior--personalization).
 - **Quality Reporting** — a structured, exportable (Markdown/CSV)
   engine-comparison report with CI-suitable regression checks, built on
   the same evaluation framework used throughout. See README
@@ -54,12 +64,13 @@
 - **Documentation and Portfolio Polish** — a navigable, accurate README
   and architecture record reflecting the implementation as built, not
   superseded planning drafts.
-- **Frontend** — a Next.js/TypeScript web experience (`frontend/`, Sprints
-  40-49: home/recommendation feed, book detail, personal library,
-  recommendation feedback) consuming the REST API directly over HTTP, with
-  its own [README](../../frontend/README.md) for setup/validation. The
-  REST API's interactive OpenAPI documentation (`/docs`) and
-  `scripts/run_demo.py` remain the primary ways to explore system
+- **Frontend** — a Next.js/TypeScript web experience (`frontend/`; Home/
+  recommendation feed, Search, Book Detail, My Library, My Preferences,
+  recommendation feedback and behavior-event instrumentation, built
+  across Sprints 40-49 and 69-73) consuming the REST API directly over
+  HTTP, with its own [README](../../frontend/README.md) for setup/
+  validation. The REST API's interactive OpenAPI documentation (`/docs`)
+  and `scripts/run_demo.py` remain the primary ways to explore system
   behaviour without a browser (see [ADR-008](../architecture/ADR.md)).
 
 ## Runtime Prerequisites
@@ -248,28 +259,26 @@ Sprint 69-70 entries.
 
 ## Release Readiness
 
-Validated 2026-07-22 against this repository's `main` branch:
+Re-validated 2026-07-23 (Planning Agent's "Sprint 15", Progress Log
+internal Sprint 74 — UI Polish/Documentation/Release-Candidate finalization,
+no backend code change) against this repository's `main` branch:
 
 | Check | Result |
 |---|---|
-| `python scripts/validate_release.py` (default, in-memory) | **valid** — `configuration, deployment, operations` all checked |
-| `python scripts/validate_release.py` (real PostgreSQL/pgvector) | **valid** — `configuration, persistence, deployment, operations` all checked (Progress Log, Sprint 65-67) |
 | `ruff check src tests scripts` | pass |
-| `mypy --strict src tests scripts` | pass (243 source files) |
-| `pytest -q` | 863 passed, 2 failed — the 2 failures are the pre-existing Sprint 54/55 HNSW approximate-ranking pair (not a regression; do not weaken or modify per standing instruction) |
-| `python scripts/generate_quality_report.py` | regression check PASSED (6 engines, K=5, `readmatch-ai-demo-dataset-v1`) |
-| Frontend (`npm run lint` / `npx tsc --noEmit` / `npm run build`) | pass (0 errors; 3 pre-existing `no-img-element` warnings, unchanged) |
-| Manual browser verification | confirmed (see Manual Demo Walkthrough above): real `GET /health`/`/home-feed`/`/books/{id}` data rendered by the real `next dev` server, backend-down error handling confirmed, PostgreSQL/pgvector persistence survives a container + process restart (Progress Log, Sprint 65-67) |
-| Documentation consistency | corrected this Sprint: migration references (`0001-0006` → `0001-0009`), the frontend's existence (previously documented as "not built" in this file, `ADR-008`, and `SYSTEM_ARCHITECTURE.md`, stale since Sprint 40), and README's completed-Sprint count (`38` → `68`) |
+| `mypy --strict src tests scripts` | pass (264 source files) |
+| `pytest -q` | **951 passed**, 0 failed |
+| Frontend (`npm run lint` / `npx tsc --noEmit` / `npm run build`) | pass (0 errors; 1 pre-existing `no-img-element` warning on `BookCover.tsx`, unchanged, a deliberate choice — see the file's own docstring) |
+| Manual runtime walkthrough | re-run this Sprint (see Progress Log): fresh PostgreSQL/pgvector container, `scripts/seed_demo_data.py`, full Guest → onboarding → search → view → like/save → recommendation-reason-change → My Preferences → revert scenario against real `uvicorn` + `next dev`, no regression |
+| `python scripts/validate_release.py` / `generate_quality_report.py` | not re-run this Sprint — no backend/recommendation code changed (UI/docs only); last verified valid/passing per the Progress Log entries for the Sprints that did touch that code |
+| Documentation consistency | this Sprint's own focus — see [Progress Log](../progress/PROJECT_PROGRESS.md) for the full account of what was corrected/added (README restructure, architecture diagrams, `frontend/README.md` refresh) |
 
-**Verdict: Release Candidate approved**, with one honest caveat carried
-forward rather than hidden: the 2 pre-existing HNSW-ranking test failures
-above are a known, documented flake in approximate vs. exact nearest-
-neighbor ranking order (see `tests/infrastructure/test_postgresql_book_embedding_repository.py`),
-not a regression introduced by this validation. A PostgreSQL production
-deployment additionally requires running
-`python scripts/validate_release.py` (or at minimum
-`scripts/validate_runtime.py` and `scripts/validate_deployment.py`)
-against the target environment's actual `DATABASE_URL` before serving
-traffic — both were re-run against a real `pgvector/pgvector:pg16`
-container for this validation, not assumed from the in-memory default.
+**Verdict: Release Candidate approved.** No known test failures at this
+revision — the previously-documented HNSW approximate-ranking flake
+(`tests/infrastructure/test_postgresql_book_embedding_repository.py`) is no
+longer reproducing (951/951 passed above); this document is corrected to
+say so rather than repeat a stale caveat. A PostgreSQL production
+deployment still requires running `python scripts/validate_release.py`
+(or at minimum `scripts/validate_runtime.py` and
+`scripts/validate_deployment.py`) against the target environment's actual
+`DATABASE_URL` before serving traffic.

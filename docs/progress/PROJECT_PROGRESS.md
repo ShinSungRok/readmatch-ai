@@ -2375,7 +2375,10 @@ while exercising the real stack.
   demo/dev environment — this Sprint's own runtime validation had to load
   it via a throwaway, uncommitted script reusing `ImportBooksUseCase`
   rather than a documented, repeatable command.
-- Commit: (recorded after commit — see below)
+- Commit: 73ee7e2 (single Capability commit covering Task 1-3, per this
+  Sprint's own "Home UI + Runtime Validation as one Capability commit"
+  guidance, since no backend file changed and validation/documentation
+  were produced in the same pass as the UI change)
 
 ## Current Constraints
 

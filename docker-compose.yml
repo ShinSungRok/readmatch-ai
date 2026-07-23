@@ -1,25 +1,56 @@
 services:
-  app:
+  postgres:
+    image: pgvector/pgvector:pg16
+    env_file:
+      - .env
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # The official Postgres image runs every *.sql file here, in
+      # alphabetical order, exactly once -- the first time this volume is
+      # initialized (never again on a subsequent `docker compose up`,
+      # since by then the data directory already exists). The migrations/
+      # directory's own 0001-0010 naming already sorts correctly this way
+      # -- no separate migration-runner tool needed.
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-readmatch}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
     build:
       context: .
       dockerfile: Dockerfile
-    volumes:
-      - ./src:/app/src:ro
-    # Optional vars use bare-name form: Compose passes each through only if
-    # set in the shell running `docker compose`, and otherwise omits it
-    # entirely from the container. config.py distinguishes "unset" (None --
-    # its own documented default applies) from an empty string (a
-    # different, sometimes-invalid value), so these must stay absent rather
-    # than default to "".
+    env_file:
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
-      - APPLICATION_MODE
-      - BOOK_REPOSITORY_BACKEND
-      - DATABASE_URL
-      - EMBEDDING_GENERATOR_BACKEND
-      - EMBEDDING_MODEL_NAME
-      - HYBRID_RANKING_STRATEGY
-      - ALS_MODEL_PATH
-      - CORS_ALLOWED_ORIGINS
+    volumes:
+      - ./src:/app/src:ro
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./frontend/src:/app/src:ro
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  # Named volume: Postgres data survives `docker compose down` (and a
+  # host reboot) -- only `docker compose down -v` removes it.
+  postgres_data:

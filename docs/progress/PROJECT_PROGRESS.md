@@ -3890,6 +3890,96 @@ while exercising the real stack.
   (personalized endpoints only); `/popularity`/`/semantic`/`/hybrid`
   remaining un-enriched is the ticket's own stated scope, not a follow-up.
 
+## Sprint 77 — One-Command Docker Compose Local Development
+
+### Task 1 — Single-Command Docker Compose Stack
+
+- Status: Done
+- Summary: Local development previously required four manual steps
+  (`docker run` for Postgres, `docker compose up` for the backend, `npm
+  run dev` for the frontend, and hand-exported env vars — Sprint 65's
+  own documented workaround, which deliberately kept Postgres outside
+  `docker-compose.yml`). This Sprint supersedes that decision per its own
+  explicit brief: `docker compose up -d --build` / `docker compose down`
+  now bring up and tear down all three services as one unit.
+  - `.env.example` (new, tracked) documents every runtime variable
+    (`POSTGRES_USER`/`PASSWORD`/`DB`/`PORT`, `DATABASE_URL`,
+    `BOOK_REPOSITORY_BACKEND`, `APPLICATION_MODE`,
+    `EMBEDDING_GENERATOR_BACKEND`, `HYBRID_RANKING_STRATEGY`,
+    `CORS_ALLOWED_ORIGINS`, `BACKEND_PORT`, `NEXT_PUBLIC_API_BASE_URL`,
+    `API_BASE_URL_INTERNAL`, `FRONTEND_PORT`); `.env` (gitignored) is the
+    real, untracked copy Compose reads automatically.
+  - `docker-compose.yml`: added a `postgres` service
+    (`pgvector/pgvector:pg16`, named-volume persistence, all
+    `migrations/0001`–`0010` applied automatically via
+    `docker-entrypoint-initdb.d` on first volume init, `pg_isready`
+    healthcheck); `backend` and `frontend` now use `env_file: .env` +
+    `depends_on: condition: service_healthy` instead of the old
+    bare-name env passthrough list; `frontend` added as a new service
+    building `frontend/Dockerfile`.
+  - `frontend/Dockerfile` (new) + `frontend/.dockerignore` (new): `next
+    dev --hostname 0.0.0.0` (dev-mode, matching this Sprint's
+    local-experience goal — `0.0.0.0` is required for the published port
+    to reach the server inside the container), `./frontend/src`
+    bind-mounted read-only for hot reload, the same pattern the backend's
+    own `./src:/app/src:ro` mount already uses.
+  - `frontend/src/lib/config.ts`: `getApiBaseUrl()` now returns
+    `API_BASE_URL_INTERNAL` (the backend's Docker service name,
+    `http://backend:8000`) for server-rendered code running inside the
+    frontend's own container, since `localhost` there resolves to the
+    frontend container, not the backend; browser code keeps using
+    `NEXT_PUBLIC_API_BASE_URL` unchanged. Outside Docker (e.g. `npm run
+    dev` directly), `API_BASE_URL_INTERNAL` is unset and both resolve
+    identically to before.
+  - Backend already read `DATABASE_URL` from the process environment
+    (`config.py`) — no backend source change needed for Requirement 3.
+  - `README.md`/`frontend/README.md`: new "Run everything with Docker
+    Compose (recommended)" section documents the `cp .env.example .env`
+    → `docker compose up -d --build` → `docker compose down` workflow as
+    the preferred path; the existing manual per-service instructions are
+    kept below it, relabeled as the "just one piece" alternative.
+- Interruption: mid-session the host Docker daemon died and the
+  in-progress validation run was cut off; resumed once Docker was back
+  up — `docker compose ps -a` afterward showed three unrelated
+  containers from a different project (`public-ai-postgres` etc.)
+  `Exited`, no port conflict, and no readmatch-ai containers left
+  running from before the crash.
+- Validation:
+  - `docker compose up -d --build` — all three services started;
+    `postgres` and `backend` report `(healthy)` via their healthchecks,
+    `frontend` `Up`.
+  - `GET http://localhost:8000/health` → `{"healthy":true,...}`;
+    `GET http://localhost:8000/readiness` → `{"ready":true,"checks":[...
+    "book_repository","persistence_runtime"...]}` — confirms the backend
+    connects to the containerized Postgres automatically, no manual
+    `export` needed.
+  - `GET http://localhost:3000/` → 200, real Next.js HTML — frontend
+    loads under Compose.
+  - `scripts/seed_demo_data.py` against the host-mapped Postgres port,
+    then `GET /recommendations/personalized/{demo user "alice"'s
+    deterministic UUID}` → 5 real, hybrid-sourced books — personalized
+    recommendation endpoint works end to end against the Compose stack.
+  - `python3 scripts/validate_runtime.py` (postgresql backend) — valid:
+    `connectivity, required_tables, pgvector_extension, vector_dimension,
+    vector_index`.
+  - `ruff check src tests scripts` — pass.
+  - `mypy --strict src tests scripts` — pass (265 source files).
+  - `pytest -q` (full suite) — 957 passed, 0 failed (unchanged baseline;
+    no backend source file touched).
+  - Frontend: `npm run lint` — 0 errors (1 pre-existing, unrelated
+    `no-img-element` warning in `BookCover.tsx`); `npx tsc --noEmit` —
+    no errors; `npm run build` — succeeded.
+  - `docker compose down` — all three containers and the network stopped
+    and removed cleanly; `docker compose ps -a` empty afterward.
+- Commit: (recorded after this entry is committed)
+- Files Changed: `docker-compose.yml`, `.gitignore`, `README.md`,
+  `frontend/README.md`, `frontend/src/lib/config.ts`, plus new
+  `.env.example`, `frontend/Dockerfile`, `frontend/.dockerignore`.
+- Deferred Items: None. Production-oriented concerns (multi-stage/
+  production frontend build, non-root frontend container user, secrets
+  management beyond a gitignored `.env`) are explicitly out of this
+  Sprint's stated scope (local development experience only).
+
 ## Current Constraints
 
 - Implement only approved Tasks.

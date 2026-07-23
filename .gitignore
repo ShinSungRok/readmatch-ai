@@ -6,6 +6,10 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 
+# Real runtime configuration (docker compose up reads this automatically) --
+# never commit real secrets. See .env.example for the tracked template.
+.env
+
 # scripts/generate_quality_report.py's default output directory --
 # generated runtime reports, not committed sample output.
 /reports/

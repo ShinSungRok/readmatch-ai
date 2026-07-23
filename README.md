@@ -121,6 +121,7 @@ every other known gap, stated plainly rather than glossed over.
 - [Architecture](#architecture)
 - [Repository Structure](#repository-structure)
 - [Quick Start](#quick-start)
+  - [Run everything with Docker Compose (recommended)](#run-everything-with-docker-compose-recommended)
   - [Re-ranking](#re-ranking)
   - [Explainable Recommendations](#explainable-recommendations)
   - [Recommendation Quality Reports](#recommendation-quality-reports)
@@ -264,6 +265,61 @@ The Hybrid engine's fusion algorithm is selected independently via:
 export HYBRID_RANKING_STRATEGY=weighted   # default: min-max normalized weighted sum
 export HYBRID_RANKING_STRATEGY=rrf        # Reciprocal Rank Fusion (rank-based, score-scale-agnostic)
 ```
+
+### Run everything with Docker Compose (recommended)
+
+The fastest way to run the full stack — PostgreSQL/pgvector + FastAPI
+backend + Next.js frontend — locally: one command up, one command down,
+no manual `export`s.
+
+```bash
+cp .env.example .env        # first time only; edit values if you need to
+docker compose up -d --build
+```
+
+This starts, in dependency order (each service waits for the previous to
+report healthy before starting):
+
+1. **postgres** (`pgvector/pgvector:pg16`) — data persisted in a named
+   volume (`postgres_data`) across restarts; all 10 `migrations/*.sql`
+   files are applied automatically, in order, the first time the volume
+   is created (via Postgres's own `docker-entrypoint-initdb.d`
+   mechanism — nothing separate to remember or run by hand).
+2. **backend** (FastAPI) — `http://localhost:8000` (`$BACKEND_PORT`);
+   `DATABASE_URL`/`BOOK_REPOSITORY_BACKEND`/etc. all come from `.env`.
+3. **frontend** (Next.js, `next dev`) — `http://localhost:3000`
+   (`$FRONTEND_PORT`); hot-reloads on changes under `frontend/src`
+   (bind-mounted, the same pattern the backend's own `./src` mount
+   already uses).
+
+Seed the demo catalog once the stack reports healthy (same script as
+always, just pointed at the containerized Postgres via its host-mapped
+port):
+
+```bash
+DATABASE_URL=postgresql://readmatch:readmatch@localhost:5432/readmatch \
+BOOK_REPOSITORY_BACKEND=postgresql \
+  PYTHONPATH=src python3 scripts/seed_demo_data.py
+```
+
+Then open `http://localhost:3000` — see [Demo](#demo) above for what to
+expect on each screen, or [Try personalization](#try-personalization)
+below for a guided walkthrough.
+
+```bash
+docker compose down        # stop everything, keep the Postgres volume
+docker compose down -v     # stop everything AND delete Postgres data
+```
+
+`.env.example` documents every variable (ports, credentials, which
+backend/embedding/ranking mode) — see it for the full reference,
+including running with `BOOK_REPOSITORY_BACKEND=in_memory` instead (no
+persistence, but no Postgres dependency either).
+
+The sections below (Run the API server / Seed demo data / Run the
+frontend) describe the same three pieces run manually, outside Docker
+Compose — useful for iterating on just one piece (e.g. the backend alone
+via `uvicorn --reload`) without rebuilding a container each time.
 
 ### Re-ranking
 
@@ -453,14 +509,19 @@ python scripts/run_demo.py --limit 5 --k 5   # show/evaluate top 5 instead of to
 
 ### Run the API server
 
+Manually, outside Docker Compose (see
+[above](#run-everything-with-docker-compose-recommended) for the
+one-command all-three-services path):
+
 ```bash
 # optional pre-flight: validate configuration (and, for a PostgreSQL
 # backend, the live persistence/pgvector runtime) without starting anything
 python scripts/validate_runtime.py
 
 uvicorn readmatch_ai.api.main:app --reload
-# or:
-docker compose up --build
+# or, via Compose without starting the frontend too (postgres still
+# starts, since backend depends on it):
+docker compose up --build backend
 ```
 
 Then visit `http://localhost:8000/docs` for interactive OpenAPI documentation,
@@ -514,8 +575,9 @@ PYTHONPATH=src python3 scripts/seed_demo_data.py
 ### Run the frontend
 
 A Next.js/TypeScript web experience (`frontend/`) consuming this REST API
-directly over HTTP — no server-side framework/database of its own. With
-the backend already running (above):
+directly over HTTP — no server-side framework/database of its own.
+Manually, outside Docker Compose, with the backend already running
+(above):
 
 ```bash
 cd frontend
@@ -527,6 +589,14 @@ Open `http://localhost:3000`. See [`frontend/README.md`](frontend/README.md)
 for layout, environment configuration (`NEXT_PUBLIC_API_BASE_URL`), and
 frontend-specific validation (`npm run lint`, `npx tsc --noEmit`,
 `npm run build`).
+
+(Under Docker Compose, the frontend's own Server Components reach the
+backend via `API_BASE_URL_INTERNAL` — the backend's Docker service name —
+rather than `NEXT_PUBLIC_API_BASE_URL`, which stays the browser-facing,
+host-mapped address; see `.env.example`'s comments and
+`frontend/src/lib/config.ts`. Running `npm run dev` directly like above
+never sets `API_BASE_URL_INTERNAL`, so this distinction is invisible —
+both resolve to the same `NEXT_PUBLIC_API_BASE_URL`.)
 
 ### Try personalization
 

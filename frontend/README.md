@@ -7,7 +7,12 @@ own.
 
 ## Getting started
 
-The backend must be running first (from the repository root):
+The whole stack (Postgres + backend + this frontend) runs with one
+command from the repository root — see the root
+[README's Docker Compose section](../README.md#run-everything-with-docker-compose-recommended).
+
+To run just the frontend manually instead, the backend must be running
+first (from the repository root):
 
 ```bash
 uvicorn readmatch_ai.api.main:app --reload
@@ -23,7 +28,9 @@ npm run dev
 Open the printed local URL (`http://localhost:3000` unless that port is
 already in use). By default the frontend talks to the backend at
 `http://localhost:8000`; copy `.env.example` to `.env.local` and set
-`NEXT_PUBLIC_API_BASE_URL` to point elsewhere.
+`NEXT_PUBLIC_API_BASE_URL` to point elsewhere. (Under Docker Compose, an
+additional server-only `API_BASE_URL_INTERNAL` variable is used instead
+for server-rendered fetches — see the root `.env.example`.)
 
 ## Validation
 

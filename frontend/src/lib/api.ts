@@ -36,6 +36,11 @@ export interface BookDetail {
   similar_books: HomeFeedItem[];
 }
 
+/** Mirrors readmatch_ai.api.schemas.BookSearchResponse (Sprint 71). */
+export interface BookSearchResult {
+  items: BookPresentation[];
+}
+
 /** Mirrors readmatch_ai.domain.interaction.InteractionType exactly. */
 export type InteractionType = "click" | "like" | "dislike" | "bookmark" | "read" | "rating";
 
@@ -129,6 +134,18 @@ export async function getBookDetail(bookId: string): Promise<BookDetail | null> 
     throw new ApiError(response.status, `/books/${bookId} responded with HTTP ${response.status}`);
   }
   return (await response.json()) as BookDetail;
+}
+
+/**
+ * GET /books/search -- see readmatch_ai.api.book_router.
+ *
+ * A blank query returns `items: []` (never an error) -- the backend's own
+ * policy, not re-implemented here; callers may pass an untrimmed/empty
+ * string safely.
+ */
+export function searchBooks(query: string, limit = 24): Promise<BookSearchResult> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  return apiFetch<BookSearchResult>(`/books/search?${params}`);
 }
 
 /**

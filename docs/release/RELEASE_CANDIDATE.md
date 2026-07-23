@@ -142,10 +142,11 @@ configuration, and recommendation metrics — see README
 - The frontend (`frontend/`) is a thin REST consumer with no server-side
   framework/database of its own; it renders whatever the backend returns
   and has no independent data or business logic to validate beyond that.
-- There is no Search feature (no search endpoint, no search page/result
-  route) anywhere in this repository — confirmed by Sprint 69/70's audit,
-  not merely undocumented. Home (hero + recommendation rows) and Book
-  Detail (presentation + similar books) are the only browsing paths today.
+- Search (Sprint 71, `GET /books/search`, frontend `/search?q=...`) is a
+  simple case-insensitive partial-match across title/author/category,
+  ordered by title — no relevance ranking, autocomplete, search history, or
+  filters (all explicitly out of scope). Sprint 69/70 correctly found no
+  Search existed at that point; it does now.
 
 Each limitation above is documented in full, with rationale, in its
 corresponding README section.
@@ -192,12 +193,12 @@ connected" indicator, a hero, and recommendation rows (Popular books,
 Recommended picks, Similar to \<hero\>, per-category rows) built from the
 real, seeded Data4Library titles/authors/covers; clicking a book opens its
 detail page, rendered from `GET /books/{id}`, with its own similar-books
-row. `http://localhost:8000/docs` gives the same data as interactive
-OpenAPI. `scripts/seed_demo_data.py` is safe to re-run at any point (upserts
-by ISBN/book id, never duplicates) if you want to confirm the data hasn't
-drifted. There is no Search feature in this repository yet — do not expect
-a search box or results page; see `docs/roadmap/PROJECT_ROADMAP.md` and the
-Progress Log for status.
+row. Click "Search" in the header (or open `http://localhost:3000/search?q=한강`
+directly) to search the same seeded catalog by title/author/category —
+results link to the same book detail page. `http://localhost:8000/docs`
+gives the same data as interactive OpenAPI. `scripts/seed_demo_data.py` is
+safe to re-run at any point (upserts by ISBN/book id, never duplicates) if
+you want to confirm the data hasn't drifted.
 
 **Troubleshooting**:
 - `relation "book_metadata" does not exist` (or any other `does not exist`

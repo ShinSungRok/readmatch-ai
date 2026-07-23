@@ -2570,6 +2570,189 @@ while exercising the real stack.
   discrepancy found.
 - Commit: 0b00e9a
 
+## Sprint 71 — Book Search Experience (Planning Agent's "Sprint 12")
+
+### Task 1 — Search Backend Capability
+
+- Status: Done.
+- Added `BookRepository.search(query, limit) -> list[Book]` to the
+  existing Domain port (case-insensitive partial match across title,
+  author, category; caller-trimmed, non-empty query assumed; ordered by
+  title -- deterministic, no relevance scoring). Implemented on both
+  adapters, as required:
+  - `InMemoryBookRepository.search`: `str.casefold()` substring match,
+    sorted by title, `list[:limit]`.
+  - `PostgreSQLBookRepository.search`: `title ILIKE %s OR author ILIKE %s
+    OR category ILIKE %s ORDER BY title LIMIT %s` -- the query is always a
+    bound parameter (`%s`), never string-concatenated into the SQL text,
+    per this Sprint's explicit instruction.
+- Added `SearchBooksUseCase` (Application): trims the query, returns `[]`
+  immediately for a blank one (no repository call at all), otherwise
+  delegates to `BookRepository.search` and enriches every match via the
+  existing `GetBookPresentationUseCase.execute_many` -- one
+  `BookMetadataRepository` round-trip for the whole result set, not one
+  per match (no N+1, verified by a counting-repository regression test,
+  mirroring `GetBookPresentationUseCase`'s own existing N+1 guard test).
+- Added `GET /books/search` (`book_router.py`), reusing
+  `BookPresentationResponse`/`BookSearchResponse` (new, minimal wrapper) --
+  no new presentation DTO duplicating existing fields. `q` defaults to
+  `""` (blank/missing -> `items: []`, HTTP 200, never a 422/error -- the
+  "명확한 Validation 정책" this Sprint asked for); `limit` follows the
+  same `1 <= limit <= 100` convention every other list endpoint in this
+  API already uses. **Registered before `/{book_id}`** in the router --
+  Starlette matches path operations in registration order, so `/search`
+  would otherwise be swallowed as `book_id="search"`; a dedicated
+  regression test (`test_search_route_is_not_shadowed_by_the_book_id_route`)
+  guards this.
+- `ApplicationContext`: added `search_books_use_case` field, wired
+  identically to every other repository-backed use case (no new
+  composition pattern).
+- Two pre-existing test-only `BookRepository` subclasses
+  (`tests/api/test_health_router.py`, `tests/application/test_readiness_check_service.py`)
+  needed a `search` stub added, since adding an abstract method to the
+  port makes any concrete subclass without it fail to instantiate --
+  caught immediately by running the full suite, not discovered later.
+- Tests added: `tests/infrastructure/test_in_memory_book_repository.py`
+  (+5), `tests/infrastructure/test_postgresql_book_repository.py` (+5,
+  real `testcontainers` PostgreSQL), `tests/application/test_search_books_use_case.py`
+  (new, 7 tests incl. the N+1 guard), `tests/api/test_book_router.py`
+  (+9, incl. the route-shadowing regression and the blank/no-`q` case).
+- Commit: ba3cfd9
+
+### Task 2 — Search Frontend Experience
+
+- Status: Done.
+- `frontend/src/lib/api.ts`: added `BookSearchResult`/`searchBooks(query,
+  limit)`, mirroring every other typed API client function already there.
+- `frontend/src/app/search/page.tsx` (new, Server Component, async):
+  reads `searchParams.q` (Next 16's `Promise<{q?: string}>` convention,
+  same as the existing `books/[id]/page.tsx`), trims it, and either shows
+  an Empty-Query prompt (`EmptyState`, reused), a No-Results message
+  (`EmptyState`, reused, naming the actual query), or `SearchResults`.
+  Deliberately does **not** hand-roll a try/catch around `searchBooks` --
+  an `ApiError` propagates to the existing root `app/error.tsx` boundary,
+  exactly like the Home page's `getHomeFeed` call already does, so the
+  "API Error" state is the same, already-tested one, not a new one.
+- `frontend/src/app/search/loading.tsx` (new): reuses `LoadingState`,
+  same one-line pattern as every other route's `loading.tsx`.
+- `frontend/src/components/SearchForm.tsx` (new, client component): a
+  plain controlled `<input>` + submit button; on submit, `router.push`s
+  to `/search?q=<encoded>` (or bare `/search` for a cleared query) --
+  this is what keeps the query in the URL (shareable/refreshable, this
+  Sprint's explicit requirement) and is what triggers `search/loading.tsx`
+  during the client-side transition. No new state-management dependency:
+  plain `useState` + `next/navigation`'s router, the same primitives
+  `InteractionProvider`/`BookCover` already use.
+- `frontend/src/components/SearchResultCard.tsx` /
+  `SearchResults.tsx` (new): reuse `BookCover` (cover + existing fallback
+  policy, unchanged) and the same title/author/publisher-or-date card
+  density and hover-scale convention `BookCard.tsx` established in Sprint
+  69, in a responsive grid
+  (`grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5`) rather than
+  a horizontal row (search results are a browsable set, not a "Netflix
+  row"). Deliberately **not** the literal `BookCard` component: a search
+  match has no recommendation score/source, so forcing it through
+  `BookCard` would mean fabricating a `RecommendationReason` the backend
+  never reported -- against this project's own "never exaggerate/invent a
+  reason" rule. Every card links to the existing `/books/[id]` route.
+- `Header.tsx`: added a working `Search` nav link (`/search`) between
+  Home and My Library -- the Sprint 69/70 decision to omit a Search menu
+  item was explicitly because no real feature existed yet; now one does.
+- Commit: (recorded after commit — see below)
+
+### Task 3 — Runtime Validation and Documentation
+
+- Status: Done, with the same browser-automation limitation recorded in
+  Sprints 69/70 (still no Playwright/Puppeteer/equivalent available).
+- Environment: fresh `pgvector/pgvector:pg16` container, all 10 migrations
+  applied (`migrations/0*.sql`), seeded via the official
+  `scripts/seed_demo_data.py` (10 real Data4Library records) -- real
+  `uvicorn` + real `next dev`.
+- API validated directly: title search (한강, 4 matches), author search
+  (김호연, 1 match), category partial match (한국문학, 10 matches),
+  whitespace-padded query (trimmed correctly, same 4 matches), a
+  Korean-text partial title fragment (소년, 1 match), no-results
+  (`items: []`), blank `q=`, and a fully omitted `q` (both `items: []`,
+  HTTP 200, not an error), an invalid `limit=0`/`limit=-1` (HTTP 422), and
+  confirmed `/books/search` itself still returns HTTP 200 (i.e. is not
+  shadowed by `/books/{book_id}`) end to end, not just in the unit test.
+- Frontend validated by fetching the actual rendered HTML: `/search?q=한강`
+  renders all 3 real matching titles and pre-fills the input with the
+  decoded query (`value="한강"` -- refresh/share-safe); `/search` (no `q`)
+  renders the Empty-Query prompt; `/search?q=zzznotfound` renders the
+  No-Results message; a search result's `href` points at the real
+  `/books/{id}` route, and that route returns HTTP 200; real
+  `image.aladin.co.kr`/`bookthumb-phinf.pstatic.net` cover URLs and the
+  responsive grid classes (`grid-cols-2`/`sm:grid-cols-3`/`md:grid-cols-4`/
+  `lg:grid-cols-5`) are present in the actual shipped markup; the `Search`
+  header link is present on both `/` and `/search`.
+- Runtime error check: both `uvicorn` and `next dev` logs inspected
+  directly -- every request in the walkthrough above (including the
+  invalid-limit 422) is a clean, expected status, no exception/500.
+- All started processes (`uvicorn`, `next dev`) and the
+  `readmatch-postgres` container were stopped/removed after validation.
+- Documentation: added a `GET /books/search` entry to README's API
+  Reference (Param table + example, matching the existing per-endpoint
+  style); updated the Manual Demo Walkthrough in
+  `docs/release/RELEASE_CANDIDATE.md` to mention the Search entry point
+  with a worked example URL; corrected that same document's Known
+  Limitations bullet, which said "no Search feature" as of Sprint 70 --
+  now accurately describes what Search actually is/isn't (no relevance
+  ranking/autocomplete/history/filters).
+- Commit: (recorded after commit — see below)
+
+### Validation
+
+- Backend: `python3 -m ruff check src tests scripts` — pass;
+  `python3 -m mypy --strict src tests scripts` — pass (249 source files);
+  `python3 -m pytest -q` (full suite) — 904 passed (879 Sprint-70 baseline
+  + 25 new: 5 in-memory + 5 PostgreSQL repository tests, 7 use-case tests,
+  9 router tests, 1 for each of the 2 fixed test-only stub repositories
+  is not a separate count -- those are edits, not new tests).
+- Frontend: `npm run lint` — pass (0 errors, same 1 pre-existing
+  `BookCover.tsx` warning); `npx tsc --noEmit` — pass; `npm run build` —
+  pass (`/search` now a listed dynamic route alongside `/`, `/books/[id]`,
+  `/library`).
+- Demo Seed re-run against the fresh container for this Sprint's own
+  validation (see Task 3): 10 new, as expected from a clean database.
+- Search API Runtime / Search Page Runtime / Search -> Detail flow: see
+  Task 3 above.
+
+### Architecture Review
+
+- Clean Architecture boundaries preserved: Domain gained one port method
+  (no new port), Application gained one use case composed from two
+  existing ones, Infrastructure implements the port on both existing
+  adapters, API adds one route translating existing schemas. No Domain
+  entity, ranking algorithm, or evaluation rule changed.
+- No new dependency added to `pyproject.toml` or `frontend/package.json`.
+- No autocomplete, search history, Elasticsearch/OpenSearch, vector
+  search, natural-language search, or new UI/state-management framework
+  was introduced -- all explicitly out of scope and none were started.
+
+### Files Changed
+
+- Backend: `domain/book_repository.py`, `infrastructure/in_memory_book_repository.py`,
+  `infrastructure/postgresql_book_repository.py`,
+  `application/search_books_use_case.py` (new), `api/schemas.py`,
+  `api/book_router.py`, `application_context.py`, plus the corresponding
+  test files (5 files) and 2 test-only stub-repository fixes.
+- Frontend: `lib/api.ts`, `components/Header.tsx`, `components/SearchForm.tsx`
+  (new), `components/SearchResultCard.tsx` (new), `components/SearchResults.tsx`
+  (new), `app/search/page.tsx` (new), `app/search/loading.tsx` (new).
+- Docs: `README.md` (API Reference entry), `docs/release/RELEASE_CANDIDATE.md`
+  (walkthrough + Known Limitations correction), this Progress Log entry.
+
+### Deferred Items
+
+- Autocomplete, search history, filters -- explicitly out of scope this
+  Sprint, not started.
+- Relevance ranking (currently title-only ordering) -- would be a future
+  Sprint's decision, not assumed here.
+- `detail_url`, User/Preference/Event, Collaborative Filtering,
+  Elasticsearch/OpenSearch, natural-language/LLM/RAG search -- unchanged,
+  still out of scope.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

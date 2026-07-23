@@ -640,6 +640,46 @@ never fires; without recorded popularity data or ALS candidacy for a given
 book, `popularity`/`collaborative_behavior` don't either. A cold-start item
 can legitimately have an empty `reasons` list.
 
+### `GET /books/search`
+
+Case-insensitive partial-match search across title, author, and category
+(Sprint 71), reusing the same presentation/metadata enrichment as
+`/home-feed` and `/books/{id}` — not the `{"items": [{"book": ..., "score":
+..., "source": ...}]}` shape above, since a search match has no
+recommendation score/source of its own.
+
+| Param   | Type   | Default | Constraints |
+|---------|--------|---------|-------------|
+| `q`     | string | `""`    | Trimmed before matching; blank (or missing) returns `items: []`, never an error |
+| `limit` | int    | 20      | `1 <= limit <= 100` |
+
+```bash
+curl "http://localhost:8000/books/search?q=clean+code"
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "a2f1e6d4-2b9a-4b1e-9a3f-6b7c8d9e0f11",
+      "isbn": "9780132350884",
+      "title": "Clean Code",
+      "author": "Robert C. Martin",
+      "category": "Software Engineering",
+      "publisher": "Prentice Hall",
+      "description": null,
+      "cover_url": "/covers/placeholder-0.svg",
+      "published_date": "2008"
+    }
+  ]
+}
+```
+
+Results are ordered by title (no relevance scoring). The frontend's
+`/search` page (`?q=...`, e.g. `/search?q=clean+code` — kept in the URL so
+a search is shareable/refreshable) consumes this endpoint directly; see the
+Manual Demo Walkthrough below for a worked example.
+
 ### `GET /health`
 
 Is this process itself operating normally? A lightweight, dependency-free

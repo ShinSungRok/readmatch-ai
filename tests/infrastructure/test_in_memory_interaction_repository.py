@@ -51,6 +51,17 @@ def test_click_events_accumulate_instead_of_overwriting() -> None:
     assert repository.list_by_user(user_id) == [interaction, interaction, interaction]
 
 
+def test_view_events_accumulate_instead_of_overwriting() -> None:
+    repository = InMemoryInteractionRepository()
+    user_id, book_id = UserId.generate(), BookId.generate()
+    interaction = UserInteraction(user_id, book_id, InteractionType.VIEW)
+
+    repository.record(interaction)
+    repository.record(interaction)
+
+    assert repository.list_by_user(user_id) == [interaction, interaction]
+
+
 def test_clear_removes_a_recorded_state_like_interaction() -> None:
     repository = InMemoryInteractionRepository()
     user_id, book_id = UserId.generate(), BookId.generate()

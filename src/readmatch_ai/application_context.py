@@ -37,12 +37,18 @@ from readmatch_ai.application.get_home_feed_use_case import GetHomeFeedUseCase
 from readmatch_ai.application.get_personal_library_use_case import GetPersonalLibraryUseCase
 from readmatch_ai.application.get_recommendations_use_case import GetRecommendationsUseCase
 from readmatch_ai.application.get_user_interactions_use_case import GetUserInteractionsUseCase
+from readmatch_ai.application.get_user_preference_profile_use_case import (
+    GetUserPreferenceProfileUseCase,
+)
 from readmatch_ai.application.health_check_service import HealthCheckService
 from readmatch_ai.application.readiness_check_service import ReadinessCheckService
 from readmatch_ai.application.recommendation_metrics_collector import (
     RecommendationMetricsCollector,
 )
 from readmatch_ai.application.record_interaction_use_case import RecordInteractionUseCase
+from readmatch_ai.application.record_preference_signal_use_case import (
+    RecordPreferenceSignalUseCase,
+)
 from readmatch_ai.application.refresh_book_embeddings_use_case import (
     RefreshBookEmbeddingsUseCase,
 )
@@ -66,6 +72,7 @@ from readmatch_ai.domain.book_repository import BookRepository
 from readmatch_ai.domain.explainer import DefaultRecommendationExplainer, RecommendationExplainer
 from readmatch_ai.domain.import_history import ImportHistoryRepository
 from readmatch_ai.domain.interaction_repository import InteractionRepository
+from readmatch_ai.domain.preference_signal_repository import PreferenceSignalRepository
 from readmatch_ai.domain.ranking_strategies import (
     ReciprocalRankFusionStrategy,
     WeightedScoreFusionStrategy,
@@ -105,6 +112,9 @@ from readmatch_ai.infrastructure.in_memory_import_history_repository import (
 )
 from readmatch_ai.infrastructure.in_memory_interaction_repository import (
     InMemoryInteractionRepository,
+)
+from readmatch_ai.infrastructure.in_memory_preference_signal_repository import (
+    InMemoryPreferenceSignalRepository,
 )
 from readmatch_ai.infrastructure.in_memory_sync_checkpoint_repository import (
     InMemorySyncCheckpointRepository,
@@ -166,6 +176,7 @@ class ApplicationContext:
     import_history_repository: ImportHistoryRepository
     sync_checkpoint_repository: SyncCheckpointRepository
     explicit_interaction_repository: InteractionRepository
+    preference_signal_repository: PreferenceSignalRepository
     user_book_interaction_repository: UserBookInteractionRepository
     recommendation_engine: RecommendationEngine
     semantic_recommendation_engine: RecommendationEngine
@@ -184,6 +195,8 @@ class ApplicationContext:
     clear_interaction_use_case: ClearInteractionUseCase
     get_user_interactions_use_case: GetUserInteractionsUseCase
     get_personal_library_use_case: GetPersonalLibraryUseCase
+    record_preference_signal_use_case: RecordPreferenceSignalUseCase
+    get_user_preference_profile_use_case: GetUserPreferenceProfileUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
     batch_generate_book_embeddings_use_case: BatchGenerateBookEmbeddingsUseCase
@@ -213,6 +226,7 @@ class ApplicationContext:
         import_history_repository: ImportHistoryRepository | None = None,
         sync_checkpoint_repository: SyncCheckpointRepository | None = None,
         explicit_interaction_repository: InteractionRepository | None = None,
+        preference_signal_repository: PreferenceSignalRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
@@ -251,6 +265,7 @@ class ApplicationContext:
                 import_history_repository=import_history_repository,
                 sync_checkpoint_repository=sync_checkpoint_repository,
                 explicit_interaction_repository=explicit_interaction_repository,
+                preference_signal_repository=preference_signal_repository,
                 semantic_recommendation_engine=semantic_recommendation_engine,
                 hybrid_recommendation_engine=hybrid_recommendation_engine,
                 user_book_interaction_repository=user_book_interaction_repository,
@@ -287,6 +302,7 @@ class ApplicationContext:
         import_history_repository: ImportHistoryRepository | None = None,
         sync_checkpoint_repository: SyncCheckpointRepository | None = None,
         explicit_interaction_repository: InteractionRepository | None = None,
+        preference_signal_repository: PreferenceSignalRepository | None = None,
         semantic_recommendation_engine: RecommendationEngine | None = None,
         hybrid_recommendation_engine: RecommendationEngine | None = None,
         user_book_interaction_repository: UserBookInteractionRepository | None = None,
@@ -557,6 +573,11 @@ class ApplicationContext:
             if explicit_interaction_repository is not None
             else InMemoryInteractionRepository()
         )
+        preference_signals = (
+            preference_signal_repository
+            if preference_signal_repository is not None
+            else InMemoryPreferenceSignalRepository()
+        )
         als_engine = (
             als_recommendation_engine
             if als_recommendation_engine is not None
@@ -623,6 +644,9 @@ class ApplicationContext:
             _observed(semantic_engine, "semantic", "semantic")
         )
         book_presentation_use_case = GetBookPresentationUseCase(repository, metadata_repository)
+        preference_profile_use_case = GetUserPreferenceProfileUseCase(
+            explicit_interactions, preference_signals, repository
+        )
 
         return cls(
             book_repository=repository,
@@ -632,6 +656,7 @@ class ApplicationContext:
             import_history_repository=history_repository,
             sync_checkpoint_repository=checkpoint_repository,
             explicit_interaction_repository=explicit_interactions,
+            preference_signal_repository=preference_signals,
             user_book_interaction_repository=interaction_repository,
             recommendation_engine=engine,
             semantic_recommendation_engine=semantic_engine,
@@ -656,6 +681,8 @@ class ApplicationContext:
             get_personal_library_use_case=GetPersonalLibraryUseCase(
                 explicit_interactions, book_presentation_use_case
             ),
+            record_preference_signal_use_case=RecordPreferenceSignalUseCase(preference_signals),
+            get_user_preference_profile_use_case=preference_profile_use_case,
             get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(
                 repository, embedding_generator, embedding_repository, metadata_repository
@@ -674,7 +701,9 @@ class ApplicationContext:
             ),
             generate_explained_personalized_recommendation_use_case=(
                 GenerateExplainedPersonalizedRecommendationUseCase(
-                    _observed(reranked_engine, "reranked", "personalized_explained"), explainer
+                    _observed(reranked_engine, "reranked", "personalized_explained"),
+                    explainer,
+                    preference_profile_use_case,
                 )
             ),
             evaluate_recommendation_engine_use_case=EvaluateRecommendationEngineUseCase(),

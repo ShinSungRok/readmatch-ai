@@ -1,7 +1,12 @@
 import pytest
 
 from readmatch_ai.domain.book import BookId
-from readmatch_ai.domain.interaction import InteractionType, UserInteraction
+from readmatch_ai.domain.interaction import (
+    EVENT_LIKE_INTERACTION_TYPES,
+    STATE_LIKE_INTERACTION_TYPES,
+    InteractionType,
+    UserInteraction,
+)
 from readmatch_ai.domain.user import UserId
 
 
@@ -17,6 +22,9 @@ def _ids() -> tuple[UserId, BookId]:
         InteractionType.DISLIKE,
         InteractionType.BOOKMARK,
         InteractionType.READ,
+        InteractionType.VIEW,
+        InteractionType.SEARCH_RESULT_CLICK,
+        InteractionType.RECOMMENDATION_CLICK,
     ],
 )
 def test_non_rating_interaction_constructs_without_a_value(
@@ -37,6 +45,9 @@ def test_non_rating_interaction_constructs_without_a_value(
         InteractionType.DISLIKE,
         InteractionType.BOOKMARK,
         InteractionType.READ,
+        InteractionType.VIEW,
+        InteractionType.SEARCH_RESULT_CLICK,
+        InteractionType.RECOMMENDATION_CLICK,
     ],
 )
 def test_non_rating_interaction_with_a_value_is_rejected(
@@ -75,3 +86,22 @@ def test_rating_interaction_accepts_every_in_range_value(value: int) -> None:
 def test_unknown_interaction_type_string_is_rejected() -> None:
     with pytest.raises(ValueError):
         InteractionType("not-a-real-type")
+
+
+def test_view_search_result_click_and_recommendation_click_are_event_like() -> None:
+    assert EVENT_LIKE_INTERACTION_TYPES == {
+        InteractionType.CLICK,
+        InteractionType.VIEW,
+        InteractionType.SEARCH_RESULT_CLICK,
+        InteractionType.RECOMMENDATION_CLICK,
+    }
+
+
+def test_state_like_types_are_unaffected_by_the_new_event_like_types() -> None:
+    assert STATE_LIKE_INTERACTION_TYPES == {
+        InteractionType.LIKE,
+        InteractionType.DISLIKE,
+        InteractionType.BOOKMARK,
+        InteractionType.READ,
+        InteractionType.RATING,
+    }

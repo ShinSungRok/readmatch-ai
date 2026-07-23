@@ -6,6 +6,7 @@ from readmatch_ai.application.book_detail import BookDetail
 from readmatch_ai.application.book_presentation import BookPresentation
 from readmatch_ai.application.home_feed import HomeFeed, HomeFeedItem, HomeFeedSection
 from readmatch_ai.application.personal_library import LibraryItem, LibrarySection, PersonalLibrary
+from readmatch_ai.application.user_preference_profile import UserPreferenceProfile
 from readmatch_ai.domain.book import Book
 from readmatch_ai.domain.explainer import (
     ExplainedRecommendationItem,
@@ -14,6 +15,7 @@ from readmatch_ai.domain.explainer import (
 )
 from readmatch_ai.domain.health import ComponentCheck, HealthStatus, ReadinessStatus
 from readmatch_ai.domain.interaction import UserInteraction
+from readmatch_ai.domain.preference_signal import UserPreferenceSignal
 from readmatch_ai.domain.recommendation import RecommendationResult
 
 
@@ -269,6 +271,59 @@ class InteractionListResponse(BaseModel):
     @classmethod
     def from_domain(cls, interactions: list[UserInteraction]) -> InteractionListResponse:
         return cls(items=[InteractionResponse.from_domain(i) for i in interactions])
+
+
+class PreferenceSignalRequest(BaseModel):
+    """Request body for POST /preference-signals (Sprint 14)."""
+
+    user_id: str
+    signal_type: str
+    value: str
+
+
+class PreferenceSignalResponse(BaseModel):
+    """API representation of a recorded UserPreferenceSignal."""
+
+    user_id: str
+    signal_type: str
+    value: str
+
+    @classmethod
+    def from_domain(cls, signal: UserPreferenceSignal) -> PreferenceSignalResponse:
+        return cls(
+            user_id=str(signal.user_id.value),
+            signal_type=signal.signal_type.value,
+            value=signal.value,
+        )
+
+
+class UserPreferenceProfileResponse(BaseModel):
+    """API representation of a UserPreferenceProfile (GET /preferences/{user_id}).
+
+    Exposes only the aggregated signals themselves (category/author/search
+    names, plus positive/negative book *counts*) -- the underlying books
+    are already fully browsable via the existing GET /library/{user_id},
+    so this endpoint does not re-resolve book presentations for the same
+    ids a second time.
+    """
+
+    favorite_categories: list[str]
+    favorite_authors: list[str]
+    recent_interests: list[str]
+    recent_search_terms: list[str]
+    positive_book_count: int
+    negative_book_count: int
+
+    @classmethod
+    def from_domain(cls, profile: UserPreferenceProfile) -> UserPreferenceProfileResponse:
+        return cls(
+            favorite_categories=list(profile.favorite_categories),
+            favorite_authors=list(profile.favorite_authors),
+            recent_interests=list(profile.recent_interests),
+            recent_search_terms=list(profile.recent_search_terms),
+            positive_book_count=len(profile.positive_book_ids),
+            negative_book_count=len(profile.negative_book_ids),
+        )
 
 
 class LibraryItemResponse(BaseModel):

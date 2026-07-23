@@ -16,6 +16,13 @@ class InteractionType(StrEnum):
     Distinct from UserBookInteraction (domain.user_book_interaction), which
     stores only the single aggregated implicit signal ALS trains on. This
     is the explicit, typed interaction capability Phase 3 adds.
+
+    VIEW/SEARCH_RESULT_CLICK/RECOMMENDATION_CLICK (Sprint 14) are
+    additional event-like behavior-tracking types, distinguishing *where*
+    a book was engaged with (a book detail page view, a click from search
+    results, a click from a recommendation row) for User Preference
+    Profile aggregation -- CLICK's original, undifferentiated meaning is
+    unchanged and still accepted, for backward compatibility.
     """
 
     CLICK = "click"
@@ -24,12 +31,23 @@ class InteractionType(StrEnum):
     BOOKMARK = "bookmark"
     READ = "read"
     RATING = "rating"
+    VIEW = "view"
+    SEARCH_RESULT_CLICK = "search_result_click"
+    RECOMMENDATION_CLICK = "recommendation_click"
 
 
-# CLICK is event-like: every recorded occurrence is an independent event.
-# Every other type is state-like: recording again for the same
-# (user, book, type) replaces the prior value -- see InteractionRepository.
-EVENT_LIKE_INTERACTION_TYPES = frozenset({InteractionType.CLICK})
+# CLICK/VIEW/SEARCH_RESULT_CLICK/RECOMMENDATION_CLICK are event-like: every
+# recorded occurrence is an independent event. Every other type is
+# state-like: recording again for the same (user, book, type) replaces the
+# prior value -- see InteractionRepository.
+EVENT_LIKE_INTERACTION_TYPES = frozenset(
+    {
+        InteractionType.CLICK,
+        InteractionType.VIEW,
+        InteractionType.SEARCH_RESULT_CLICK,
+        InteractionType.RECOMMENDATION_CLICK,
+    }
+)
 STATE_LIKE_INTERACTION_TYPES = frozenset(InteractionType) - EVENT_LIKE_INTERACTION_TYPES
 
 

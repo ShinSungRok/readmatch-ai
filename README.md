@@ -1,39 +1,121 @@
 # ReadMatch AI
 
-A production-oriented hybrid book recommendation portfolio project, built with
+**A hybrid book recommendation platform built to demonstrate production-grade
+system design end to end** — a public data pipeline; Popularity, Semantic,
+and implicit-ALS collaborative-filtering recommendation engines fused by a
+pluggable Hybrid ranking stage; a behavior-driven personalization loop
+(real user actions → an aggregated preference profile → visibly different
+recommendations and reasons); and a Next.js demo UI, all built with
 Domain-Driven Design, Clean Architecture, and Hexagonal Architecture.
 
-Core capabilities: public book-data import, popularity recommendation,
-semantic (embedding) recommendation, implicit-ALS collaborative filtering,
-hybrid ranking (fuses Popularity + Semantic + ALS via a pluggable
-`RankingStrategy` — Weighted Score Fusion or Reciprocal Rank Fusion), an
-independent re-ranking stage (diversity, novelty, popularity-penalty
-policies, composable via a `RecommendationReranker`), a personalized
-recommendation REST endpoint routing a user through the full
-Hybrid-ranking-then-re-ranking pipeline, deterministic structured
-explanations for why a book was recommended (via a `RecommendationExplainer`),
-offline evaluation, production observability (health/readiness endpoints,
-structured recommendation execution logging, in-process operational metrics),
-fail-fast operational configuration validation with a redacted runtime
-summary, read-only production persistence/pgvector runtime validation
-integrated with readiness, deterministic deployment/container runtime
-validation, an aggregated read-only operations report, a unified release
-validation pipeline, a FastAPI recommendation service backed by PostgreSQL
-and pgvector, and a Next.js/TypeScript frontend (`frontend/`) consuming
-that API directly over HTTP.
+This is a personal portfolio project. Every recommendation, explanation, and
+personalization signal shown in the demo is computed live from real
+(synthetic-scale) data through the actual pipeline described below — nothing
+is mocked or hardcoded to look good; see the [Status note](#status-note) and
+[Future Improvements](#future-improvements) for an honest account of what's
+a placeholder versus production-real today.
 
-> **Status note:** the embedding generator wired by default
-> (`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
-> dependency-free placeholder — it derives a vector from a hash of a book's
-> text fields, not a real ML model. Semantic/Hybrid recommendation *quality*
-> numbers produced today (including in the demo below) reflect that
-> placeholder, not a trained embedding model. The architecture (ports,
-> pgvector storage, similarity search, evaluation pipeline) is real and
-> model-agnostic; swapping in a real model is a drop-in `BookEmbeddingGenerator`
-> implementation.
+## Core Features
+
+- **Multi-signal recommendation** — Popularity (persisted loan counts),
+  Semantic similarity (pgvector cosine distance over embeddings), and
+  implicit-ALS collaborative filtering, combined by a pluggable Hybrid
+  `RankingStrategy` (Weighted Score Fusion or Reciprocal Rank Fusion) and
+  independently re-ranked (popularity-penalty, novelty-boost, MMR
+  diversity).
+- **Explainable recommendations** — every personalized result carries
+  deterministic, evidence-based reasons for *why* it was recommended
+  (`RecommendationExplainer`) — never a fabricated reason or confidence
+  score, and zero reasons is a valid, honest answer for a cold-start item.
+- **Behavior-driven personalization** — real actions (search, view a book,
+  like, bookmark, rate) are recorded as typed events and aggregated into a
+  User Preference Profile (favorite categories/authors, recent interests,
+  recent searches) that visibly changes both the recommendation ranking
+  and the reasons shown for it — see
+  [User Behavior & Personalization](#user-behavior--personalization).
+- **Offline evaluation** — Precision@10/Recall@10/NDCG@10/Coverage against
+  a deterministic dataset, run as a regression/CI gate, not just a report.
+- **Production-readiness depth** — fail-fast configuration validation,
+  read-only persistence/pgvector runtime checks, deployment/startup
+  validation, an aggregated operations report, and a unified release
+  pipeline: the same operational rigor a real production service would
+  need, built out rather than left as a demo script.
+- **Full-stack, real over HTTP** — a FastAPI + PostgreSQL/pgvector backend
+  and a Next.js/TypeScript frontend (`frontend/`) that consumes it
+  directly over REST, with no server-side framework/database of its own.
+
+## Tech Stack
+
+| Layer            | Technology |
+|-------------------|------------|
+| Backend           | Python 3.11+, FastAPI, Pydantic |
+| Data / Storage    | PostgreSQL, pgvector |
+| Recommendation    | Popularity ranking, sentence embeddings (pgvector cosine similarity), implicit ALS (`implicit`), pluggable Hybrid fusion (Weighted Score / Reciprocal Rank), MMR diversity re-ranking |
+| Evaluation        | Precision@10, Recall@10, NDCG@10, Coverage (deterministic offline dataset) |
+| Frontend          | Next.js 16, TypeScript, Tailwind CSS |
+| Runtime           | Docker / Docker Compose |
+| Quality gates     | `ruff`, `mypy --strict`, `pytest` (+ `testcontainers` for real-PostgreSQL integration tests), ESLint, `tsc` |
+
+## Diagrams and Architecture Docs
+
+See [`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md)
+for the full diagrams (system structure, recommendation flow, user behavior
+data flow, and User Preference Profile generation) and
+[`docs/architecture/ADR.md`](docs/architecture/ADR.md) for the architecture
+decision record; the [Architecture](#architecture) section below covers the
+per-layer breakdown and file paths, and
+[User Behavior & Personalization](#user-behavior--personalization) walks
+through the personalization loop specifically.
+
+## Demo
+
+No static screenshots/GIFs are included in this repository (this is a
+backend-first portfolio project, developed and validated in an environment
+without browser automation — see
+[`docs/release/RELEASE_CANDIDATE.md`](docs/release/RELEASE_CANDIDATE.md)'s
+own Known Limitations) — the walkthroughs below are the actual, runnable
+demo. What each screen does:
+
+- **Home** (`/`) — a live backend-connectivity indicator, a first-visit
+  category-interest onboarding card, a hero for the top pick, a "For You"
+  row personalized from your own activity, and Popularity/Hybrid/Semantic/
+  category recommendation rows — every row backed by a real API call, no
+  client-side mock data.
+- **Search** (`/search?q=...`) — case-insensitive title/author/category
+  search over the same seeded catalog.
+- **Book Detail** (`/books/{id}`) — full metadata, like/bookmark/read/rate
+  controls, and a "Similar books" row (semantic similarity to that book).
+- **My Library** (`/library`) — every book you've liked/bookmarked/read/
+  rated/disliked, grouped by type.
+- **My Preferences** (`/preferences`) — your own aggregated preference
+  profile: favorite categories/authors, recent interests, recent searches,
+  and like/dislike counts.
+
+Run it yourself: [Quick Start](#quick-start) below, or the guided
+walkthroughs in [Try personalization](#try-personalization) and
+[Preference profile (Sprint 14)](#preference-profile-sprint-14) (a
+complete Guest → category interest → search → view → like/save →
+recommendation change → reason → My Preferences scenario), or the fuller
+[Manual Demo Walkthrough](docs/release/RELEASE_CANDIDATE.md#manual-demo-walkthrough).
+
+### Status note
+
+The embedding generator wired by default
+(`DeterministicFakeBookEmbeddingGenerator`) is a deterministic,
+dependency-free placeholder — it derives a vector from a hash of a book's
+text fields, not a real ML model. Semantic/Hybrid recommendation *quality*
+numbers produced today (including in the demo above) reflect that
+placeholder, not a trained embedding model. The architecture (ports,
+pgvector storage, similarity search, evaluation pipeline) is real and
+model-agnostic; swapping in a real model is a drop-in `BookEmbeddingGenerator`
+implementation. See [Future Improvements](#future-improvements) for this and
+every other known gap, stated plainly rather than glossed over.
 
 ## Contents
 
+- [Core Features](#core-features)
+- [Tech Stack](#tech-stack)
+- [Demo](#demo)
 - [Architecture](#architecture)
 - [Repository Structure](#repository-structure)
 - [Quick Start](#quick-start)
@@ -46,6 +128,7 @@ that API directly over HTTP.
   - [Run the frontend](#run-the-frontend)
   - [Try personalization](#try-personalization)
   - [Import real book data (optional)](#import-real-book-data-optional)
+- [User Behavior & Personalization](#user-behavior--personalization)
 - [API Reference](#api-reference)
 - [Observability](#observability)
 - [Operational Configuration and Runtime Hardening](#operational-configuration-and-runtime-hardening)
@@ -55,6 +138,7 @@ that API directly over HTTP.
 - [CI/CD and Release Automation](#cicd-and-release-automation)
 - [Operational Scripts Reference](#operational-scripts-reference)
 - [Testing](#testing)
+- [Future Improvements](#future-improvements)
 
 ## Architecture
 
@@ -64,9 +148,10 @@ ports, never the reverse.
 
 - `src/readmatch_ai/domain/` — entities, value objects, and ports
   (interfaces: `BookRepository`, `RecommendationEngine`,
-  `RecommendationReranker`, `RecommendationExplainer`,
-  `PersistenceRuntimeValidator`, ...). No dependency on any other layer, and
-  no raw environment-variable access (see `config.py` below).
+  `RecommendationReranker`, `RecommendationExplainer`, `InteractionRepository`,
+  `PreferenceSignalRepository`, `PersistenceRuntimeValidator`, ...). No
+  dependency on any other layer, and no raw environment-variable access
+  (see `config.py` below).
 - `src/readmatch_ai/application/` — use cases (one class per capability,
   e.g. `GetRecommendationsUseCase`, `HealthCheckService`,
   `ReadinessCheckService`). Depends only on Domain ports — never on
@@ -546,6 +631,39 @@ curl "http://localhost:8000/recommendations/personalized/$USER_ID/explained?limi
 export DATA4LIBRARY_AUTH_KEY=<your key>
 python scripts/import_books.py --start-date 2024-01-01 --end-date 2024-01-31
 ```
+
+## User Behavior & Personalization
+
+The personalization loop, end to end (full diagram in
+[`docs/architecture/SYSTEM_ARCHITECTURE.md`](docs/architecture/SYSTEM_ARCHITECTURE.md#user-behavior-data-flow)):
+
+```text
+User Action (search, view a book, like, bookmark, rate, ...)
+→ Behavior Event
+    - Book-scoped (view / search_result_click / recommendation_click /
+      like / dislike / bookmark / read / rating) -> POST /interactions
+    - Not book-scoped (category_interest / search) -> POST /preference-signals
+→ Preference Aggregation (GetUserPreferenceProfileUseCase -- pure counting/
+  ordering over the user's own recorded events, no ranking logic)
+→ User Preference Profile (favorite categories/authors, recent interests,
+  recent search terms, positive/negative book ids) -- GET /preferences/{user_id}
+→ Recommendation Engine (Popularity + Semantic + ALS -> Hybrid -> Re-rank;
+  entirely unchanged by personalization -- the profile never alters scoring)
+→ Recommendation Reason (the Domain explainer's evidence-based reasons,
+  plus Application-layer reasons -- favorite_category/favorite_author/
+  recent_search_match -- added only when the profile actually matches the
+  ranked item) -- GET /recommendations/personalized/{user_id}/explained
+→ Frontend (Home's "For You" row, RecommendationReason's chips, and the
+  My Preferences page all render this live, never a client-side mock)
+```
+
+Two properties this loop deliberately preserves: the recommendation
+*ranking* itself is never touched by the profile (only the stated reasons
+are annotated -- ADR-006/ADR-013), and every stage degrades gracefully for
+a cold-start user (no profile signal yet) rather than erroring. See
+[Try personalization](#try-personalization) and
+[Preference profile (Sprint 14)](#preference-profile-sprint-14) above for
+a guided, runnable walkthrough of this exact flow.
 
 ## API Reference
 
@@ -1457,3 +1575,55 @@ pytest tests/test_generate_quality_report.py   # quality-report CLI (success, re
 Integration tests that need PostgreSQL/pgvector spin up a disposable
 `pgvector/pgvector:pg16` container via `testcontainers` automatically — Docker
 must be available, but no manual setup is required.
+
+## Future Improvements
+
+Stated plainly, per this project's own "never exaggerate what's built"
+principle — every item below is a real, known gap, not a hidden one:
+
+- **Real embedding model** — swap `DeterministicFakeBookEmbeddingGenerator`
+  for a trained model (`EMBEDDING_GENERATOR_BACKEND=sentence_transformers`
+  is already a drop-in `BookEmbeddingGenerator` implementation; it's just
+  not the default, to keep the demo dependency-free and deterministic).
+- **Durable explicit interactions** — `POST /interactions` and
+  `POST /preference-signals` are backed by in-memory repositories only
+  (a deliberate Phase-3 scope decision, not an oversight); they don't
+  survive a server restart or share state across multiple `uvicorn`
+  workers. A PostgreSQL adapter for both would close this gap without
+  touching any Domain contract.
+- **Live ALS retraining** — the ALS model trains once at process startup;
+  ratings/likes recorded afterward boost/exclude live via
+  `ExplicitFeedbackPolicy`, but don't retrain the collaborative-filtering
+  model itself until the process restarts or the model is reloaded.
+- **Two known inefficiencies, not correctness bugs** — `GetPersonalLibraryUseCase`
+  resolves each library item's book presentation individually instead of
+  batching (the `execute_many` pattern `GetHomeFeedUseCase`/
+  `GetBookDetailUseCase` already use); `ALSRecommendationEngine.recommend`
+  looks up one book at a time per candidate examined rather than batching
+  the final candidate set.
+- **Search** — currently a case-insensitive partial match, ordered by
+  title only; no relevance ranking, autocomplete, search history, or
+  filters.
+- **Onboarding categories** — the first-visit category picker offers a
+  small, hardcoded list rather than one derived from the live catalog's
+  own (much more granular) category strings; it only ever feeds
+  `recent_interests` (display-only), never the favorite-category
+  matching used in recommendation reasons, so this is a cosmetic gap.
+- **No account system** — a user is an opaque, `localStorage`-backed
+  anonymous id, by design (Phase 3 explicitly excludes login/auth/session
+  management); a user's history doesn't follow them across browsers/devices.
+- **Real timestamps on behavior events** — "recent" interests/searches are
+  approximated from each repository's own natural append order, not an
+  actual recorded time; precise cross-signal recency would need a
+  timestamp field added to `UserInteraction`/`UserPreferenceSignal`.
+- **Collaborative filtering / ranking algorithm changes** — intentionally
+  out of this project's current scope (see `docs/agent/PROJECT_INSTRUCTIONS.md`);
+  the architecture (independent `RecommendationEngine`s, a pluggable
+  `RankingStrategy`, a composable `RecommendationReranker`) is designed to
+  accept a new algorithm as an additional adapter without touching
+  existing ones, whenever that's actually planned.
+
+See `docs/progress/PROJECT_PROGRESS.md`'s per-sprint "Deferred Items"
+sections for the full, dated history behind each of these, and
+`docs/release/RELEASE_CANDIDATE.md`'s Known Limitations for the
+release-readiness framing of the same gaps.

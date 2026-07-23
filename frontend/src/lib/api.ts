@@ -50,7 +50,19 @@ export interface BookSearchResult {
 }
 
 /** Mirrors readmatch_ai.domain.interaction.InteractionType exactly. */
-export type InteractionType = "click" | "like" | "dislike" | "bookmark" | "read" | "rating";
+export type InteractionType =
+  | "click"
+  | "like"
+  | "dislike"
+  | "bookmark"
+  | "read"
+  | "rating"
+  | "view"
+  | "search_result_click"
+  | "recommendation_click";
+
+/** Mirrors readmatch_ai.domain.preference_signal.PreferenceSignalType exactly. */
+export type PreferenceSignalType = "category_interest" | "search";
 
 /** Mirrors readmatch_ai.api.schemas.InteractionResponse (Sprint 44). */
 export interface Interaction {
@@ -75,6 +87,16 @@ export interface LibrarySection {
 
 export interface PersonalLibrary {
   sections: LibrarySection[];
+}
+
+/** Mirrors readmatch_ai.api.schemas.UserPreferenceProfileResponse (Sprint 14). */
+export interface UserPreferenceProfile {
+  favorite_categories: string[];
+  favorite_authors: string[];
+  recent_interests: string[];
+  recent_search_terms: string[];
+  positive_book_count: number;
+  negative_book_count: number;
 }
 
 export interface ComponentCheck {
@@ -185,6 +207,37 @@ export function getExplainedPersonalizedRecommendations(
   return apiFetch<{ items: HomeFeedItem[] }>(
     `/recommendations/personalized/${encodeURIComponent(userId)}/explained?${params}`,
   );
+}
+
+/**
+ * GET /preferences/{user_id} -- see readmatch_ai.api.preference_router.
+ *
+ * Built entirely from the user's own recorded interactions/preference
+ * signals; an unknown-but-well-formed user id (e.g. a brand new anonymous
+ * browser id) returns an all-empty/zero profile, not an error.
+ */
+export function getUserPreferenceProfile(userId: string): Promise<UserPreferenceProfile> {
+  return apiFetch<UserPreferenceProfile>(`/preferences/${encodeURIComponent(userId)}`);
+}
+
+/**
+ * POST /preference-signals -- see readmatch_ai.api.preference_signal_router.
+ *
+ * Records a behavior signal that isn't scoped to a single book (an
+ * onboarding category choice, or a submitted search query) -- inputs to
+ * GetUserPreferenceProfile. Book-scoped events go through
+ * recordInteraction instead.
+ */
+export function recordPreferenceSignal(
+  userId: string,
+  signalType: PreferenceSignalType,
+  value: string,
+): Promise<{ user_id: string; signal_type: PreferenceSignalType; value: string }> {
+  return apiFetch("/preference-signals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, signal_type: signalType, value }),
+  });
 }
 
 /**

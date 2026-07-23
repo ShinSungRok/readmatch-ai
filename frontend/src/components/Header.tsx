@@ -30,6 +30,7 @@ export function Header() {
           <NavLink href="/" label="Home" />
           <NavLink href="/search" label="Search" />
           <NavLink href="/library" label="My Library" />
+          <NavLink href="/preferences" label="My Preferences" />
         </nav>
       </div>
     </header>

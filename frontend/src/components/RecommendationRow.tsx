@@ -8,10 +8,12 @@ export function RecommendationRow({
   title,
   description,
   items,
+  recordsClickAs,
 }: {
   title: string;
   description?: string;
   items: HomeFeedItem[];
+  recordsClickAs?: "recommendation_click" | "search_result_click";
 }) {
   const scrollerRef = useRef<HTMLUListElement>(null);
 
@@ -35,7 +37,12 @@ export function RecommendationRow({
           className="scrollbar-hide flex snap-x gap-4 overflow-x-auto scroll-smooth pb-2"
         >
           {items.map((item, index) => (
-            <BookCard key={item.book.id} item={item} rank={index + 1} />
+            <BookCard
+              key={item.book.id}
+              item={item}
+              rank={index + 1}
+              recordsClickAs={recordsClickAs}
+            />
           ))}
         </ul>
         {/* Trackpad/touch scroll already works without these; they're a

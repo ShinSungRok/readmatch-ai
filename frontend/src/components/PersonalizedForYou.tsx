@@ -57,6 +57,7 @@ export function PersonalizedForYou() {
           : "Personalized using your recorded likes, bookmarks, ratings, and reads."
       }
       items={items}
+      recordsClickAs="recommendation_click"
     />
   );
 }

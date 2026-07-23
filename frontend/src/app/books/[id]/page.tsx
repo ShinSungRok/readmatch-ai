@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { BookCover } from "@/components/BookCover";
 import { FeedbackControls } from "@/components/FeedbackControls";
 import { RecommendationRow } from "@/components/RecommendationRow";
+import { RecordBookView } from "@/components/RecordBookView";
 import { getBookDetail } from "@/lib/api";
 
 export default async function BookDetailPage({
@@ -18,6 +19,7 @@ export default async function BookDetailPage({
 
   return (
     <div className="flex flex-col gap-10">
+      <RecordBookView bookId={book.id} />
       <section className="flex flex-col gap-6 sm:flex-row">
         <div className="aspect-[2/3] w-full flex-none overflow-hidden rounded-lg border border-black/10 sm:w-64 dark:border-white/15">
           <BookCover key={book.cover_url} coverUrl={book.cover_url} />

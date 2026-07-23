@@ -1,15 +1,40 @@
+"use client";
+
 import Link from "next/link";
 import type { HomeFeedItem } from "@/lib/api";
+import { recordInteraction } from "@/lib/api";
 import { BookCover } from "@/components/BookCover";
 import { FeedbackControls } from "@/components/FeedbackControls";
 import { RecommendationReason } from "@/components/RecommendationReason";
+import { useInteractions } from "@/components/InteractionProvider";
 
-export function BookCard({ item, rank }: { item: HomeFeedItem; rank?: number }) {
+export function BookCard({
+  item,
+  rank,
+  recordsClickAs,
+}: {
+  item: HomeFeedItem;
+  rank?: number;
+  /** When set, a click on the cover/title records this book-scoped event
+   * (fire-and-forget, never blocks navigation) -- e.g. "recommendation_click"
+   * for a Home/Book Detail recommendation row. Omitted entirely for
+   * contexts that are not a recommendation (e.g. My Library), so a click
+   * there is never misrecorded as a "recommendation click". */
+  recordsClickAs?: "recommendation_click" | "search_result_click";
+}) {
   const { book } = item;
+  const { userId } = useInteractions();
   const publisherLine = [book.publisher, book.published_date].filter(Boolean).join(" · ");
+
+  const handleClick = () => {
+    if (recordsClickAs && userId) {
+      void recordInteraction(userId, book.id, recordsClickAs);
+    }
+  };
+
   return (
     <li className="group w-40 flex-none snap-start sm:w-44">
-      <Link href={`/books/${book.id}`} className="block">
+      <Link href={`/books/${book.id}`} className="block" onClick={handleClick}>
         <div className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-black/10 transition-transform duration-200 ease-out group-hover:z-10 group-hover:scale-[1.06] group-hover:shadow-xl dark:border-white/15">
           <BookCover key={book.cover_url} coverUrl={book.cover_url} />
           {rank ? (

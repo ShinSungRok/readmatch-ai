@@ -1,5 +1,6 @@
 import { EmptyState } from "@/components/EmptyState";
 import { Hero } from "@/components/Hero";
+import { OnboardingCategoryPicker } from "@/components/OnboardingCategoryPicker";
 import { PersonalizedForYou } from "@/components/PersonalizedForYou";
 import { RecommendationRow } from "@/components/RecommendationRow";
 import { getHealth, getHomeFeed } from "@/lib/api";
@@ -17,6 +18,8 @@ export default async function HomePage() {
         Backend {health.healthy ? "connected" : "unavailable"}
       </div>
 
+      <OnboardingCategoryPicker />
+
       {!homeFeed.hero ? (
         <EmptyState message="No books have been registered yet." />
       ) : (
@@ -25,7 +28,12 @@ export default async function HomePage() {
           <div id="recommendations" className="flex scroll-mt-20 flex-col gap-10">
             <PersonalizedForYou />
             {homeFeed.sections.map((section) => (
-              <RecommendationRow key={section.id} title={section.title} items={section.items} />
+              <RecommendationRow
+                key={section.id}
+                title={section.title}
+                items={section.items}
+                recordsClickAs="recommendation_click"
+              />
             ))}
           </div>
         </>

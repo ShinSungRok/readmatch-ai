@@ -2,9 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { recordPreferenceSignal } from "@/lib/api";
+import { useInteractions } from "@/components/InteractionProvider";
 
 export function SearchForm({ initialQuery }: { initialQuery: string }) {
   const router = useRouter();
+  const { userId } = useInteractions();
   const [value, setValue] = useState(initialQuery);
 
   return (
@@ -14,6 +17,9 @@ export function SearchForm({ initialQuery }: { initialQuery: string }) {
       onSubmit={(event) => {
         event.preventDefault();
         const trimmed = value.trim();
+        if (trimmed && userId) {
+          void recordPreferenceSignal(userId, "search", trimmed);
+        }
         router.push(trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search");
       }}
     >

@@ -4,15 +4,15 @@ from pydantic import BaseModel
 
 from readmatch_ai.application.book_detail import BookDetail
 from readmatch_ai.application.book_presentation import BookPresentation
+from readmatch_ai.application.explained_personalized_recommendation import (
+    ExplainedPersonalizedRecommendationItem,
+    ExplainedPersonalizedRecommendationResult,
+)
 from readmatch_ai.application.home_feed import HomeFeed, HomeFeedItem, HomeFeedSection
 from readmatch_ai.application.personal_library import LibraryItem, LibrarySection, PersonalLibrary
 from readmatch_ai.application.user_preference_profile import UserPreferenceProfile
 from readmatch_ai.domain.book import Book
-from readmatch_ai.domain.explainer import (
-    ExplainedRecommendationItem,
-    ExplainedRecommendationResult,
-    ExplanationReason,
-)
+from readmatch_ai.domain.explainer import ExplanationReason
 from readmatch_ai.domain.health import ComponentCheck, HealthStatus, ReadinessStatus
 from readmatch_ai.domain.interaction import UserInteraction
 from readmatch_ai.domain.preference_signal import UserPreferenceSignal
@@ -144,6 +144,24 @@ class HomeFeedResponse(BaseModel):
         )
 
 
+class PersonalizedRecommendationResponse(BaseModel):
+    """API representation of GET /recommendations/personalized/{user_id}.
+
+    Reuses HomeFeedItemResponse as-is (book: BookPresentationResponse,
+    identical shape to the Home Feed's own payload) -- unlike
+    RecommendationResponse (used by /popularity, /semantic, /hybrid), which
+    still serializes the bare Domain Book. GenerateRerankedRecommendationUseCase
+    already returns presentation-ready HomeFeedItems, so this is a thin
+    wrapper, not a second translation step.
+    """
+
+    items: list[HomeFeedItemResponse]
+
+    @classmethod
+    def from_domain(cls, items: list[HomeFeedItem]) -> PersonalizedRecommendationResponse:
+        return cls(items=[HomeFeedItemResponse.from_domain(item) for item in items])
+
+
 class BookSearchResponse(BaseModel):
     """API representation of GET /books/search: presentation-ready matches.
 
@@ -194,39 +212,44 @@ class ExplanationReasonResponse(BaseModel):
 class ExplainedRecommendationItemResponse(BaseModel):
     """A ranked recommendation plus zero or more structured explanation reasons.
 
+    `book` is presentation-ready (BookPresentationResponse, cover_url/
+    publisher/description/published_date included) -- the same shape the
+    Home Feed returns, not the bare BookResponse this endpoint used to
+    serialize (which the frontend's BookCard cannot render a cover from).
+
     An empty `reasons` list is valid and expected when evidence is limited
     (e.g. a popularity-only fallback for a cold-start user) -- never padded
     with a fabricated reason.
     """
 
-    book: BookResponse
+    book: BookPresentationResponse
     score: float
     source: str
     reasons: list[ExplanationReasonResponse]
 
     @classmethod
     def from_domain(
-        cls, explained_item: ExplainedRecommendationItem
+        cls, explained_item: ExplainedPersonalizedRecommendationItem
     ) -> ExplainedRecommendationItemResponse:
         return cls(
-            book=BookResponse.from_domain(explained_item.item.book),
-            score=explained_item.item.score,
-            source=explained_item.item.source,
+            book=BookPresentationResponse.from_domain(explained_item.book),
+            score=explained_item.score,
+            source=explained_item.source,
             reasons=[
                 ExplanationReasonResponse.from_domain(reason)
-                for reason in explained_item.explanation.reasons
+                for reason in explained_item.reasons
             ],
         )
 
 
 class ExplainedRecommendationResponse(BaseModel):
-    """API representation of an ExplainedRecommendationResult."""
+    """API representation of an ExplainedPersonalizedRecommendationResult."""
 
     items: list[ExplainedRecommendationItemResponse]
 
     @classmethod
     def from_domain(
-        cls, result: ExplainedRecommendationResult
+        cls, result: ExplainedPersonalizedRecommendationResult
     ) -> ExplainedRecommendationResponse:
         return cls(
             items=[

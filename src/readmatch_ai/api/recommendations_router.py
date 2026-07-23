@@ -5,7 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from readmatch_ai.api.dependencies import get_application_context
-from readmatch_ai.api.schemas import ExplainedRecommendationResponse, RecommendationResponse
+from readmatch_ai.api.schemas import (
+    ExplainedRecommendationResponse,
+    PersonalizedRecommendationResponse,
+    RecommendationResponse,
+)
 from readmatch_ai.application_context import ApplicationContext
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
@@ -82,7 +86,7 @@ def get_hybrid_recommendations(
 
 @router.get(
     "/personalized/{user_id}",
-    response_model=RecommendationResponse,
+    response_model=PersonalizedRecommendationResponse,
     summary="Personalized recommendations (Hybrid ranking + re-ranking) for a user",
     description=(
         "Routes the given user through RecommendationEngine -> Hybrid ranking -> "
@@ -90,7 +94,9 @@ def get_hybrid_recommendations(
         "policies). book_id is optional: providing it also blends semantic similarity to that "
         "book. An unknown-but-well-formed user_id, a user with no interactions, or missing ALS "
         "training data all degrade gracefully to whichever signals remain active -- the "
-        "existing engine/reranker fallback behaviour, unchanged here -- rather than a 404."
+        "existing engine/reranker fallback behaviour, unchanged here -- rather than a 404. "
+        "Each book is presentation-ready (cover_url/publisher/description/published_date "
+        "included), identical in shape to the Home Feed's own payload."
     ),
 )
 def get_personalized_recommendations(
@@ -98,11 +104,11 @@ def get_personalized_recommendations(
     context: _ApplicationContextDependency,
     limit: _LimitQuery = 10,
     book_id: _BookIdQuery = None,
-) -> RecommendationResponse:
-    result = context.generate_reranked_recommendation_use_case.execute(
+) -> PersonalizedRecommendationResponse:
+    items = context.generate_reranked_recommendation_use_case.execute(
         limit=limit, book_id=book_id, user_id=user_id
     )
-    return RecommendationResponse.from_domain(result)
+    return PersonalizedRecommendationResponse.from_domain(items)
 
 
 @router.get(
@@ -118,7 +124,9 @@ def get_personalized_recommendations(
         "mathematical proof that a single signal alone caused a ranking position -- and no "
         "confidence value is included. An item may have no reasons at all when evidence is "
         "limited, e.g. a popularity-only fallback recommended to a cold-start user with no "
-        "interaction history and no source book_id."
+        "interaction history and no source book_id. Each book is presentation-ready "
+        "(cover_url/publisher/description/published_date included), identical in shape to the "
+        "Home Feed's own payload."
     ),
 )
 def get_explained_personalized_recommendations(

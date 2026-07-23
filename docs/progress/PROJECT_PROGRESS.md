@@ -3771,6 +3771,125 @@ while exercising the real stack.
 - Task 4 produced no code/doc diff of its own (validation only); this
   Progress Log entry is committed as the final commit of this Sprint.
 
+## Sprint 76 — Personalized Recommendation Presentation Fix
+
+### Repository Review
+
+- `git status` clean at start. This ticket is a direct, scoped bug report
+  (not a Planning-Agent Sprint brief with numbered Tasks): `GET
+  /recommendations/personalized/{user_id}` and `.../explained` serialized
+  the bare Domain `Book` through `BookResponse` (id/isbn/title/author/
+  category only), never the presentation-enriched `BookPresentation`
+  (cover_url/publisher/description/published_date) `GetHomeFeedUseCase`/
+  `GetBookDetailUseCase`/`SearchBooksUseCase` already return via the
+  existing `GetBookPresentationUseCase.execute_many()` -- confirmed by
+  reading `api/schemas.py` directly (`RecommendationItemResponse.book:
+  BookResponse` vs. `HomeFeedItemResponse.book: BookPresentationResponse`)
+  before writing any code. The frontend's `BookCard`/`PersonalizedForYou`
+  (Sprint 13) require `cover_url`, so the Home page's "For You" row
+  rendered blank covers -- everything else on Home works because
+  `home-feed` was already presentation-enriched; only the personalized
+  endpoints were not.
+
+### Fix
+
+- Confirmed `RecommendationItemResponse`/`RecommendationResponse` is
+  shared by `/popularity`, `/semantic/{book_id}`, and `/hybrid` too (not
+  just personalized) -- left completely untouched, since the bug report
+  scoped the fix to the two personalized endpoints specifically, and
+  changing the shared schema would have required enriching three
+  unrelated, unreported endpoints as well.
+- `GenerateRerankedRecommendationUseCase` (backs `GET /recommendations/
+  personalized/{user_id}`): added a `GetBookPresentationUseCase`
+  dependency; `execute()` now calls `execute_many()` once over the
+  engine's already-ranked items and returns `list[HomeFeedItem]` (the
+  *existing* Application DTO `GetHomeFeedUseCase`/`GetBookDetailUseCase`
+  already return -- reused as-is, no new DTO invented for this endpoint)
+  instead of the Domain's own `RecommendationResult`.
+- `GenerateExplainedPersonalizedRecommendationUseCase` (backs `.../explained`):
+  same `GetBookPresentationUseCase` dependency added; still computes
+  reasons exactly as before (Domain explainer + Sprint 14's profile-based
+  reasons, both untouched), then batches one `execute_many()` call and
+  returns a **new** Application DTO,
+  `ExplainedPersonalizedRecommendationResult`/`-Item`
+  (`application/explained_personalized_recommendation.py`, new file) --
+  a new type was unavoidable here specifically because the Domain's own
+  `ExplainedRecommendationItem`/`-Result` (`domain/explainer.py`) must not
+  be modified (the ticket's own explicit constraint), and reusing them
+  would have meant putting a `BookPresentation` where they type as `Book`.
+- `api/schemas.py`: added `PersonalizedRecommendationResponse` (a thin
+  wrapper reusing the existing `HomeFeedItemResponse` verbatim -- zero new
+  translation code) for the plain endpoint; `ExplainedRecommendationItemResponse`/
+  `ExplainedRecommendationResponse` (used by no other endpoint, safe to
+  change in place) now translate from the new Application DTO, with
+  `book: BookPresentationResponse` instead of `BookResponse`.
+- `application_context.py`: two-line change -- `book_presentation_use_case`
+  (already resolved earlier in `_compose`) passed into both use cases'
+  existing constructor calls. No new wiring logic.
+- No Domain file touched; `RecommendationItem`/`RecommendationEngine`/
+  `RecommendationResult` and every recommendation/re-ranking/explanation
+  algorithm are byte-for-byte unchanged -- this is purely a translation-
+  boundary fix (Application + API layers), exactly as the ticket required.
+
+### Runtime Validation
+
+- Ran `scripts/run_demo.py` end to end (in-memory, no Docker) -- unaffected
+  (it only ever read `book['title']`/`author`/`category` and `item['score']`,
+  fields that still exist unchanged in the new shape).
+- Live check against a fresh seeded PostgreSQL + real `uvicorn`: both
+  `GET /recommendations/personalized/{user_id}` and `.../explained` now
+  return `cover_url`/`publisher`/`description`/`published_date` -- verified
+  the returned book's key set is **identical** to `GET /home-feed`'s hero
+  book, and confirmed `GET /recommendations/popularity` (a sibling,
+  unreported endpoint) still returns the original, unchanged 5-field
+  `BookResponse` shape -- the fix's scope boundary held exactly as
+  intended. No error in the server log. Container/process stopped and
+  removed afterward.
+
+### Validation
+
+- `ruff check src tests scripts` -- pass.
+- `mypy --strict src tests scripts` -- pass (265 source files, +1 new
+  Application file).
+- `pytest -q` (full suite) -- **957 passed, 0 failed** (904 baseline +
+  rewritten `test_generate_reranked_recommendation_use_case.py`/
+  `test_generate_explained_personalized_recommendation_use_case.py` for
+  the new constructor/return shapes, plus new regression tests: two N+1
+  guards -- `GetBookPresentationUseCase.execute_many()` confirmed called
+  exactly once per request regardless of item count -- and two API-level
+  tests asserting the personalized/explained book payload's key set
+  matches the Home Feed's exactly).
+
+### Architecture Review
+
+- No Domain change. No ranking/scoring/algorithm change (`RecommendationEngine`,
+  `RankingStrategy`, every `RecommendationReranker` policy, and
+  `DefaultRecommendationExplainer` are all unchanged). `RecommendationItem`
+  carries no new metadata -- enrichment happens strictly at the
+  Application/API translation boundary, via the same
+  `GetBookPresentationUseCase` every other presentation-facing use case
+  already depends on.
+
+### Files Changed
+
+- Backend: `application_context.py`,
+  `application/generate_reranked_recommendation_use_case.py`,
+  `application/generate_explained_personalized_recommendation_use_case.py`,
+  `application/explained_personalized_recommendation.py` (new),
+  `api/schemas.py`, `api/recommendations_router.py`, plus
+  `tests/application/test_generate_reranked_recommendation_use_case.py`,
+  `tests/application/test_generate_explained_personalized_recommendation_use_case.py`,
+  `tests/test_application_context.py`, `tests/api/test_recommendations_router.py`.
+- No frontend file changed -- the ticket's own expectation ("Frontend 'For
+  You' covers must render without any frontend changes") holds: `BookCard`
+  already reads `item.book.cover_url` from whatever the API returns.
+
+### Deferred Items
+
+- None. This was a single, scoped bug fix with an explicit boundary
+  (personalized endpoints only); `/popularity`/`/semantic`/`/hybrid`
+  remaining un-enriched is the ticket's own stated scope, not a follow-up.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

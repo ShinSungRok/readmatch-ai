@@ -697,13 +697,15 @@ class ApplicationContext:
                 _observed(als_engine, "als", "als")
             ),
             generate_reranked_recommendation_use_case=GenerateRerankedRecommendationUseCase(
-                _observed(reranked_engine, "reranked", "personalized")
+                _observed(reranked_engine, "reranked", "personalized"),
+                book_presentation_use_case,
             ),
             generate_explained_personalized_recommendation_use_case=(
                 GenerateExplainedPersonalizedRecommendationUseCase(
                     _observed(reranked_engine, "reranked", "personalized_explained"),
                     explainer,
                     preference_profile_use_case,
+                    book_presentation_use_case,
                 )
             ),
             evaluate_recommendation_engine_use_case=EvaluateRecommendationEngineUseCase(),

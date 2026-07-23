@@ -4,10 +4,12 @@ from readmatch_ai.application.generate_explained_personalized_recommendation_use
     RECENT_SEARCH_MATCH_REASON,
     GenerateExplainedPersonalizedRecommendationUseCase,
 )
+from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
 from readmatch_ai.application.get_user_preference_profile_use_case import (
     GetUserPreferenceProfileUseCase,
 )
 from readmatch_ai.domain.book import ISBN, Author, Book, BookId, Category, Title
+from readmatch_ai.domain.book_metadata import BookMetadata
 from readmatch_ai.domain.explainer import (
     ExplanationContext,
     ExplanationReason,
@@ -24,6 +26,9 @@ from readmatch_ai.domain.recommendation import (
 )
 from readmatch_ai.domain.recommendation_engine import RecommendationEngine
 from readmatch_ai.domain.user import UserId
+from readmatch_ai.infrastructure.in_memory_book_metadata_repository import (
+    InMemoryBookMetadataRepository,
+)
 from readmatch_ai.infrastructure.in_memory_book_repository import InMemoryBookRepository
 from readmatch_ai.infrastructure.in_memory_interaction_repository import (
     InMemoryInteractionRepository,
@@ -65,10 +70,11 @@ def _book(
     title: str = "Clean Code",
     author: str = "Robert C. Martin",
     category: str = "Software Engineering",
+    isbn: str = "978-3-16-148410-0",
 ) -> Book:
     return Book(
         id=BookId.generate(),
-        isbn=ISBN("978-3-16-148410-0"),
+        isbn=ISBN(isbn),
         title=Title(title),
         author=Author(author),
         category=Category(category),
@@ -77,6 +83,14 @@ def _book(
 
 def _item(book: Book) -> RecommendationItem:
     return RecommendationItem(book=book, score=0.8, source="hybrid")
+
+
+def _book_presentation_use_case() -> GetBookPresentationUseCase:
+    """A real GetBookPresentationUseCase -- execute_many() never re-fetches
+    from BookRepository (it only needs the Book objects it's already
+    given), so an empty repository is fine for every test here.
+    """
+    return GetBookPresentationUseCase(InMemoryBookRepository(), InMemoryBookMetadataRepository())
 
 
 def _empty_profile_use_case() -> GetUserPreferenceProfileUseCase:
@@ -98,7 +112,7 @@ def test_execute_builds_the_recommendation_query_from_primitives() -> None:
     engine = FakeRecommendationEngine(RecommendationResult(Recommendation(items=[])))
     explainer = FakeRecommendationExplainer([])
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, _empty_profile_use_case()
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
     )
     book_id, user_id = BookId.generate(), UserId.generate()
 
@@ -111,7 +125,7 @@ def test_execute_passes_none_book_id_and_user_id_when_omitted() -> None:
     engine = FakeRecommendationEngine(RecommendationResult(Recommendation(items=[])))
     explainer = FakeRecommendationExplainer([])
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, _empty_profile_use_case()
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
     )
 
     use_case.execute(limit=5)
@@ -126,7 +140,7 @@ def test_execute_passes_the_engines_items_and_matching_context_to_the_explainer(
         [RecommendationExplanation(book_id=item.book.id, reasons=())]
     )
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, _empty_profile_use_case()
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
     )
     book_id, user_id = BookId.generate(), UserId.generate()
 
@@ -136,7 +150,7 @@ def test_execute_passes_the_engines_items_and_matching_context_to_the_explainer(
     assert explainer.received_context == ExplanationContext(book_id=book_id, user_id=user_id)
 
 
-def test_execute_pairs_each_item_with_its_explanation_in_order() -> None:
+def test_execute_pairs_each_item_with_its_reasons_in_order() -> None:
     first, second = _item(_book()), _item(_book())
     engine = FakeRecommendationEngine(
         RecommendationResult(Recommendation(items=[first, second]))
@@ -148,23 +162,47 @@ def test_execute_pairs_each_item_with_its_explanation_in_order() -> None:
     second_explanation = RecommendationExplanation(book_id=second.book.id, reasons=())
     explainer = FakeRecommendationExplainer([first_explanation, second_explanation])
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, _empty_profile_use_case()
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=5)
 
-    assert [explained.item for explained in result.items] == [first, second]
-    assert [explained.explanation for explained in result.items] == [
-        first_explanation,
-        second_explanation,
+    assert [explained.book.id for explained in result.items] == [
+        str(first.book.id.value),
+        str(second.book.id.value),
     ]
+    assert [explained.reasons for explained in result.items] == [
+        first_explanation.reasons,
+        second_explanation.reasons,
+    ]
+
+
+def test_execute_returns_presentation_ready_books() -> None:
+    """Regression guard: this endpoint used to serialize the bare Domain
+    Book (no cover_url/publisher/description/published_date), which the
+    frontend's BookCard cannot render a cover from.
+    """
+    item = _item(_book())
+    engine = FakeRecommendationEngine(RecommendationResult(Recommendation(items=[item])))
+    explainer = FakeRecommendationExplainer(
+        [RecommendationExplanation(book_id=item.book.id, reasons=())]
+    )
+    use_case = GenerateExplainedPersonalizedRecommendationUseCase(
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
+    )
+
+    result = use_case.execute(limit=5)
+
+    presentation = result.items[0].book
+    assert presentation.cover_url is not None and presentation.cover_url != ""
+    assert presentation.title == "Clean Code"
 
 
 def test_execute_returns_empty_result_when_engine_has_no_recommendations() -> None:
     engine = FakeRecommendationEngine(RecommendationResult(Recommendation(items=[])))
     explainer = FakeRecommendationExplainer([])
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, _empty_profile_use_case()
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=10)
@@ -178,12 +216,12 @@ def test_execute_does_not_add_profile_reasons_when_user_id_is_omitted() -> None:
     base_explanation = RecommendationExplanation(book_id=item.book.id, reasons=())
     explainer = FakeRecommendationExplainer([base_explanation])
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, _empty_profile_use_case()
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=5)
 
-    assert result.items[0].explanation == base_explanation
+    assert result.items[0].reasons == base_explanation.reasons
 
 
 def _profile_use_case_with_positive_book(
@@ -209,12 +247,12 @@ def test_execute_adds_a_favorite_category_reason_when_the_items_category_matches
         [RecommendationExplanation(book_id=candidate.book.id, reasons=())]
     )
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, profile_use_case
+        engine, explainer, profile_use_case, _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=5, user_id=str(user_id.value))
 
-    reason_types = [reason.type for reason in result.items[0].explanation.reasons]
+    reason_types = [reason.type for reason in result.items[0].reasons]
     assert reason_types == [FAVORITE_CATEGORY_REASON]
 
 
@@ -227,12 +265,12 @@ def test_execute_adds_a_favorite_author_reason_when_the_items_author_matches() -
         [RecommendationExplanation(book_id=candidate.book.id, reasons=())]
     )
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, profile_use_case
+        engine, explainer, profile_use_case, _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=5, user_id=str(user_id.value))
 
-    reason_types = [reason.type for reason in result.items[0].explanation.reasons]
+    reason_types = [reason.type for reason in result.items[0].reasons]
     assert reason_types == [FAVORITE_AUTHOR_REASON]
 
 
@@ -252,12 +290,12 @@ def test_execute_adds_a_recent_search_match_reason_when_a_search_term_matches_th
         [RecommendationExplanation(book_id=candidate.book.id, reasons=())]
     )
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, profile_use_case
+        engine, explainer, profile_use_case, _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=5, user_id=str(user_id.value))
 
-    reason_types = [reason.type for reason in result.items[0].explanation.reasons]
+    reason_types = [reason.type for reason in result.items[0].reasons]
     assert reason_types == [RECENT_SEARCH_MATCH_REASON]
 
 
@@ -271,12 +309,12 @@ def test_execute_preserves_existing_reasons_before_appending_profile_reasons() -
         [RecommendationExplanation(book_id=candidate.book.id, reasons=(popularity_reason,))]
     )
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, profile_use_case
+        engine, explainer, profile_use_case, _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=5, user_id=str(user_id.value))
 
-    reason_types = [reason.type for reason in result.items[0].explanation.reasons]
+    reason_types = [reason.type for reason in result.items[0].reasons]
     assert reason_types == ["popularity", FAVORITE_CATEGORY_REASON]
 
 
@@ -286,9 +324,47 @@ def test_execute_adds_no_profile_reasons_for_a_cold_start_user() -> None:
     base_explanation = RecommendationExplanation(book_id=item.book.id, reasons=())
     explainer = FakeRecommendationExplainer([base_explanation])
     use_case = GenerateExplainedPersonalizedRecommendationUseCase(
-        engine, explainer, _empty_profile_use_case()
+        engine, explainer, _empty_profile_use_case(), _book_presentation_use_case()
     )
 
     result = use_case.execute(limit=5, user_id=str(UserId.generate().value))
 
-    assert result.items[0].explanation == base_explanation
+    assert result.items[0].reasons == base_explanation.reasons
+
+
+def test_execute_looks_up_presentation_metadata_in_one_batch_call() -> None:
+    """Regression: N+1 guard -- one BookMetadataRepository round-trip for
+    the whole result set, never one per item.
+    """
+
+    class _CountingMetadataRepository(InMemoryBookMetadataRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.batch_call_count = 0
+
+        def get_by_book_ids(self, book_ids: list[BookId]) -> dict[BookId, BookMetadata]:
+            self.batch_call_count += 1
+            return super().get_by_book_ids(book_ids)
+
+    books = [
+        _book(isbn=isbn)
+        for isbn in ["978-3-16-148410-0", "0-306-40615-2", "9780132350884"]
+    ]
+    book_repository = InMemoryBookRepository()
+    for book in books:
+        book_repository.add(book)
+    metadata_repository = _CountingMetadataRepository()
+    presentation_use_case = GetBookPresentationUseCase(book_repository, metadata_repository)
+    items = [_item(book) for book in books]
+    engine = FakeRecommendationEngine(RecommendationResult(Recommendation(items=items)))
+    explainer = FakeRecommendationExplainer(
+        [RecommendationExplanation(book_id=item.book.id, reasons=()) for item in items]
+    )
+    use_case = GenerateExplainedPersonalizedRecommendationUseCase(
+        engine, explainer, _empty_profile_use_case(), presentation_use_case
+    )
+
+    result = use_case.execute(limit=10)
+
+    assert len(result.items) == 3
+    assert metadata_repository.batch_call_count == 1

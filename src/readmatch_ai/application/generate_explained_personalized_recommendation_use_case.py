@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import uuid
 
+from readmatch_ai.application.explained_personalized_recommendation import (
+    ExplainedPersonalizedRecommendationItem,
+    ExplainedPersonalizedRecommendationResult,
+)
+from readmatch_ai.application.get_book_presentation_use_case import GetBookPresentationUseCase
 from readmatch_ai.application.get_user_preference_profile_use_case import (
     GetUserPreferenceProfileUseCase,
 )
 from readmatch_ai.application.user_preference_profile import UserPreferenceProfile
 from readmatch_ai.domain.book import BookId
 from readmatch_ai.domain.explainer import (
-    ExplainedRecommendationItem,
-    ExplainedRecommendationResult,
     ExplanationContext,
     ExplanationReason,
     RecommendationExplainer,
@@ -42,6 +45,15 @@ class GenerateExplainedPersonalizedRecommendationUseCase:
     pass: the profile only annotates the same already-produced, already-
     ordered items with additional truthful text, in the Application layer
     (never in domain.explainer -- that stays untouched).
+
+    Also enriches every item via the existing GetBookPresentationUseCase
+    (one execute_many() batch call, not one lookup per item) and returns
+    ExplainedPersonalizedRecommendationResult (book: BookPresentation)
+    instead of the Domain's own ExplainedRecommendationResult (book: Book)
+    -- so GET /recommendations/personalized/{user_id}/explained returns
+    the same book payload shape (cover_url/publisher/description/
+    published_date included) the Home Feed already does, without adding
+    any metadata to RecommendationItem or the Domain explainer itself.
     """
 
     def __init__(
@@ -49,14 +61,16 @@ class GenerateExplainedPersonalizedRecommendationUseCase:
         recommendation_engine: RecommendationEngine,
         explainer: RecommendationExplainer,
         preference_profile_use_case: GetUserPreferenceProfileUseCase,
+        book_presentation_use_case: GetBookPresentationUseCase,
     ) -> None:
         self._recommendation_engine = recommendation_engine
         self._explainer = explainer
         self._preference_profile_use_case = preference_profile_use_case
+        self._book_presentation_use_case = book_presentation_use_case
 
     def execute(
         self, limit: int, book_id: str | None = None, user_id: str | None = None
-    ) -> ExplainedRecommendationResult:
+    ) -> ExplainedPersonalizedRecommendationResult:
         query_book_id = BookId(uuid.UUID(book_id)) if book_id is not None else None
         query_user_id = UserId(uuid.UUID(user_id)) if user_id is not None else None
         query = RecommendationQuery(limit=limit, book_id=query_book_id, user_id=query_user_id)
@@ -67,19 +81,26 @@ class GenerateExplainedPersonalizedRecommendationUseCase:
         profile = (
             self._preference_profile_use_case.execute(user_id) if user_id is not None else None
         )
+        # One batch presentation lookup for every item, not one
+        # BookMetadataRepository round-trip per item.
+        presentations = self._book_presentation_use_case.execute_many(
+            [item.book for item in items]
+        )
 
         explained_items = [
-            ExplainedRecommendationItem(
-                item=item,
-                explanation=(
+            ExplainedPersonalizedRecommendationItem(
+                book=presentations[str(item.book.id.value)],
+                score=item.score,
+                source=item.source,
+                reasons=(
                     explanation
                     if profile is None
                     else _with_profile_reasons(item, explanation, profile)
-                ),
+                ).reasons,
             )
             for item, explanation in zip(items, explanations, strict=True)
         ]
-        return ExplainedRecommendationResult(items=explained_items)
+        return ExplainedPersonalizedRecommendationResult(items=explained_items)
 
 
 def _with_profile_reasons(

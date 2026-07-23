@@ -650,3 +650,64 @@ def test_explained_recommendations_response_matches_personalized_recommendations
     assert set(plain_item) == {"book", "score", "source"}
     assert set(explained_item) == {"book", "score", "source", "reasons"}
     assert {k: v for k, v in explained_item.items() if k != "reasons"} == plain_item
+
+
+def test_personalized_recommendations_book_is_presentation_ready(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    """Regression guard: GET /recommendations/personalized/{user_id} used to
+    serialize the bare Domain Book (id/isbn/title/author/category only),
+    which the frontend's BookCard cannot render a cover from -- the "For
+    You" row rendered blank covers. The book payload must now match the
+    Home Feed's own presentation-ready shape exactly.
+    """
+    book = application_context.register_book_use_case.execute(_valid_input())
+    application_context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=10, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    response = client.get(f"/recommendations/personalized/{uuid.uuid4()}")
+
+    assert response.status_code == 200
+    book_payload = response.json()["items"][0]["book"]
+    assert set(book_payload) == {
+        "id",
+        "isbn",
+        "title",
+        "author",
+        "category",
+        "publisher",
+        "description",
+        "cover_url",
+        "published_date",
+    }
+    assert book_payload["cover_url"]
+
+
+def test_explained_recommendations_book_is_presentation_ready(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    """Same regression guard as the plain endpoint above, for
+    GET /recommendations/personalized/{user_id}/explained.
+    """
+    book = application_context.register_book_use_case.execute(_valid_input())
+    application_context.book_popularity_repository.record(
+        BookPopularity(book.id, loan_count=10, period_start="2024-01-01", period_end="2024-01-31")
+    )
+
+    response = client.get(f"/recommendations/personalized/{uuid.uuid4()}/explained")
+
+    assert response.status_code == 200
+    book_payload = response.json()["items"][0]["book"]
+    assert set(book_payload) == {
+        "id",
+        "isbn",
+        "title",
+        "author",
+        "category",
+        "publisher",
+        "description",
+        "cover_url",
+        "published_date",
+    }
+    assert book_payload["cover_url"]

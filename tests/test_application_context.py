@@ -250,7 +250,7 @@ def test_create_accepts_an_explicit_reranked_recommendation_engine() -> None:
     context = ApplicationContext.create(reranked_recommendation_engine=engine)
 
     result = context.generate_reranked_recommendation_use_case.execute(limit=1)
-    assert result is sentinel_result
+    assert result == []
 
 
 def test_reranked_recommendations_preserve_the_requested_count_and_exclude_the_source_book() -> (
@@ -279,8 +279,8 @@ def test_reranked_recommendations_preserve_the_requested_count_and_exclude_the_s
         limit=3, book_id=str(source.id.value)
     )
 
-    assert len(result.recommendation.items) == 3
-    assert all(item.book.id != source.id for item in result.recommendation.items)
+    assert len(result) == 3
+    assert all(item.book.id != str(source.id.value) for item in result)
 
 
 def test_create_exposes_the_resolved_recommendation_engines() -> None:
@@ -331,8 +331,8 @@ def test_explained_personalized_recommendations_include_evidence_based_reasons()
     )
 
     assert len(result.items) == 1
-    assert result.items[0].item.book.id == book.id
-    reason_types = [reason.type for reason in result.items[0].explanation.reasons]
+    assert result.items[0].book.id == str(book.id.value)
+    reason_types = [reason.type for reason in result.items[0].reasons]
     assert "popularity" in reason_types
     assert "novelty" in reason_types
 

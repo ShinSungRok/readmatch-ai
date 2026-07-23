@@ -200,6 +200,16 @@ gives the same data as interactive OpenAPI. `scripts/seed_demo_data.py` is
 safe to re-run at any point (upserts by ISBN/book id, never duplicates) if
 you want to confirm the data hasn't drifted.
 
+Below the hero, a **"For You"** row (Sprint 13) starts with a "Not enough
+activity yet" cold-start note. Like or Bookmark a book (`FeedbackControls`
+on any card, the hero, or the book detail page), and the row re-fetches
+`GET /recommendations/personalized/{user_id}/explained` automatically: the
+note disappears, the interacted book ranks higher, and its reason chip
+shows the backend's real evidence instead of the generic per-source label.
+`/library` reflects the same interaction under "Liked"/"Bookmarked"; the
+[README's "Try personalization"](../../README.md#try-personalization)
+section has the full walkthrough plus a browser-free `curl` equivalent.
+
 **Troubleshooting**:
 - `relation "book_metadata" does not exist` (or any other `does not exist`
   from a fresh database): a migration was skipped. Re-run step 1 with the

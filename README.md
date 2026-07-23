@@ -44,6 +44,7 @@ that API directly over HTTP.
   - [Run the API server](#run-the-api-server)
   - [Seed demo data](#seed-demo-data)
   - [Run the frontend](#run-the-frontend)
+  - [Try personalization](#try-personalization)
   - [Import real book data (optional)](#import-real-book-data-optional)
 - [API Reference](#api-reference)
 - [Observability](#observability)
@@ -439,6 +440,62 @@ Open `http://localhost:3000`. See [`frontend/README.md`](frontend/README.md)
 for layout, environment configuration (`NEXT_PUBLIC_API_BASE_URL`), and
 frontend-specific validation (`npm run lint`, `npx tsc --noEmit`,
 `npm run build`).
+
+### Try personalization
+
+With the backend seeded (above) and the frontend running, the Home page's
+**"For You"** row (`PersonalizedForYou`, Sprint 13) is the shortest path to
+seeing an interaction change a recommendation result, end to end, in the
+browser:
+
+1. Open `http://localhost:3000`. A first-time browser gets a fresh
+   anonymous id (`localStorage`, no login) and the "For You" row shows a
+   **"Not enough activity yet"** note — cold-start, popularity-based picks,
+   same for every new visitor.
+2. Click **Like** or **Bookmark** on any book (Hero, a book card, or the
+   Book Detail page — `FeedbackControls`, unchanged this Sprint).
+3. The "For You" row re-fetches automatically (no page reload) via the
+   existing `GET /recommendations/personalized/{user_id}/explained`
+   endpoint: the cold-start note disappears, the book you just liked ranks
+   higher, and its reason chip now shows the backend's real evidence
+   (e.g. "Popular with many readers · You have not interacted with this
+   book before.") instead of the old generic per-source label.
+4. Open `/library` (My Library) — the same book now appears under
+   "Liked"/"Bookmarked". Un-toggle it (same button, or from the Library
+   page) and it disappears from both `/library` and the next "For You"
+   refresh — reverting to the pre-interaction ranking.
+
+No new backend endpoint or ranking logic was added for this — `/recommendations/personalized/{user_id}/explained`
+and its live `ExplicitFeedbackPolicy` boost/exclusion have existed since
+Sprint 29/46; this Sprint only connected the frontend to them (previously,
+no page ever called that endpoint at all — see Known Limitations below).
+
+To verify the same before/after difference without a browser (e.g. in a
+headless/CI environment), call the endpoint directly:
+
+```bash
+USER_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
+BOOK_ID=<any seeded book id, e.g. from GET /home-feed>
+
+# Before: cold-start score (popularity/semantic fallback only)
+curl -s "http://localhost:8000/recommendations/personalized/$USER_ID/explained?limit=1" | python3 -m json.tool
+
+curl -s -X POST http://localhost:8000/interactions -H "Content-Type: application/json" \
+  -d "{\"user_id\":\"$USER_ID\",\"book_id\":\"$BOOK_ID\",\"interaction_type\":\"bookmark\"}"
+
+# After: the bookmarked book's score is boosted (ExplicitFeedbackPolicy, +0.15)
+curl -s "http://localhost:8000/recommendations/personalized/$USER_ID/explained?limit=1" | python3 -m json.tool
+```
+
+**Known limitations** (pre-existing, not introduced this Sprint — see
+`docs/release/RELEASE_CANDIDATE.md`'s own Known Limitations for the full
+list): explicit interactions (`POST /interactions`, which both `/library`
+and this row depend on) are stored in-memory only and are lost on server
+restart / not shared across multiple `uvicorn` workers; and the ALS/novelty
+signal only reflects data present when the process started, not
+interactions recorded afterward through the live API — only the
+`ExplicitFeedbackPolicy` boost/exclusion (what the walkthrough above
+demonstrates) reacts live, per request.
 
 ### Import real book data (optional)
 

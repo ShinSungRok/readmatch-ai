@@ -2753,6 +2753,260 @@ while exercising the real stack.
   Elasticsearch/OpenSearch, natural-language/LLM/RAG search -- unchanged,
   still out of scope.
 
+## Sprint 72 — Personalization Experience Audit and Gap Closure (Planning Agent's "Sprint 13")
+
+### Task 1 — Existing Personalization Audit
+
+- Status: Done.
+- Audited the full User ID -> Interaction -> Library -> Personalized
+  Recommendation -> Recommendation Reason flow against the real,
+  already-committed source (not assumed from this Progress Log alone).
+  Summary, most-to-least significant:
+  - **User ID**: fully wired, deliberately minimal, by design — no `users`
+    table (`migrations/0006_create_user_book_interactions_table.sql`'s own
+    header states this explicitly), a UUID-only `UserId`
+    (`domain/user.py`), and a `localStorage`-backed anonymous id
+    (`frontend/src/lib/anonymousUser.ts`, Sprint 45) that survives a
+    refresh. No defect.
+  - **Interaction registration/deletion**: `POST`/`DELETE`/`GET
+    /interactions` (Sprint 44) are fully implemented, validated (404
+    unknown book, 400 malformed id/unknown type/out-of-range rating), and
+    idempotent (re-`POST`ing a state-like type upserts, never
+    duplicates — confirmed live, see Task 3). No defect in the API itself.
+  - **Library**: `GET /library/{user_id}` (Sprint 45) is fully implemented
+    and correctly composed from the same interaction store. Confirmed
+    (not previously recorded in this log) an existing N+1: `GetPersonal-
+    LibraryUseCase.execute` fetches each library item's presentation
+    individually instead of via the existing `GetBookPresentationUseCase
+    .execute_many` batch path that `GetHomeFeedUseCase`/`GetBookDetail-
+    UseCase` already use for the same purpose — **not fixed this Sprint**
+    (see Deferred Items: it is a real inefficiency, not a broken
+    connection, and fixing it would require adding a new `BookRepository`
+    batch-lookup port method — a larger change than this Sprint's "only
+    fix the actual connection gap" mandate justifies).
+  - **Personalized Recommendation**: `GET /recommendations/personalized/
+    {user_id}` and `.../explained` (Sprint 29/46) are fully implemented
+    and demonstrably reactive — `ExplicitFeedbackPolicy` boosts/excludes
+    live, per request, based on a user's own recorded Like/Bookmark/
+    Rating/Dislike/Read (confirmed live in Task 3: a bookmarked book's
+    score rose from `0.7999...` to `0.9049...`, then reverted after
+    deleting the interaction). Cold-start degrades gracefully to
+    Popularity+Semantic for an unknown/new `user_id` (confirmed live).
+  - **Recommendation Reason**: the backend's `DefaultRecommendationExplainer`
+    (Sprint 29) genuinely derives reasons from actual computed evidence
+    (`popularity`/`semantic_similarity`/`collaborative_behavior`/`novelty`/
+    `diversity`) — never fabricated, zero reasons is valid. **The real
+    gap**: nothing in the shipped frontend ever called `/recommendations/
+    personalized/{user_id}` or `.../explained` at all (confirmed by
+    `grep` — the strings `"personalized"`/`"explained"` did not appear
+    anywhere under `frontend/src/` before this Sprint). The Home page
+    (`GET /home-feed`, Sprint 42) takes no `user_id` and is identical for
+    every visitor; its own `RecommendationReason` component only ever
+    rendered a static, generic per-`source` label — never the backend's
+    real, evidence-based reasons. This is the single missing connection
+    this Sprint's Task 2 closes.
+  - Duplicate Interaction policy: idempotent upsert for state-like types
+    (`like`/`dislike`/`bookmark`/`read`/`rating`), confirmed live —
+    re-recording the same type for the same user/book does not create a
+    second entry. `click` is event-like and explicitly rejected by
+    `DELETE` (400, confirmed live).
+  - Nonexistent user: never an error anywhere (no Users table to check
+    against) — an unknown-but-well-formed `user_id` returns an empty
+    library / cold-start recommendations, confirmed live.
+  - Known, pre-existing, *deliberate* limitation — re-confirmed, not
+    newly discovered: the explicit `InteractionRepository` (Sprint 44)
+    has only an in-memory adapter (no PostgreSQL table), so `/interactions`
+    /`/library` state does not survive a server restart and never feeds
+    the implicit `UserBookInteractionRepository`/ALS/novelty signal live
+    (already documented in `docs/release/RELEASE_CANDIDATE.md`'s Known
+    Limitations — "ALS trains once, eagerly, at process startup..."). Out
+    of this Sprint's scope to change (would mean new Infrastructure/
+    Collaborative-Filtering work, both explicitly Out of Scope) — recorded
+    here only to confirm the audit found it, not a new defect.
+  - Frontend/API contract: matches exactly (`frontend/src/lib/api.ts`
+    types mirror every consumed response schema); the only mismatch was
+    the *absence* of a client function for the personalized/explained
+    endpoints, not an incorrect one.
+
+### Task 2 — Personalization Gap Closure
+
+- Status: Done. Frontend-only change; no backend file was touched (the
+  backend side of every priority in this Task's brief already worked, per
+  Task 1 — the gap was entirely "nothing calls it").
+- Added a **"For You"** row to the Home page
+  (`frontend/src/components/PersonalizedForYou.tsx`, new, client
+  component), which calls the existing, previously-orphaned `GET
+  /recommendations/personalized/{user_id}/explained` — reusing the
+  anonymous user id already established by `InteractionProvider`/
+  `getOrCreateAnonymousUserId()` (Sprint 45), and reusing `RecommendationRow`
+  /`BookCard` unchanged for the actual list rendering (no new list/card
+  markup written).
+- `frontend/src/lib/api.ts`: added `getExplainedPersonalizedRecommendations`
+  (typed client for the endpoint above) and an `ExplanationReason` type
+  mirroring `ExplanationReasonResponse` exactly; `HomeFeedItem` gained one
+  optional `reasons?: ExplanationReason[]` field (absent/undefined for
+  every other existing caller — `/home-feed`, Book Detail's similar books —
+  so their behavior is provably unchanged).
+- `frontend/src/components/RecommendationReason.tsx`: now renders the
+  real `reasons` messages when present (e.g. "Popular with many readers ·
+  You have not interacted with this book before."), falling back to the
+  existing generic per-`source` label exactly as before when `reasons` is
+  absent — the only other two call sites (`Hero.tsx`, and `BookCard.tsx`
+  for the ordinary Home/Search/Library rows) pass no `reasons` and are
+  therefore visually identical to before this Sprint (confirmed: `grep`
+  shows only `BookCard.tsx` was updated to pass `item.reasons` through).
+- `frontend/src/components/InteractionProvider.tsx`: exposed two new
+  context fields, `interactionCount` (`interactions.size`, the existing
+  state — a real cold-start signal, not a new store) and `revision` (a
+  counter incremented after every successful load/record/clear of the
+  existing `interactions` state) — so `PersonalizedForYou` can re-fetch
+  exactly when this browser's own interaction history actually changed,
+  without polling.
+- Cold-start UI: `PersonalizedForYou` shows a "Not enough activity yet —
+  showing popularity-based picks..." note when `interactionCount === 0`
+  (a brand-new anonymous id), and a "Personalized using your recorded
+  likes, bookmarks, ratings, and reads." note otherwise — satisfying this
+  Sprint's "행동 데이터가 부족하면 명확한 Cold-start 결과 제공" requirement
+  without inventing a new cold-start code path (the backend's existing
+  degrade-gracefully behavior, from Task 1, already provides it; this is
+  only the missing UI label for it).
+- `frontend/src/app/page.tsx`: one import + one line
+  (`<PersonalizedForYou />`) inside the existing `#recommendations` div,
+  right after `Hero` — Home's own structure, Server-Component boundary,
+  and every other section are otherwise untouched.
+- Deliberately not done (per this Sprint's Out of Scope and Task 1's
+  findings): no PostgreSQL adapter for the explicit interaction store, no
+  live ALS retraining, no login/User entity/session, no new recommendation
+  endpoint, algorithm, or ranking policy — the entire fix is "call the
+  endpoint that already existed and already worked."
+
+### Task 3 — Runtime Validation and Documentation
+
+- Status: Done, with the same browser-automation limitation recorded in
+  Sprints 69-71 (still no Playwright/Puppeteer/equivalent available in
+  this environment) — substituted with direct API (`curl`) validation
+  plus inspection of both the `uvicorn` and `next dev` server logs and the
+  compiled frontend bundle/build output, per this Sprint's own explicit
+  fallback instruction.
+- Environment: fresh `pgvector/pgvector:pg16` container, all 10 migrations
+  applied (`migrations/0*.sql`), seeded via `scripts/seed_demo_data.py`
+  (10 real Data4Library records; `Seeded 10 new, 0 updated, 0 unchanged`),
+  real `uvicorn` (`BOOK_REPOSITORY_BACKEND=postgresql`) + real `next dev`.
+- Personalization scenario, exercised end to end via `curl` against the
+  live server (a fresh, random demo `user_id` — no auth to seed):
+  1. Cold-start `GET .../explained` for the brand-new user: real items,
+     `popularity`/`novelty` reasons only, no error.
+  2. Empty `GET /library/{user_id}`: `{"sections": []}`.
+  3. `POST /interactions` (bookmark) on the top item -> `201`.
+  4. `GET /library/{user_id}`: the book now appears under "Bookmarked".
+  5. `GET .../explained` again: the same book's score rose from
+     `0.7999999999999999` to `0.9049999999999999` (the `+0.15`
+     `ExplicitFeedbackPolicy` boost, live, no retrain) — a real,
+     measurable before/after difference.
+  6. `DELETE /interactions` (bookmark) -> `204`.
+  7. `GET /library/{user_id}`: back to `{"sections": []}`.
+  8. `GET .../explained` again: score back to `0.7999999999999999`.
+- Additional edge cases, all confirmed live: malformed `user_id` (400,
+  both on `POST /interactions` and `GET /library/{id}`), unknown `book_id`
+  on `POST /interactions` (404), unknown `interaction_type` (400), rating
+  `value=6` (400, "must be between 1 and 5"), rating with no `value` (400),
+  `DELETE .../interaction_type=click` (400, event-like), and duplicate
+  `like` registration for the same user/book (both calls `201`, but the
+  resulting library has exactly one item — upsert, not accumulation,
+  confirmed live).
+- Regression, same live server: `GET /home-feed` (real hero + 5 sections,
+  unchanged), `GET /books/{id}` (real presentation + 9 similar books),
+  `GET /books/search?q=한강` (4 matches), `GET /books/{unknown-id}` (404) —
+  all identical to Sprint 69-71's own results, confirming this Sprint's
+  frontend-only change caused no backend regression.
+- Frontend: `next dev` served `/`, `/library`, `/search?q=한강`,
+  `/books/{id}` all `200`, no server-side exception in the `next dev` log;
+  the compiled client bundle fetched from `/` contains the
+  `PersonalizedForYou` component (confirmed by `grep`), i.e. it is
+  actually wired into the shipped page, not dead code. The row's *live
+  client-side* fetch/render itself could not be independently confirmed
+  without a browser (the stated limitation) — the underlying API call it
+  makes was instead verified directly (see the `curl` scenario above) and
+  the component was code-reviewed for correctness (mount effect depends
+  on `[userId, revision]`, guarded on `userId` being non-null, matching
+  the existing `InteractionProvider`/`Library` page pattern for
+  client-only, `localStorage`-dependent data).
+- All started processes (`uvicorn`, `next dev`) and the
+  `readmatch-postgres` container were stopped/removed after validation.
+- Documentation: added a ["Try personalization"](../../README.md#try-personalization)
+  subsection to `README.md` (Contents entry + section, between "Run the
+  frontend" and "Import real book data"), with the full browser
+  walkthrough plus a browser-free `curl` equivalent of the Task 3 scenario
+  above; added a short paragraph + cross-reference to `docs/release/
+  RELEASE_CANDIDATE.md`'s Manual Demo Walkthrough. No existing Known
+  Limitations entry needed a correction — the ALS/novelty/in-memory-store
+  limitation Task 1 re-confirmed was already accurately documented there.
+
+### Validation
+
+- Backend: `python3 -m ruff check src tests scripts` — pass;
+  `python3 -m mypy --strict src tests scripts` — pass (249 source files,
+  unchanged from Sprint 71 — no backend file was touched this Sprint);
+  `python3 -m pytest -q` (full suite) — 904 passed (identical count to
+  Sprint 71 — no backend test was added or removed).
+- Frontend: `npm run lint` — pass (0 errors, same 1 pre-existing
+  `BookCover.tsx` `no-img-element` warning); `npx tsc --noEmit` — pass;
+  `npm run build` — pass (Turbopack production build; `/`, `/books/[id]`,
+  `/library`, `/search`, `/_not-found` all compiled, unchanged route
+  list from Sprint 71).
+- Demo Seed / Interaction registration-query-deletion / Library / Cold-start
+  / Personalized-recommendation-before-after / Home-Search-Detail
+  regression: all exercised live against a real PostgreSQL-backed server —
+  see Task 3.
+
+### Architecture Review
+
+- No Domain entity, port, or algorithm changed; no new recommendation
+  endpoint, ranking policy, or Infrastructure adapter added; no new
+  dependency added to `pyproject.toml` or `frontend/package.json`. The
+  only new file is a Client Component consuming an existing, already-typed
+  REST endpoint — the same "thin REST consumer" shape every other page/
+  component in `frontend/` already follows.
+
+### Files Changed
+
+- Frontend: `lib/api.ts`, `components/InteractionProvider.tsx`,
+  `components/RecommendationReason.tsx`, `components/BookCard.tsx`,
+  `components/PersonalizedForYou.tsx` (new), `app/page.tsx`.
+- Docs: `README.md` (Contents entry + "Try personalization" section),
+  `docs/release/RELEASE_CANDIDATE.md` (Manual Demo Walkthrough addition),
+  this Progress Log entry.
+- No backend (`src/`, `tests/`, `scripts/`, `migrations/`) file changed.
+
+### Deferred Items
+
+- `GetPersonalLibraryUseCase`'s N+1 (one `BookRepository`/
+  `BookMetadataRepository` round-trip per library item instead of a
+  batched `execute_many` call) — a real inefficiency found in Task 1, not
+  fixed this Sprint: doing so would require adding a new batch-lookup
+  method to the `BookRepository` port (implemented on both the in-memory
+  and PostgreSQL adapters, plus any test-only stub repositories, per the
+  Sprint 71 precedent for adding a port method) — larger than this
+  Sprint's "only fix the actual connection gap" mandate. Left for a future
+  Sprint's own decision.
+- No PostgreSQL adapter for the explicit `InteractionRepository`; explicit
+  interactions never feed `UserBookInteractionRepository`/ALS/novelty
+  live — both pre-existing, deliberate (Sprint 44) decisions, explicitly
+  out of this Sprint's scope (Collaborative Filtering / new Infrastructure
+  are both banned by this Sprint's own Out of Scope list). Recorded again
+  here only because Task 1 re-confirmed both are still true.
+- ALS engine's own N+1 (`ALSRecommendationEngine.recommend`, one
+  `BookRepository.get_by_id` call per candidate examined) — found in
+  Task 1, not touched: fixing it would mean editing ranking-engine code,
+  which risks crossing into "change algorithm" territory this Sprint's
+  Out of Scope explicitly forbids; left for a future Sprint that is
+  actually scoped to touch the recommendation engines.
+- Book Detail page's own "Similar books" row still has no per-user
+  personalization signal (book-based semantic similarity only, unchanged)
+  — Home's "For You" row was this Sprint's chosen minimal surface per its
+  own "재사용을 최대화" instruction; extending personalization to Book
+  Detail as well was not requested and was not started.
+
 ## Current Constraints
 
 - Implement only approved Tasks.

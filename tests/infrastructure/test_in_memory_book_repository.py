@@ -148,3 +148,56 @@ def test_update_keeping_own_isbn_does_not_raise() -> None:
     stored = repo.get_by_id(book.id)
     assert stored is not None
     assert stored.title.value == "Retitled"
+
+
+def _make_search_book(title: str, author: str, category: str, isbn: str) -> Book:
+    return Book(
+        id=BookId.generate(),
+        isbn=ISBN(isbn),
+        title=Title(title),
+        author=Author(author),
+        category=Category(category),
+    )
+
+
+def test_search_matches_title_case_insensitively() -> None:
+    repo = InMemoryBookRepository()
+    book = _make_search_book("The Pragmatic Programmer", "Andrew Hunt", "Software Engineering",
+                              "978-3-16-148410-0")
+    repo.add(book)
+
+    assert repo.search("pragmatic", limit=10) == [book]
+
+
+def test_search_matches_author() -> None:
+    repo = InMemoryBookRepository()
+    book = _make_search_book("Dune", "Frank Herbert", "Science Fiction", "0-306-40615-2")
+    repo.add(book)
+
+    assert repo.search("herbert", limit=10) == [book]
+
+
+def test_search_matches_category() -> None:
+    repo = InMemoryBookRepository()
+    book = _make_search_book("Dune", "Frank Herbert", "Science Fiction", "0-306-40615-2")
+    repo.add(book)
+
+    assert repo.search("science", limit=10) == [book]
+
+
+def test_search_returns_empty_list_when_nothing_matches() -> None:
+    repo = InMemoryBookRepository()
+    repo.add(_make_search_book("Dune", "Frank Herbert", "Science Fiction", "0-306-40615-2"))
+
+    assert repo.search("nonexistent", limit=10) == []
+
+
+def test_search_orders_results_by_title_and_respects_limit() -> None:
+    repo = InMemoryBookRepository()
+    zeta = _make_search_book("Zeta Software", "A", "Software Engineering", "978-3-16-148410-0")
+    alpha = _make_search_book("Alpha Software", "B", "Software Engineering", "0-306-40615-2")
+    repo.add(zeta)
+    repo.add(alpha)
+
+    assert repo.search("software", limit=10) == [alpha, zeta]
+    assert repo.search("software", limit=1) == [alpha]

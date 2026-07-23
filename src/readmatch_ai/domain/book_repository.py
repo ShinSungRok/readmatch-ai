@@ -41,3 +41,14 @@ class BookRepository(ABC):
     @abstractmethod
     def remove(self, book_id: BookId) -> None:
         """Remove an existing Book; raises BookNotFoundError if it does not exist."""
+
+    @abstractmethod
+    def search(self, query: str, limit: int) -> list[Book]:
+        """Case-insensitive partial match across title, author, and category.
+
+        Callers (SearchBooksUseCase) are responsible for trimming and
+        rejecting a blank query before calling this -- every implementation
+        may assume `query` is already non-empty. Ordered by title for a
+        stable, deterministic result (no relevance scoring); `limit` bounds
+        the result count.
+        """

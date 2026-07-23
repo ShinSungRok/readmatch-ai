@@ -142,6 +142,20 @@ class HomeFeedResponse(BaseModel):
         )
 
 
+class BookSearchResponse(BaseModel):
+    """API representation of GET /books/search: presentation-ready matches.
+
+    `items=[]` for a blank query or a query with no matches -- a valid,
+    safe response, never an error.
+    """
+
+    items: list[BookPresentationResponse]
+
+    @classmethod
+    def from_domain(cls, presentations: list[BookPresentation]) -> BookSearchResponse:
+        return cls(items=[BookPresentationResponse.from_domain(p) for p in presentations])
+
+
 class BookDetailResponse(BaseModel):
     """API representation of a BookDetail (Sprint 43): a book plus its similar books."""
 

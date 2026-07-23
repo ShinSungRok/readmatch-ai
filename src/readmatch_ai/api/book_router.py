@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from readmatch_ai.api.dependencies import get_application_context
-from readmatch_ai.api.schemas import BookDetailResponse
+from readmatch_ai.api.schemas import BookDetailResponse, BookSearchResponse
 from readmatch_ai.application_context import ApplicationContext
 
 router = APIRouter(prefix="/books", tags=["books"])
@@ -14,6 +14,33 @@ _ApplicationContextDependency = Annotated[ApplicationContext, Depends(get_applic
 _LimitQuery = Annotated[
     int, Query(gt=0, le=100, description="Maximum similar books to return.")
 ]
+_SearchLimitQuery = Annotated[
+    int, Query(gt=0, le=100, description="Maximum search results to return.")
+]
+
+
+# Registered before "/{book_id}": Starlette matches path operations in
+# registration order, so "/search" must come first or a search request
+# would instead match "/{book_id}" with book_id="search".
+@router.get(
+    "/search",
+    response_model=BookSearchResponse,
+    summary="Search books",
+    description=(
+        "Case-insensitive partial-match search across title, author, and "
+        "category, reusing the existing presentation/metadata pipeline. A "
+        "blank or missing `q` (after trimming) returns an empty result "
+        "(`items: []`), never an error. Results are ordered by title "
+        "(no relevance scoring)."
+    ),
+)
+def search_books(
+    context: _ApplicationContextDependency,
+    q: str = Query("", description="Search text (title, author, or category)."),
+    limit: _SearchLimitQuery = 20,
+) -> BookSearchResponse:
+    results = context.search_books_use_case.execute(q, limit=limit)
+    return BookSearchResponse.from_domain(results)
 
 
 @router.get(

@@ -104,6 +104,21 @@ class PostgreSQLBookRepository(BookRepository):
             raise BookNotFoundError(f"Book not found: {book_id}")
         self._connection.commit()
 
+    def search(self, query: str, limit: int) -> list[Book]:
+        # ILIKE is PostgreSQL's case-insensitive LIKE; the query itself is
+        # always passed as a bound parameter (never string-concatenated
+        # into the SQL text), so this is not vulnerable to SQL injection.
+        pattern = f"%{query}%"
+        with self._connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_SELECT_COLUMNS} FROM books "
+                "WHERE title ILIKE %s OR author ILIKE %s OR category ILIKE %s "
+                "ORDER BY title LIMIT %s",
+                (pattern, pattern, pattern, limit),
+            )
+            rows = cursor.fetchall()
+        return [self._row_to_book(row) for row in rows]
+
     @staticmethod
     def _row_to_book(row: tuple[Any, ...]) -> Book:
         id_value, isbn_value, title_value, author_value, category_value = row

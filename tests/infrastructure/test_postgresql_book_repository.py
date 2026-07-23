@@ -164,3 +164,57 @@ def test_update_keeping_own_isbn_does_not_raise(repository: PostgreSQLBookReposi
     stored = repository.get_by_id(book.id)
     assert stored is not None
     assert stored.title.value == "Retitled"
+
+
+def _make_search_book(title: str, author: str, category: str, isbn: str) -> Book:
+    return Book(
+        id=BookId.generate(),
+        isbn=ISBN(isbn),
+        title=Title(title),
+        author=Author(author),
+        category=Category(category),
+    )
+
+
+def test_search_matches_title_case_insensitively(repository: PostgreSQLBookRepository) -> None:
+    book = _make_search_book(
+        "The Pragmatic Programmer", "Andrew Hunt", "Software Engineering",
+        "978-3-16-148410-0",
+    )
+    repository.add(book)
+
+    assert repository.search("PRAGMATIC", limit=10) == [book]
+
+
+def test_search_matches_author(repository: PostgreSQLBookRepository) -> None:
+    book = _make_search_book("Dune", "Frank Herbert", "Science Fiction", "0-306-40615-2")
+    repository.add(book)
+
+    assert repository.search("herbert", limit=10) == [book]
+
+
+def test_search_matches_category(repository: PostgreSQLBookRepository) -> None:
+    book = _make_search_book("Dune", "Frank Herbert", "Science Fiction", "0-306-40615-2")
+    repository.add(book)
+
+    assert repository.search("science", limit=10) == [book]
+
+
+def test_search_returns_empty_list_when_nothing_matches(
+    repository: PostgreSQLBookRepository,
+) -> None:
+    repository.add(_make_search_book("Dune", "Frank Herbert", "Science Fiction", "0-306-40615-2"))
+
+    assert repository.search("nonexistent", limit=10) == []
+
+
+def test_search_orders_results_by_title_and_respects_limit(
+    repository: PostgreSQLBookRepository,
+) -> None:
+    zeta = _make_search_book("Zeta Software", "A", "Software Engineering", "978-3-16-148410-0")
+    alpha = _make_search_book("Alpha Software", "B", "Software Engineering", "0-306-40615-2")
+    repository.add(zeta)
+    repository.add(alpha)
+
+    assert repository.search("software", limit=10) == [alpha, zeta]
+    assert repository.search("software", limit=1) == [alpha]

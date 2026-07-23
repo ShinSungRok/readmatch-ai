@@ -122,3 +122,116 @@ def test_book_detail_rejects_non_positive_limit(
     response = client.get(f"/books/{book.id.value}", params={"limit": 0})
 
     assert response.status_code == 422
+
+
+def test_search_matches_title(client: TestClient, application_context: ApplicationContext) -> None:
+    application_context.register_book_use_case.execute(
+        RegisterBookInput("978-3-16-148410-0", "Clean Code", "Robert C. Martin", "Software")
+    )
+
+    response = client.get("/books/search", params={"q": "clean"})
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["title"] == "Clean Code"
+
+
+def test_search_matches_author_and_category(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    application_context.register_book_use_case.execute(
+        RegisterBookInput("0-306-40615-2", "Dune", "Frank Herbert", "Science Fiction")
+    )
+
+    by_author = client.get("/books/search", params={"q": "herbert"})
+    by_category = client.get("/books/search", params={"q": "science fiction"})
+
+    assert by_author.status_code == 200
+    assert len(by_author.json()["items"]) == 1
+    assert by_category.status_code == 200
+    assert len(by_category.json()["items"]) == 1
+
+
+def test_search_includes_presentation_metadata(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    book = application_context.register_book_use_case.execute(
+        RegisterBookInput("978-3-16-148410-0", "Clean Code", "Robert C. Martin", "Software")
+    )
+    application_context.book_metadata_repository.record(
+        BookMetadata(book_id=book.id, publisher="Prentice Hall", cover_url="https://example.test/c.jpg")
+    )
+
+    response = client.get("/books/search", params={"q": "clean"})
+
+    item = response.json()["items"][0]
+    assert item["publisher"] == "Prentice Hall"
+    assert item["cover_url"] == "https://example.test/c.jpg"
+
+
+def test_search_returns_empty_items_for_blank_query(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    application_context.register_book_use_case.execute(
+        RegisterBookInput("978-3-16-148410-0", "Clean Code", "Robert C. Martin", "Software")
+    )
+
+    missing_q = client.get("/books/search")
+    blank_q = client.get("/books/search", params={"q": "   "})
+
+    assert missing_q.status_code == 200
+    assert missing_q.json()["items"] == []
+    assert blank_q.status_code == 200
+    assert blank_q.json()["items"] == []
+
+
+def test_search_returns_empty_items_when_nothing_matches(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    application_context.register_book_use_case.execute(
+        RegisterBookInput("978-3-16-148410-0", "Clean Code", "Robert C. Martin", "Software")
+    )
+
+    response = client.get("/books/search", params={"q": "nonexistent"})
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_search_respects_the_limit_parameter(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    for i, isbn in enumerate(
+        ["978-3-16-148410-0", "0-306-40615-2", "9780132350884"]
+    ):
+        application_context.register_book_use_case.execute(
+            RegisterBookInput(isbn, f"Software Book {i}", "Author", "Software")
+        )
+
+    response = client.get("/books/search", params={"q": "software", "limit": 2})
+
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 2
+
+
+def test_search_rejects_non_positive_limit(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    response = client.get("/books/search", params={"q": "clean", "limit": 0})
+
+    assert response.status_code == 422
+
+
+def test_search_route_is_not_shadowed_by_the_book_id_route(
+    client: TestClient, application_context: ApplicationContext
+) -> None:
+    """"search" must never be interpreted as a {book_id} path parameter."""
+    application_context.register_book_use_case.execute(
+        RegisterBookInput("978-3-16-148410-0", "Clean Code", "Robert C. Martin", "Software")
+    )
+
+    response = client.get("/books/search", params={"q": "clean"})
+
+    assert response.status_code == 200
+    assert "items" in response.json()

@@ -45,3 +45,15 @@ class InMemoryBookRepository(BookRepository):
         if book_id not in self._books:
             raise BookNotFoundError(f"Book not found: {book_id}")
         del self._books[book_id]
+
+    def search(self, query: str, limit: int) -> list[Book]:
+        normalized = query.casefold()
+        matches = [
+            book
+            for book in self._books.values()
+            if normalized in book.title.value.casefold()
+            or normalized in book.author.value.casefold()
+            or normalized in book.category.value.casefold()
+        ]
+        matches.sort(key=lambda book: book.title.value)
+        return matches[:limit]

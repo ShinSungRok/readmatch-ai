@@ -51,6 +51,9 @@ class _FailingBookRepository(BookRepository):
     def remove(self, book_id: BookId) -> None:
         raise NotImplementedError
 
+    def search(self, query: str, limit: int) -> list[Book]:
+        raise NotImplementedError
+
 
 def _engines() -> dict[str, RecommendationEngine]:
     return {"popularity": _FakeRecommendationEngine()}

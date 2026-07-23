@@ -47,6 +47,7 @@ from readmatch_ai.application.refresh_book_embeddings_use_case import (
     RefreshBookEmbeddingsUseCase,
 )
 from readmatch_ai.application.register_book_use_case import RegisterBookUseCase
+from readmatch_ai.application.search_books_use_case import SearchBooksUseCase
 from readmatch_ai.config import (
     POSTGRESQL_BACKEND,
     RRF_STRATEGY,
@@ -176,6 +177,7 @@ class ApplicationContext:
     get_book_by_id_use_case: GetBookByIdUseCase
     get_book_by_isbn_use_case: GetBookByISBNUseCase
     get_book_presentation_use_case: GetBookPresentationUseCase
+    search_books_use_case: SearchBooksUseCase
     get_home_feed_use_case: GetHomeFeedUseCase
     get_book_detail_use_case: GetBookDetailUseCase
     record_interaction_use_case: RecordInteractionUseCase
@@ -641,6 +643,7 @@ class ApplicationContext:
             get_book_by_id_use_case=GetBookByIdUseCase(repository),
             get_book_by_isbn_use_case=GetBookByISBNUseCase(repository),
             get_book_presentation_use_case=book_presentation_use_case,
+            search_books_use_case=SearchBooksUseCase(repository, book_presentation_use_case),
             get_home_feed_use_case=GetHomeFeedUseCase(
                 popularity_use_case, hybrid_use_case, semantic_use_case, book_presentation_use_case
             ),

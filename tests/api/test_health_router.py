@@ -29,6 +29,9 @@ class _FailingBookRepository(BookRepository):
     def remove(self, book_id: BookId) -> None:
         raise NotImplementedError
 
+    def search(self, query: str, limit: int) -> list[Book]:
+        raise NotImplementedError
+
 
 def test_health_endpoint_reports_a_healthy_application(client: TestClient) -> None:
     response = client.get("/health")

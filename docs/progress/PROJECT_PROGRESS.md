@@ -2658,7 +2658,7 @@ while exercising the real stack.
 - `Header.tsx`: added a working `Search` nav link (`/search`) between
   Home and My Library -- the Sprint 69/70 decision to omit a Search menu
   item was explicitly because no real feature existed yet; now one does.
-- Commit: (recorded after commit — see below)
+- Commit: ae9f31a
 
 ### Task 3 — Runtime Validation and Documentation
 
@@ -2699,7 +2699,7 @@ while exercising the real stack.
   Limitations bullet, which said "no Search feature" as of Sprint 70 --
   now accurately describes what Search actually is/isn't (no relevance
   ranking/autocomplete/history/filters).
-- Commit: (recorded after commit — see below)
+- Commit: ae9f31a
 
 ### Validation
 

@@ -2879,6 +2879,7 @@ while exercising the real stack.
   live ALS retraining, no login/User entity/session, no new recommendation
   endpoint, algorithm, or ranking policy — the entire fix is "call the
   endpoint that already existed and already worked."
+- Commit: 392091a
 
 ### Task 3 — Runtime Validation and Documentation
 
@@ -2941,6 +2942,7 @@ while exercising the real stack.
   RELEASE_CANDIDATE.md`'s Manual Demo Walkthrough. No existing Known
   Limitations entry needed a correction — the ALS/novelty/in-memory-store
   limitation Task 1 re-confirmed was already accurately documented there.
+- Commit: a7d3416
 
 ### Validation
 

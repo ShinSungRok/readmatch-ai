@@ -4,15 +4,9 @@ services:
     env_file:
       - .env
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # The official Postgres image runs every *.sql file here, in
-      # alphabetical order, exactly once -- the first time this volume is
-      # initialized (never again on a subsequent `docker compose up`,
-      # since by then the data directory already exists). The migrations/
-      # directory's own 0001-0010 naming already sorts correctly this way
-      # -- no separate migration-runner tool needed.
       - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-readmatch}"]
@@ -27,14 +21,26 @@ services:
     env_file:
       - .env
     environment:
-      - PYTHONUNBUFFERED=1
+      PYTHONUNBUFFERED: "1"
     volumes:
       - ./src:/app/src:ro
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
 
   frontend:
     build:
@@ -45,12 +51,10 @@ services:
     volumes:
       - ./frontend/src:/app/src:ro
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3001}:3000"
     depends_on:
       backend:
         condition: service_healthy
 
 volumes:
-  # Named volume: Postgres data survives `docker compose down` (and a
-  # host reboot) -- only `docker compose down -v` removes it.
   postgres_data:

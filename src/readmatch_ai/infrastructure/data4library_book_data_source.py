@@ -16,7 +16,7 @@ from readmatch_ai.domain.book_data_source import (
 
 _API_URL = "http://data4library.kr/api/loanItemSrch"
 _AUTH_KEY_ENV_VAR = "DATA4LIBRARY_AUTH_KEY"
-_REQUEST_TIMEOUT_SECONDS = 10
+_REQUEST_TIMEOUT_SECONDS = 30
 _DEFAULT_PAGE_SIZE = 200
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_RETRY_BACKOFF_SECONDS = 1.0

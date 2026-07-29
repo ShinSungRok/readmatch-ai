@@ -337,18 +337,76 @@ individually swappable `RerankingPolicy` implementations — reordering, adding,
 or removing policies doesn't require touching `HybridRecommendationEngine` or
 the Application layer:
 
-- `PopularityPenaltyPolicy` — damps over-exposure of already-popular books.
+- `ExplicitFeedbackPolicy` — boosts LIKE/BOOKMARK/RATING≥4 by `+0.15`;
+  **excludes** DISLIKE/READ/RATING≤2 entirely (not a score penalty — the
+  book is removed from the candidate pool outright). Runs first, since it
+  can remove candidates entirely, so every later policy only ever sees
+  books the user hasn't already ruled out.
+- `PopularityPenaltyPolicy` — damps over-exposure of already-popular books
+  (default penalty `0.3`, by loan count).
 - `NoveltyBoostPolicy` — boosts books a given user hasn't already interacted
-  with (a no-op when the query has no `user_id`).
+  with by `+0.1` (a no-op when the query has no `user_id`).
 - `MMRDiversityPolicy` — Maximal Marginal Relevance-style diversification;
-  balances each candidate's relevance against its similarity (by default, a
+  `score = λ·relevance − (1−λ)·similarity` with default `λ = 0.5`, balancing
+  each candidate's relevance equally against its similarity (by default, a
   same-category proxy) to items already selected.
 
 The default composition applied to `ApplicationContext`'s
-`reranked_recommendation_engine` is Popularity Penalty → Novelty Boost → MMR
-Diversity, always truncated back down to the originally requested count. It's
-exposed over REST as `GET /recommendations/personalized/{user_id}` — see the
-API Reference below.
+`reranked_recommendation_engine` is **Explicit Feedback → Popularity Penalty
+→ Novelty Boost → MMR Diversity**, always truncated back down to the
+originally requested count. It's exposed over REST as
+`GET /recommendations/personalized/{user_id}` — see the API Reference below.
+
+#### Signal weights at a glance
+
+| Signal | Condition | Effect | Weight/Constant |
+|--------|-----------|--------|------------------|
+| Onboarding category pick (`category_interest`) | — | **No ranking effect** — display-only, feeds `recent_interests` on `GET /preferences/{user_id}`, never the score or explanation reasons | — |
+| Like | — | Score boost | `+0.15` |
+| Bookmark | — | Score boost | `+0.15` |
+| Rating | `>= 4` | Score boost | `+0.15` |
+| Rating | `== 3` | No effect | — |
+| Rating | `<= 2` | Excluded from results | — |
+| Dislike ("not interested") | — | Excluded from results | — |
+| Read | — | Excluded from results (avoids re-recommending an already-read book) | — |
+| Any book with no recorded interaction | — | Novelty boost | `+0.1` |
+| Popular book (high loan count) | — | Popularity penalty | `0.3` |
+| MMR diversity | — | relevance vs. same-category similarity | `λ = 0.5` |
+| Hybrid fusion (default `weighted` strategy) | — | Popularity/Semantic/ALS combined | `1/3` each |
+
+Like and Bookmark carry the identical weight — there's no priority between
+them. Dislike, Read, and Rating ≤ 2 are all hard exclusions, not score
+penalties: none of them "outranks" the others, they simply remove the book
+from the result set before any later policy runs. ALS itself never consumes
+LIKE/DISLIKE/BOOKMARK/READ/RATING directly — it trains on a separate
+`UserBookInteraction.interaction_count` signal — so real-time feedback
+reaches the final ranking only through `ExplicitFeedbackPolicy` above, not
+by retraining ALS (see [Future Improvements](#future-improvements)).
+
+```mermaid
+flowchart TD
+    A["User behavior"] --> B1["category_interest\n(onboarding pick)"]
+    A --> B2["LIKE / BOOKMARK\nRATING >= 4"]
+    A --> B3["DISLIKE / READ\nRATING <= 2"]
+
+    B1 -. display only, no ranking effect .-> P["GET /preferences/user_id\n(recent_interests)"]
+
+    C["Hybrid candidate generation\nPopularity 1/3 + Semantic 1/3 + ALS 1/3"] --> D1
+
+    subgraph D["Re-ranking pipeline (applied in order)"]
+        direction TB
+        D1["1. ExplicitFeedbackPolicy\nLike/Bookmark: +0.15\nDislike/Read: excluded"]
+        D2["2. PopularityPenaltyPolicy\nloan-count based penalty (0.3)"]
+        D3["3. NoveltyBoostPolicy\nun-interacted boost (+0.1)"]
+        D4["4. MMRDiversityPolicy\nlambda = 0.5 diversification"]
+        D1 --> D2 --> D3 --> D4
+    end
+
+    B2 --> D1
+    B3 --> D1
+    C --> D1
+    D4 --> E["Final ranked list (limit items)"]
+```
 
 ### Explainable Recommendations
 

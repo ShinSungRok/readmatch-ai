@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Response
 
 from readmatch_ai.api.dependencies import get_application_context
 from readmatch_ai.api.schemas import PreferenceSignalRequest, PreferenceSignalResponse
@@ -41,3 +41,22 @@ def record_preference_signal(
         )
     )
     return PreferenceSignalResponse.from_domain(signal)
+
+
+@router.delete(
+    "",
+    status_code=204,
+    summary="Clear every previously recorded signal of one type for a user",
+    description=(
+        "Removes every `category_interest` or `search` signal recorded for a user (e.g. "
+        "resetting onboarding category choices). A no-op (still 204) if none were recorded. "
+        "400 for a malformed user id or an unknown signal type."
+    ),
+)
+def clear_preference_signal(
+    context: _ApplicationContextDependency,
+    user_id: Annotated[str, Query()],
+    signal_type: Annotated[str, Query()],
+) -> Response:
+    context.clear_preference_signal_use_case.execute(user_id, signal_type)
+    return Response(status_code=204)

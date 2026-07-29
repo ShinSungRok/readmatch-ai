@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from readmatch_ai.domain.preference_signal import UserPreferenceSignal
+from readmatch_ai.domain.preference_signal import PreferenceSignalType, UserPreferenceSignal
 from readmatch_ai.domain.preference_signal_repository import PreferenceSignalRepository
 from readmatch_ai.domain.user import UserId
 
@@ -21,3 +21,10 @@ class InMemoryPreferenceSignalRepository(PreferenceSignalRepository):
 
     def list_by_user(self, user_id: UserId) -> list[UserPreferenceSignal]:
         return [signal for signal in self._signals if signal.user_id == user_id]
+
+    def clear(self, user_id: UserId, signal_type: PreferenceSignalType) -> None:
+        self._signals = [
+            signal
+            for signal in self._signals
+            if not (signal.user_id == user_id and signal.signal_type == signal_type)
+        ]

@@ -40,3 +40,46 @@ def test_list_by_user_returns_empty_for_a_user_with_no_signals() -> None:
     repository = InMemoryPreferenceSignalRepository()
 
     assert repository.list_by_user(UserId.generate()) == []
+
+
+def test_clear_removes_every_signal_of_the_given_type() -> None:
+    repository = InMemoryPreferenceSignalRepository()
+    user_id = UserId.generate()
+    repository.record(
+        UserPreferenceSignal(user_id, PreferenceSignalType.CATEGORY_INTEREST, "Fiction")
+    )
+    repository.record(
+        UserPreferenceSignal(user_id, PreferenceSignalType.CATEGORY_INTEREST, "History")
+    )
+
+    repository.clear(user_id, PreferenceSignalType.CATEGORY_INTEREST)
+
+    assert repository.list_by_user(user_id) == []
+
+
+def test_clear_is_a_no_op_when_nothing_was_recorded() -> None:
+    repository = InMemoryPreferenceSignalRepository()
+    user_id = UserId.generate()
+
+    repository.clear(user_id, PreferenceSignalType.CATEGORY_INTEREST)
+
+    assert repository.list_by_user(user_id) == []
+
+
+def test_clear_only_removes_the_targeted_type_and_user() -> None:
+    repository = InMemoryPreferenceSignalRepository()
+    user_id, other_user_id = UserId.generate(), UserId.generate()
+    kept_search = UserPreferenceSignal(user_id, PreferenceSignalType.SEARCH, "query")
+    kept_other_user = UserPreferenceSignal(
+        other_user_id, PreferenceSignalType.CATEGORY_INTEREST, "Fiction"
+    )
+    repository.record(
+        UserPreferenceSignal(user_id, PreferenceSignalType.CATEGORY_INTEREST, "Fiction")
+    )
+    repository.record(kept_search)
+    repository.record(kept_other_user)
+
+    repository.clear(user_id, PreferenceSignalType.CATEGORY_INTEREST)
+
+    assert repository.list_by_user(user_id) == [kept_search]
+    assert repository.list_by_user(other_user_id) == [kept_other_user]

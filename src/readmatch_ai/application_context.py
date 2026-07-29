@@ -8,6 +8,9 @@ from readmatch_ai.application.batch_generate_book_embeddings_use_case import (
     BatchGenerateBookEmbeddingsUseCase,
 )
 from readmatch_ai.application.clear_interaction_use_case import ClearInteractionUseCase
+from readmatch_ai.application.clear_preference_signal_use_case import (
+    ClearPreferenceSignalUseCase,
+)
 from readmatch_ai.application.evaluate_recommendation_engine_use_case import (
     EvaluateRecommendationEngineUseCase,
 )
@@ -196,6 +199,7 @@ class ApplicationContext:
     get_user_interactions_use_case: GetUserInteractionsUseCase
     get_personal_library_use_case: GetPersonalLibraryUseCase
     record_preference_signal_use_case: RecordPreferenceSignalUseCase
+    clear_preference_signal_use_case: ClearPreferenceSignalUseCase
     get_user_preference_profile_use_case: GetUserPreferenceProfileUseCase
     get_recommendations_use_case: GetRecommendationsUseCase
     generate_book_embedding_use_case: GenerateBookEmbeddingUseCase
@@ -682,6 +686,7 @@ class ApplicationContext:
                 explicit_interactions, book_presentation_use_case
             ),
             record_preference_signal_use_case=RecordPreferenceSignalUseCase(preference_signals),
+            clear_preference_signal_use_case=ClearPreferenceSignalUseCase(preference_signals),
             get_user_preference_profile_use_case=preference_profile_use_case,
             get_recommendations_use_case=popularity_use_case,
             generate_book_embedding_use_case=GenerateBookEmbeddingUseCase(

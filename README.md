@@ -76,11 +76,10 @@ without browser automation — see
 own Known Limitations) — the walkthroughs below are the actual, runnable
 demo. What each screen does:
 
-- **Home** (`/`) — a live backend-connectivity indicator, a first-visit
-  category-interest onboarding card, a hero for the top pick, a "For You"
-  row personalized from your own activity, and Popularity/Hybrid/Semantic/
-  category recommendation rows — every row backed by a real API call, no
-  client-side mock data.
+- **Home** (`/`) — a first-visit category-interest onboarding card, a hero
+  for the top pick, a "For You" row personalized from your own activity,
+  and Popularity/Hybrid/Semantic/category recommendation rows — every row
+  backed by a real API call, no client-side mock data.
 - **Search** (`/search?q=...`) — case-insensitive title/author/category
   search over the same seeded catalog.
 - **Book Detail** (`/books/{id}`) — full metadata, like/bookmark/read/rate
@@ -660,10 +659,13 @@ demonstrates) reacts live, per request.
 
 Continuing from the same browser session:
 
-1. Refresh `http://localhost:3000` — a first-time browser sees a
-   dismissible **"What are you interested in?"** card. Pick a couple of
-   categories and click "Save preferences" (or "Skip" — either dismisses
-   it for good, via a `localStorage` flag).
+1. Refresh `http://localhost:3000` — a first-time browser sees a category
+   picker card (**"선호하는 카테고리를 선택해 주세요"**). Pick a couple of
+   categories and click "선호도 저장" (or "건너뛰기"/skip — either hides
+   the picker for good, via a `localStorage` flag). After saving, the card
+   switches to a persistent summary of your picks with a "초기화" button
+   that calls `DELETE /preference-signals` to actually clear them
+   server-side and bring the picker back.
 2. Search for something (Header → Search, or `/search?q=...`), then click
    a result. This records a `search` preference signal plus a
    `search_result_click` and `view` interaction (Book Detail records the
@@ -993,6 +995,19 @@ curl -X POST http://localhost:8000/preference-signals -H "Content-Type: applicat
 
 Returns `201` with the recorded signal, or `400` for a malformed user id,
 an unknown `signal_type`, or a blank `value`.
+
+### `DELETE /preference-signals`
+
+Removes every previously recorded signal of one `signal_type` for a user
+(e.g. resetting onboarding category choices) — query-param scoped, the
+same convention as `DELETE /interactions`.
+
+```bash
+curl -X DELETE "http://localhost:8000/preference-signals?user_id=<uuid>&signal_type=category_interest"
+```
+
+Returns `204` (also `204` if nothing was recorded — idempotent), or `400`
+for a malformed user id or an unknown `signal_type`.
 
 ### `GET /preferences/{user_id}`
 

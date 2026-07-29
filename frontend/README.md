@@ -60,7 +60,8 @@ npm run build
   - `InteractionProvider` — the anonymous user id + shared interaction
     state (Context), consumed by every book-interaction control.
   - `OnboardingCategoryPicker` — first-visit category-interest onboarding
-    card (`POST /preference-signals`).
+    card; saved picks show as a persistent summary with a reset button
+    (`POST`/`DELETE /preference-signals`).
   - `RecordBookView` — records a `view` interaction on Book Detail mount.
   - `LoadingState`/`ErrorState`/`EmptyState` — the reusable state
     primitives used across every page.

@@ -33,11 +33,11 @@ noted, using your browser's built-in full-page screenshot capability
 DevTools: Cmd/Ctrl+Shift+P → "Capture full size screenshot").
 
 1. **`home-onboarding.png`** — `http://localhost:3000/`, fresh session,
-   before dismissing the onboarding card. Shows the "Backend connected"
-   indicator, the "What are you interested in?" category picker, and the
-   Hero below it.
+   before dismissing the onboarding card. Shows the "선호하는 카테고리를
+   선택해 주세요" category picker and the Hero below it.
 2. **`home-personalized.png`** — same session, after picking 2-3
-   categories and clicking "Save preferences", then liking/bookmarking a
+   categories and clicking "선호도 저장" (the card switches to a summary
+   of your picks with a "초기화" button), then liking/bookmarking a
    book from the Hero or a recommendation row. Scroll so the **"For You"**
    row (with its real evidence-based reason chips — not the "Not enough
    activity yet" cold-start note) is in frame, alongside at least one

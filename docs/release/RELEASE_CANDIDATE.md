@@ -236,8 +236,8 @@ subsection for the full walkthrough.
   `migrations/0*.sql` glob shown above (not `migrations/000*.sql`, which
   silently excludes `0010_create_book_metadata_table.sql` and anything
   `0010` or later).
-- Home page shows "Backend unavailable" (red indicator): the backend
-  isn't reachable at `NEXT_PUBLIC_API_BASE_URL` (default
+- Home page fails to render (Next.js error overlay) instead of loading:
+  the backend isn't reachable at `NEXT_PUBLIC_API_BASE_URL` (default
   `http://localhost:8000`) — confirm `uvicorn`/`docker compose` is
   actually running and `GET http://localhost:8000/readiness` returns
   `ready: true`.

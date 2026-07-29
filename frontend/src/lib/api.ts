@@ -241,6 +241,30 @@ export function recordPreferenceSignal(
 }
 
 /**
+ * DELETE /preference-signals -- see readmatch_ai.api.preference_signal_router.
+ *
+ * Removes every previously recorded signal of one type for a user (e.g.
+ * resetting onboarding category choices). A no-op if none were recorded --
+ * safe to call repeatedly.
+ */
+export async function clearPreferenceSignal(
+  userId: string,
+  signalType: PreferenceSignalType,
+): Promise<void> {
+  const params = new URLSearchParams({ user_id: userId, signal_type: signalType });
+  const response = await fetch(`${getApiBaseUrl()}/preference-signals?${params}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      `DELETE /preference-signals responded with HTTP ${response.status}`,
+    );
+  }
+}
+
+/**
  * POST /interactions -- see readmatch_ai.api.interaction_router.
  *
  * Recording a state-like interaction (everything but `click`) again for

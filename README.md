@@ -69,26 +69,33 @@ through the personalization loop specifically.
 
 ## Demo
 
-No static screenshots/GIFs are included in this repository (this is a
-backend-first portfolio project, developed and validated in an environment
-without browser automation — see
-[`docs/release/RELEASE_CANDIDATE.md`](docs/release/RELEASE_CANDIDATE.md)'s
-own Known Limitations) — the walkthroughs below are the actual, runnable
-demo. What each screen does:
+Real screens from a running instance — every row/section shown is backed by
+a real API call, no client-side mock data. What each screen does:
 
 - **Home** (`/`) — a first-visit category-interest onboarding card, a hero
   for the top pick, a "For You" row personalized from your own activity,
-  and Popularity/Hybrid/Semantic/category recommendation rows — every row
-  backed by a real API call, no client-side mock data.
+  and Popularity/Hybrid/Semantic/category recommendation rows.
+
+  ![Home with the category-interest onboarding card](docs/demo/screenshots/home-onboarding.png)
+  ![Home after saving preferences, with the summary/reset card](docs/demo/screenshots/home-personalized.png)
+
 - **Search** (`/search?q=...`) — case-insensitive title/author/category
   search over the same seeded catalog.
+
+  ![Search results](docs/demo/screenshots/search-results.png)
+
 - **Book Detail** (`/books/{id}`) — full metadata, like/bookmark/read/rate
   controls, and a "Similar books" row (semantic similarity to that book).
+
+  ![Book detail with a Similar books row](docs/demo/screenshots/book-detail.png)
+
 - **My Library** (`/library`) — every book you've liked/bookmarked/read/
   rated/disliked, grouped by type.
 - **My Preferences** (`/preferences`) — your own aggregated preference
   profile: favorite categories/authors, recent interests, recent searches,
   and like/dislike counts.
+
+  ![My Preferences populated from real activity](docs/demo/screenshots/my-preferences.png)
 
 Run it yourself: [Quick Start](#quick-start) below, or the guided
 walkthroughs in [Try personalization](#try-personalization) and
@@ -96,7 +103,8 @@ walkthroughs in [Try personalization](#try-personalization) and
 complete Guest → category interest → search → view → like/save →
 recommendation change → reason → My Preferences scenario), or the fuller
 [Manual Demo Walkthrough](docs/release/RELEASE_CANDIDATE.md#manual-demo-walkthrough).
-Screenshot/GIF capture steps for these five screens are documented in
+Screenshot/GIF capture steps (including an optional personalization-loop
+GIF, not yet captured) are documented in
 [`docs/demo/DEMO_ASSETS_GUIDE.md`](docs/demo/DEMO_ASSETS_GUIDE.md).
 
 ### Status note
